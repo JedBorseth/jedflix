@@ -1,6 +1,17 @@
-import type { Doc } from "../../convex/_generated/dataModel";
+export type MediaType = "movie" | "tv";
 
-export type Movie = Doc<"movies">;
+export type MediaItem = {
+  id: number;
+  mediaType: MediaType;
+  title: string;
+  description: string;
+  posterUrl: string;
+  backdropUrl: string;
+  year: number | null;
+  rating: string;
+  genre?: string;
+  durationMinutes?: number;
+};
 
 export function formatDuration(minutes: number): string {
   const hours = Math.floor(minutes / 60);

@@ -1,45 +1,45 @@
 import { useEffect, useState } from "react";
 import { MovieCard } from "./MovieCard";
 import type { MediaItem, MediaType } from "@/lib/types";
-import { discoverMedia } from "@/lib/tmdb";
+import { getSimilarMedia } from "@/lib/tmdb";
 
-type MovieRowProps = {
-  title: string;
+type SimilarTitlesRowProps = {
   mediaType: MediaType;
-  genreId?: number;
+  mediaId: number;
 };
 
-export function MovieRow({ title, mediaType, genreId }: MovieRowProps) {
-  const [movies, setMovies] = useState<MediaItem[]>();
+export function SimilarTitlesRow({ mediaType, mediaId }: SimilarTitlesRowProps) {
+  const [titles, setTitles] = useState<MediaItem[]>();
   const [error, setError] = useState<string | null>(null);
+  const rowTitle = mediaType === "movie" ? "More Like This" : "Similar Shows";
 
   useEffect(() => {
     let cancelled = false;
-    setMovies(undefined);
+    setTitles(undefined);
     setError(null);
 
-    discoverMedia(mediaType, { genreId })
+    getSimilarMedia(mediaType, mediaId)
       .then((items) => {
         if (!cancelled) {
-          setMovies(items);
+          setTitles(items);
         }
       })
       .catch((cause: unknown) => {
         if (!cancelled) {
-          setError(cause instanceof Error ? cause.message : "Unable to load titles");
-          setMovies([]);
+          setError(cause instanceof Error ? cause.message : "Unable to load suggestions");
+          setTitles([]);
         }
       });
 
     return () => {
       cancelled = true;
     };
-  }, [genreId, mediaType]);
+  }, [mediaId, mediaType]);
 
-  if (movies === undefined) {
+  if (titles === undefined) {
     return (
       <section className="mb-8 px-4 md:px-12">
-        <h2 className="mb-3 text-lg font-semibold text-white md:text-xl">{title}</h2>
+        <h2 className="mb-3 text-lg font-semibold text-white md:text-xl">{rowTitle}</h2>
         <div className="flex gap-3">
           {Array.from({ length: 6 }).map((_, index) => (
             <div
@@ -53,23 +53,18 @@ export function MovieRow({ title, mediaType, genreId }: MovieRowProps) {
   }
 
   if (error) {
-    return (
-      <section className="mb-8 px-4 md:px-12">
-        <h2 className="mb-3 text-lg font-semibold text-white md:text-xl">{title}</h2>
-        <p className="text-sm text-zinc-500">{error}</p>
-      </section>
-    );
+    return null;
   }
 
-  if (movies.length === 0) {
+  if (titles.length === 0) {
     return null;
   }
 
   return (
     <section className="mb-8 px-4 md:px-12">
-      <h2 className="mb-3 text-lg font-semibold text-white md:text-xl">{title}</h2>
+      <h2 className="mb-3 text-lg font-semibold text-white md:text-xl">{rowTitle}</h2>
       <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2 scrollbar-hide">
-        {movies.map((movie) => (
+        {titles.map((movie) => (
           <MovieCard key={`${movie.mediaType}-${movie.id}`} movie={movie} />
         ))}
       </div>

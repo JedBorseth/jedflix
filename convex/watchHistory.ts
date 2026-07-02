@@ -13,20 +13,16 @@ export const getForUser = query({
     const history = await ctx.db
       .query("watchHistory")
       .withIndex("by_user", (q) => q.eq("userId", userId))
-      .collect();
+      .take(50);
 
-    return await Promise.all(
-      history.map(async (entry) => {
-        const movie = await ctx.db.get(entry.movieId);
-        return movie ? { ...entry, movie } : null;
-      }),
-    ).then((entries) => entries.filter((entry) => entry !== null));
+    return history.sort((a, b) => b.lastWatchedAt - a.lastWatchedAt);
   },
 });
 
 export const upsertProgress = mutation({
   args: {
-    movieId: v.id("movies"),
+    movieId: v.number(),
+    mediaType: v.union(v.literal("movie"), v.literal("tv")),
     progressSeconds: v.number(),
   },
   handler: async (ctx, args) => {
@@ -37,8 +33,8 @@ export const upsertProgress = mutation({
 
     const existing = await ctx.db
       .query("watchHistory")
-      .withIndex("by_user_movie", (q) =>
-        q.eq("userId", userId).eq("movieId", args.movieId),
+      .withIndex("by_user_and_media_type_and_movie_id", (q) =>
+        q.eq("userId", userId).eq("mediaType", args.mediaType).eq("movieId", args.movieId),
       )
       .unique();
 
@@ -55,6 +51,7 @@ export const upsertProgress = mutation({
     return await ctx.db.insert("watchHistory", {
       userId,
       movieId: args.movieId,
+      mediaType: args.mediaType,
       progressSeconds: args.progressSeconds,
       lastWatchedAt,
     });

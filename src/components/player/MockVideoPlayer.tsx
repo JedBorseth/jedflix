@@ -3,17 +3,19 @@ import { Link } from "react-router-dom";
 import { useMutation } from "convex/react";
 import { Authenticated } from "convex/react";
 import { api } from "../../../convex/_generated/api";
-import type { Id } from "../../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
+import type { MediaType } from "@/lib/types";
 
 type MockVideoPlayerProps = {
-  movieId: Id<"movies">;
+  movieId: number;
+  mediaType: MediaType;
   title: string;
   durationMinutes: number;
 };
 
 export function MockVideoPlayer({
   movieId,
+  mediaType,
   title,
   durationMinutes,
 }: MockVideoPlayerProps) {
@@ -41,17 +43,19 @@ export function MockVideoPlayer({
 
   useEffect(() => {
     if (progressSeconds > 0 && progressSeconds % 10 === 0) {
-      void upsertProgress({ movieId, progressSeconds }).catch(() => {
+      void upsertProgress({ movieId, mediaType, progressSeconds }).catch(() => {
         // Progress saving requires auth; ignore for guests.
       });
     }
-  }, [movieId, progressSeconds, upsertProgress]);
+  }, [mediaType, movieId, progressSeconds, upsertProgress]);
 
   return (
     <div className="relative flex min-h-screen flex-col bg-black text-white">
       <div className="absolute left-4 top-4 z-10 flex items-center gap-3">
         <Button asChild variant="ghost" className="text-white hover:bg-white/10">
-          <Link to={`/movie/${movieId}`}>&larr; Back</Link>
+          <Link to={mediaType === "movie" ? `/movie/${movieId}` : `/show/${movieId}`}>
+            &larr; Back
+          </Link>
         </Button>
         <span className="text-sm text-zinc-400">Demo playback</span>
       </div>

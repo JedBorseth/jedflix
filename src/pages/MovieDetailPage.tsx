@@ -1,19 +1,64 @@
-import { Link, useParams } from "react-router-dom";
-import { useQuery } from "convex/react";
-import { api } from "../../convex/_generated/api";
-import type { Id } from "../../convex/_generated/dataModel";
+import { useEffect, useState } from "react";
+import { Link, useLocation, useParams } from "react-router-dom";
 import { Navbar } from "@/components/layout/Navbar";
 import { Button } from "@/components/ui/button";
+import type { MediaItem, MediaType } from "@/lib/types";
 import { formatDuration } from "@/lib/types";
+import { getMediaDetails } from "@/lib/tmdb";
+import {
+  getDetailPosterTransitionStyle,
+  getMediaNavigationState,
+} from "@/lib/posterTransition";
+import { SimilarTitlesRow } from "@/components/browse/SimilarTitlesRow";
 
-export function MovieDetailPage() {
-  const { movieId } = useParams<{ movieId: string }>();
-  const movie = useQuery(
-    api.movies.getById,
-    movieId ? { movieId: movieId as Id<"movies"> } : "skip",
-  );
+type MovieDetailPageProps = {
+  mediaType: MediaType;
+};
 
-  if (movie === undefined) {
+export function MovieDetailPage({ mediaType }: MovieDetailPageProps) {
+  const { mediaId } = useParams<{ mediaId: string }>();
+  const location = useLocation();
+  const parsedMediaId = Number(mediaId);
+  const previewState =
+    Number.isFinite(parsedMediaId)
+      ? getMediaNavigationState(location.state, mediaType, parsedMediaId)
+      : null;
+  const preview = previewState?.preview;
+
+  const [movie, setMovie] = useState<MediaItem | null>();
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!Number.isFinite(parsedMediaId)) {
+      setMovie(null);
+      return;
+    }
+
+    let cancelled = false;
+    setMovie(undefined);
+    setError(null);
+
+    getMediaDetails(mediaType, parsedMediaId)
+      .then((item) => {
+        if (!cancelled) {
+          setMovie(item);
+        }
+      })
+      .catch((cause: unknown) => {
+        if (!cancelled) {
+          setError(cause instanceof Error ? cause.message : "Unable to load title");
+          setMovie(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mediaType, parsedMediaId]);
+
+  const displayMovie = movie ?? preview ?? null;
+
+  if (movie === undefined && !preview) {
     return (
       <div className="min-h-screen bg-zinc-950 text-white">
         <Navbar />
@@ -24,14 +69,16 @@ export function MovieDetailPage() {
     );
   }
 
-  if (movie === null) {
+  if (displayMovie === null) {
     return (
       <div className="min-h-screen bg-zinc-950 text-white">
         <Navbar />
         <div className="flex h-[60vh] flex-col items-center justify-center gap-4">
-          <p className="text-zinc-400">Movie not found.</p>
+          <p className="text-zinc-400">{error ?? "Title not found."}</p>
           <Button asChild variant="outline">
-            <Link to="/">Back to browse</Link>
+            <Link to="/" viewTransition>
+              Back to browse
+            </Link>
           </Button>
         </div>
       </div>
@@ -43,7 +90,7 @@ export function MovieDetailPage() {
       <Navbar />
       <section className="relative min-h-[60vh]">
         <img
-          src={movie.backdropUrl}
+          src={displayMovie.backdropUrl}
           alt=""
           className="absolute inset-0 h-full w-full object-cover"
         />
@@ -51,30 +98,39 @@ export function MovieDetailPage() {
 
         <div className="relative z-10 mx-auto flex max-w-6xl flex-col gap-8 px-4 pb-16 pt-28 md:flex-row md:px-12">
           <img
-            src={movie.posterUrl}
-            alt={movie.title}
+            src={displayMovie.posterUrl}
+            alt={displayMovie.title}
             className="mx-auto w-56 shrink-0 rounded-md shadow-2xl md:mx-0 md:w-64"
+            style={getDetailPosterTransitionStyle(Boolean(preview))}
           />
           <div className="flex flex-col justify-end">
-            <h1 className="mb-4 text-4xl font-bold md:text-5xl">{movie.title}</h1>
+            <h1 className="mb-4 text-4xl font-bold md:text-5xl">{displayMovie.title}</h1>
             <div className="mb-4 flex flex-wrap gap-3 text-sm text-zinc-300">
-              <span>{movie.year}</span>
-              <span>{movie.rating}</span>
-              <span>{formatDuration(movie.durationMinutes)}</span>
-              <span>{movie.genre}</span>
+              {displayMovie.year ? <span>{displayMovie.year}</span> : null}
+              <span>{displayMovie.rating}</span>
+              {displayMovie.durationMinutes ? (
+                <span>{formatDuration(displayMovie.durationMinutes)}</span>
+              ) : null}
+              {displayMovie.genre ? <span>{displayMovie.genre}</span> : null}
             </div>
-            <p className="mb-8 max-w-2xl text-zinc-200">{movie.description}</p>
+            <p className="mb-8 max-w-2xl text-zinc-200">
+              {movie?.description ?? displayMovie.description}
+            </p>
             <div className="flex flex-wrap gap-3">
               <Button asChild size="lg" className="bg-white text-black hover:bg-zinc-200">
-                <Link to={`/watch/${movie._id}`}>Play</Link>
+                <Link to={`/watch/${displayMovie.mediaType}/${displayMovie.id}`}>Play</Link>
               </Button>
               <Button asChild size="lg" variant="outline" className="border-zinc-600">
-                <Link to="/">Back to browse</Link>
+                <Link to="/" viewTransition>
+                  Back to browse
+                </Link>
               </Button>
             </div>
           </div>
         </div>
       </section>
+
+      <SimilarTitlesRow mediaType={displayMovie.mediaType} mediaId={displayMovie.id} />
     </div>
   );
 }

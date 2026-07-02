@@ -13,7 +13,8 @@ test("MockVideoPlayer shows demo playback label", () => {
   render(
     <MemoryRouter>
       <MockVideoPlayer
-        movieId={"movie123" as never}
+        movieId={123}
+        mediaType="movie"
         title="Neon Horizon"
         durationMinutes={128}
       />

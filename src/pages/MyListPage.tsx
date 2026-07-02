@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
@@ -5,9 +6,41 @@ import { Navbar } from "@/components/layout/Navbar";
 import { MovieCard } from "@/components/browse/MovieCard";
 import { Button } from "@/components/ui/button";
 import { Authenticated, Unauthenticated } from "convex/react";
+import type { MediaItem } from "@/lib/types";
+import { getMediaDetailsByIds } from "@/lib/tmdb";
 
 export function MyListPage() {
   const history = useQuery(api.watchHistory.getForUser);
+  const [movies, setMovies] = useState<MediaItem[]>();
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!history) {
+      setMovies(undefined);
+      return;
+    }
+
+    let cancelled = false;
+    setMovies(undefined);
+    setError(null);
+
+    getMediaDetailsByIds(history)
+      .then((items) => {
+        if (!cancelled) {
+          setMovies(items);
+        }
+      })
+      .catch((cause: unknown) => {
+        if (!cancelled) {
+          setError(cause instanceof Error ? cause.message : "Unable to load your titles");
+          setMovies([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [history]);
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
@@ -36,10 +69,14 @@ export function MyListPage() {
                 <Link to="/">Browse movies</Link>
               </Button>
             </div>
+          ) : error ? (
+            <p className="text-zinc-400">{error}</p>
+          ) : movies === undefined ? (
+            <p className="text-zinc-400">Loading your titles...</p>
           ) : (
             <div className="flex flex-wrap gap-4">
-              {history.map((entry) => (
-                <MovieCard key={entry._id} movie={entry.movie} />
+              {movies.map((movie) => (
+                <MovieCard key={`${movie.mediaType}-${movie.id}`} movie={movie} />
               ))}
             </div>
           )}

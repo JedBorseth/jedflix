@@ -1,10 +1,11 @@
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import type { Movie } from "@/lib/types";
+import type { MediaItem } from "@/lib/types";
 import { formatDuration } from "@/lib/types";
+import { getMediaDetailPath } from "@/lib/tmdb";
 
 type HeroBannerProps = {
-  movie: Movie;
+  movie: MediaItem;
 };
 
 export function HeroBanner({ movie }: HeroBannerProps) {
@@ -27,14 +28,14 @@ export function HeroBanner({ movie }: HeroBannerProps) {
           {movie.description}
         </p>
         <div className="mb-6 flex flex-wrap gap-3 text-sm text-zinc-300">
-          <span>{movie.year}</span>
+          {movie.year ? <span>{movie.year}</span> : null}
           <span>{movie.rating}</span>
-          <span>{formatDuration(movie.durationMinutes)}</span>
-          <span>{movie.genre}</span>
+          {movie.durationMinutes ? <span>{formatDuration(movie.durationMinutes)}</span> : null}
+          {movie.genre ? <span>{movie.genre}</span> : null}
         </div>
         <div className="flex flex-wrap gap-3">
           <Button asChild size="lg" className="bg-white text-black hover:bg-zinc-200">
-            <Link to={`/watch/${movie._id}`}>Play</Link>
+            <Link to={`/watch/${movie.mediaType}/${movie.id}`}>Play</Link>
           </Button>
           <Button
             asChild
@@ -42,7 +43,9 @@ export function HeroBanner({ movie }: HeroBannerProps) {
             variant="secondary"
             className="bg-zinc-500/40 text-white hover:bg-zinc-500/60"
           >
-            <Link to={`/movie/${movie._id}`}>More Info</Link>
+            <Link to={getMediaDetailPath(movie)} viewTransition state={{ preview: movie }}>
+              More Info
+            </Link>
           </Button>
         </div>
       </div>
