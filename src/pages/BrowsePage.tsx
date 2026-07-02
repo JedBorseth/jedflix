@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
+import { Authenticated } from "convex/react";
 import { HeroBanner } from "@/components/browse/HeroBanner";
 import { MovieRow } from "@/components/browse/MovieRow";
+import { WatchHistoryRow } from "@/components/browse/WatchHistoryRow";
 import { Navbar } from "@/components/layout/Navbar";
 import type { MediaItem, MediaType } from "@/lib/types";
 import { discoverMedia, getTrendingMedia, mediaRows } from "@/lib/tmdb";
@@ -66,6 +68,12 @@ export function BrowsePage({ mediaType = "all" }: BrowsePageProps) {
         <div className="px-4 pb-6 md:px-12">
           <h1 className="sr-only">{pageTitle}</h1>
         </div>
+        {mediaType === "all" ? (
+          <Authenticated>
+            <WatchHistoryRow title="Continue Watching" mode="continue" />
+            <WatchHistoryRow title="Recently Watched" mode="recent" />
+          </Authenticated>
+        ) : null}
         {rows.map((row) => (
           <MovieRow
             key={`${row.title}-${mediaType}`}

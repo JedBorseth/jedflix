@@ -13,7 +13,7 @@ export function MovieCard({ movie }: MovieCardProps) {
   const detailPath = getMediaDetailPath(movie);
 
   function handleClick(_event: MouseEvent<HTMLAnchorElement>) {
-    markPosterTransitionSource(posterRef.current);
+    markPosterTransitionSource(posterRef.current, movie);
   }
 
   return (

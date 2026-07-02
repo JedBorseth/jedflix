@@ -6,7 +6,7 @@ A Netflix-style movie browsing app built with React, TypeScript, Vite, Convex, a
 
 - **Frontend:** React 18, TypeScript, Vite, Tailwind CSS, shadcn/ui, React Router
 - **Backend:** Convex (database, queries, mutations, auth)
-- **Auth:** Convex Auth (email/password)
+- **Auth:** Convex Auth (GitHub and Google OAuth)
 - **Tooling:** Bun (package manager, dev scripts, test runner)
 
 ## Prerequisites
@@ -22,6 +22,23 @@ bun run dev
 ```
 
 The first run will prompt you to log in to Convex and create a deployment. This writes `.env.local` with `VITE_CONVEX_URL`.
+
+Configure OAuth credentials for your Convex deployment:
+
+```bash
+node setup.mjs
+```
+
+Set `SITE_URL` to your frontend origin (for local dev):
+
+```bash
+bunx convex env set SITE_URL http://localhost:5173
+```
+
+OAuth callback URLs use your Convex site URL:
+
+- GitHub: `https://<deployment>.convex.site/api/auth/callback/github`
+- Google: `https://<deployment>.convex.site/api/auth/callback/google`
 
 Seed demo movie data:
 
@@ -43,8 +60,11 @@ bunx convex run seed:seedMovies
 - Netflix-style browse page with hero banner and genre rows
 - Movie detail pages with synopsis and metadata
 - Mock full-screen player (no real video streaming yet)
-- Convex Auth sign-in/sign-up
-- Watch history saved for signed-in users (`My List`)
+- Convex Auth sign-in with GitHub or Google
+- My List for saved titles (signed-in users)
+- Star ratings and public reviews on title pages
+- Continue Watching and Recently Watched rows on the home page
+- Watch progress saved while signed in
 
 ## Project structure
 

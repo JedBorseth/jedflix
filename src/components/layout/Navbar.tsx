@@ -49,6 +49,11 @@ export function Navbar() {
             <Link to="/movies" viewTransition className="transition hover:text-white">
               Movies
             </Link>
+            <Authenticated>
+              <Link to="/my-list" viewTransition className="transition hover:text-white">
+                My List
+              </Link>
+            </Authenticated>
           </div>
         </div>
 

@@ -10,12 +10,12 @@ import type { MediaItem } from "@/lib/types";
 import { getMediaDetailsByIds } from "@/lib/tmdb";
 
 export function MyListPage() {
-  const history = useQuery(api.watchHistory.getForUser);
+  const savedList = useQuery(api.myList.getForUser);
   const [movies, setMovies] = useState<MediaItem[]>();
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!history) {
+    if (!savedList) {
       setMovies(undefined);
       return;
     }
@@ -24,7 +24,7 @@ export function MyListPage() {
     setMovies(undefined);
     setError(null);
 
-    getMediaDetailsByIds(history)
+    getMediaDetailsByIds(savedList)
       .then((items) => {
         if (!cancelled) {
           setMovies(items);
@@ -40,7 +40,7 @@ export function MyListPage() {
     return () => {
       cancelled = true;
     };
-  }, [history]);
+  }, [savedList]);
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
@@ -50,7 +50,7 @@ export function MyListPage() {
 
         <Unauthenticated>
           <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-8 text-center">
-            <p className="mb-4 text-zinc-300">Sign in to see your watch history.</p>
+            <p className="mb-4 text-zinc-300">Sign in to save titles to My List.</p>
             <Button asChild className="bg-red-600 hover:bg-red-700">
               <Link to="/sign-in">Sign In</Link>
             </Button>
@@ -58,15 +58,15 @@ export function MyListPage() {
         </Unauthenticated>
 
         <Authenticated>
-          {history === undefined ? (
+          {savedList === undefined ? (
             <p className="text-zinc-400">Loading your list...</p>
-          ) : history.length === 0 ? (
+          ) : savedList.length === 0 ? (
             <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-8 text-center">
               <p className="mb-4 text-zinc-300">
-                Nothing here yet. Start watching to build your list.
+                Your list is empty. Add titles from any movie or show page.
               </p>
               <Button asChild variant="outline" className="border-zinc-600">
-                <Link to="/">Browse movies</Link>
+                <Link to="/">Browse titles</Link>
               </Button>
             </div>
           ) : error ? (

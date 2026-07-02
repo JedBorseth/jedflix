@@ -30,17 +30,15 @@ const deploymentName =
 
 const variables = JSON.stringify({
   help:
-    "This template includes prebuilt sign-in via GitHub OAuth and " +
-    "magic links via Resend. " +
-    "This command can help you configure the credentials for these services " +
-    "via additional Convex environment variables.",
+    "Configure GitHub and Google OAuth for Convex Auth. " +
+    "Create separate OAuth apps for development and production.",
   providers: [
     {
       name: "GitHub OAuth",
       help:
-        "Create a GitHub OAuth App, follow the instruction here: " +
+        "Create a GitHub OAuth App: " +
         "https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/creating-an-oauth-app\n\n" +
-        `When you're asked for a callback URL use:\n\n` +
+        `Use this callback URL:\n\n` +
         `  https://${deploymentName}.convex.site/api/auth/callback/github`,
       variables: [
         {
@@ -54,12 +52,20 @@ const variables = JSON.stringify({
       ],
     },
     {
-      name: "Resend",
-      help: "Sign up for Resend at https://resend.com/signup. Then create an API Key.",
+      name: "Google OAuth",
+      help:
+        "Create a Google OAuth client: " +
+        "https://labs.convex.dev/auth/config/oauth/google\n\n" +
+        `Use this callback URL:\n\n` +
+        `  https://${deploymentName}.convex.site/api/auth/callback/google`,
       variables: [
         {
-          name: "AUTH_RESEND_KEY",
-          description: "the API Key",
+          name: "AUTH_GOOGLE_ID",
+          description: "the Client ID of your Google OAuth client",
+        },
+        {
+          name: "AUTH_GOOGLE_SECRET",
+          description: "the generated client secret",
         },
       ],
     },
