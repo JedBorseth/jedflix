@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import type { MediaItem } from "@/lib/types";
 import { formatDuration } from "@/lib/types";
-import { getMediaDetailPath } from "@/lib/tmdb";
+import { getMediaDetailPath, getWatchPath } from "@/lib/tmdb";
 
 type HeroBannerProps = {
   movie: MediaItem;
@@ -35,7 +35,15 @@ export function HeroBanner({ movie }: HeroBannerProps) {
         </div>
         <div className="flex flex-wrap gap-3">
           <Button asChild size="lg" className="bg-white text-black hover:bg-zinc-200">
-            <Link to={`/watch/${movie.mediaType}/${movie.id}`}>Play</Link>
+            <Link
+              to={
+                movie.mediaType === "movie"
+                  ? getWatchPath("movie", movie.id)
+                  : getMediaDetailPath(movie)
+              }
+            >
+              Play
+            </Link>
           </Button>
           <Button
             asChild

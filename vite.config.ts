@@ -10,4 +10,13 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  server: {
+    proxy: {
+      "/stream-api": {
+        target: "http://localhost:8080",
+        changeOrigin: true,
+        rewrite: (requestPath) => requestPath.replace(/^\/stream-api/, ""),
+      },
+    },
+  },
 });

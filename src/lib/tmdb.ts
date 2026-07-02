@@ -145,6 +145,92 @@ export function getMediaDetailPath(media: Pick<MediaItem, "id" | "mediaType">) {
   return media.mediaType === "movie" ? `/movie/${media.id}` : `/show/${media.id}`;
 }
 
+export function getWatchPath(
+  mediaType: MediaType,
+  mediaId: number,
+  season?: number,
+  episode?: number,
+) {
+  if (mediaType === "movie") {
+    return `/watch/movie/${mediaId}`;
+  }
+  if (season && episode) {
+    return `/watch/tv/${mediaId}/${season}/${episode}`;
+  }
+  return `/show/${mediaId}`;
+}
+
+type ExternalIdsResponse = {
+  imdb_id?: string | null;
+};
+
+export async function getExternalIds(
+  mediaType: MediaType,
+  tmdbId: number,
+): Promise<{ imdbId: string | null }> {
+  const data = await tmdbFetch<ExternalIdsResponse>(`/${mediaType}/${tmdbId}/external_ids`);
+  return { imdbId: data.imdb_id ?? null };
+}
+
+export type TvSeasonSummary = {
+  seasonNumber: number;
+  name: string;
+  episodeCount: number;
+};
+
+export type TvEpisode = {
+  episodeNumber: number;
+  title: string;
+  overview: string;
+  stillUrl: string | null;
+  runtimeMinutes: number | null;
+};
+
+type TmdbSeasonListResponse = {
+  seasons: Array<{
+    season_number: number;
+    name: string;
+    episode_count: number;
+  }>;
+};
+
+type TmdbSeasonDetailsResponse = {
+  episodes: Array<{
+    episode_number: number;
+    name: string;
+    overview?: string;
+    still_path?: string | null;
+    runtime?: number | null;
+  }>;
+};
+
+export async function getTvSeasons(showId: number): Promise<TvSeasonSummary[]> {
+  const data = await tmdbFetch<TmdbSeasonListResponse>(`/tv/${showId}`);
+  return data.seasons
+    .filter((season) => season.season_number > 0)
+    .map((season) => ({
+      seasonNumber: season.season_number,
+      name: season.name,
+      episodeCount: season.episode_count,
+    }));
+}
+
+export async function getTvSeasonEpisodes(
+  showId: number,
+  seasonNumber: number,
+): Promise<TvEpisode[]> {
+  const data = await tmdbFetch<TmdbSeasonDetailsResponse>(`/tv/${showId}/season/${seasonNumber}`);
+  return data.episodes.map((episode) => ({
+    episodeNumber: episode.episode_number,
+    title: episode.name,
+    overview: episode.overview ?? "",
+    stillUrl: episode.still_path
+      ? `${TMDB_IMAGE_BASE}/w300${episode.still_path}`
+      : null,
+    runtimeMinutes: episode.runtime ?? null,
+  }));
+}
+
 async function tmdbFetch<T>(path: string, options: FetchOptions = {}): Promise<T> {
   const apiKey = import.meta.env.VITE_TMDB_API_KEY;
   if (!apiKey) {

@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import type { WatchHistoryItem } from "@/lib/watchHistory";
+import { getWatchPath } from "@/lib/tmdb";
 import { mediaKey } from "@/lib/watchHistory";
 
 type ContinueWatchingCardProps = {
@@ -12,7 +13,7 @@ export function ContinueWatchingCard({ item }: ContinueWatchingCardProps) {
 
   return (
     <Link
-      to={`/watch/${item.media.mediaType}/${item.media.id}`}
+      to={getWatchPath(item.mediaType, item.media.id, item.season, item.episode)}
       viewTransition
       state={{ preview: item.media }}
       className="group relative block w-36 shrink-0 snap-start md:w-44"

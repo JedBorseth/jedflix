@@ -4,7 +4,7 @@ import { Navbar } from "@/components/layout/Navbar";
 import { Button } from "@/components/ui/button";
 import type { MediaItem, MediaType } from "@/lib/types";
 import { formatDuration } from "@/lib/types";
-import { getMediaDetails } from "@/lib/tmdb";
+import { getMediaDetails, getWatchPath } from "@/lib/tmdb";
 import {
   applyDetailPosterTransition,
   beginDetailPosterTransitionTarget,
@@ -12,6 +12,7 @@ import {
   shouldApplyDetailPosterTransitionName,
 } from "@/lib/posterTransition";
 import { SimilarTitlesRow } from "@/components/browse/SimilarTitlesRow";
+import { EpisodePicker } from "@/components/browse/EpisodePicker";
 import { AddToMyListButton } from "@/components/mylist/AddToMyListButton";
 import { MediaReviews } from "@/components/reviews/MediaReviews";
 
@@ -147,9 +148,15 @@ export function MovieDetailPage({ mediaType }: MovieDetailPageProps) {
               {routeMovie?.description ?? displayMovie.description}
             </p>
             <div className="flex flex-wrap gap-3">
-              <Button asChild size="lg" className="bg-white text-black hover:bg-zinc-200">
-                <Link to={`/watch/${displayMovie.mediaType}/${displayMovie.id}`}>Play</Link>
-              </Button>
+              {displayMovie.mediaType === "movie" ? (
+                <Button asChild size="lg" className="bg-white text-black hover:bg-zinc-200">
+                  <Link to={getWatchPath("movie", displayMovie.id)}>Play</Link>
+                </Button>
+              ) : (
+                <Button asChild size="lg" className="bg-white text-black hover:bg-zinc-200">
+                  <a href="#episodes">Browse Episodes</a>
+                </Button>
+              )}
               <AddToMyListButton
                 movieId={displayMovie.id}
                 mediaType={displayMovie.mediaType}
@@ -169,6 +176,12 @@ export function MovieDetailPage({ mediaType }: MovieDetailPageProps) {
         mediaType={displayMovie.mediaType}
         mediaId={displayMovie.id}
       />
+
+      {displayMovie.mediaType === "tv" ? (
+        <div id="episodes" className="mx-auto max-w-[1920px] px-4 pb-16 md:px-12">
+          <EpisodePicker showId={displayMovie.id} />
+        </div>
+      ) : null}
 
       <MediaReviews movieId={displayMovie.id} mediaType={displayMovie.mediaType} />
     </div>

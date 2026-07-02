@@ -11,6 +11,14 @@ export type MediaItem = {
   rating: string;
   genre?: string;
   durationMinutes?: number;
+  imdbId?: string;
+};
+
+export type WatchProgressKey = {
+  mediaType: MediaType;
+  movieId: number;
+  season?: number;
+  episode?: number;
 };
 
 export function formatDuration(minutes: number): string {

@@ -12,6 +12,8 @@ const router = createBrowserRouter([
   { path: "/shows", element: <BrowsePage mediaType="tv" /> },
   { path: "/movie/:mediaId", element: <MovieDetailPage mediaType="movie" /> },
   { path: "/show/:mediaId", element: <MovieDetailPage mediaType="tv" /> },
+  { path: "/watch/movie/:mediaId", element: <WatchPage /> },
+  { path: "/watch/tv/:mediaId/:season/:episode", element: <WatchPage /> },
   { path: "/watch/:mediaType/:mediaId", element: <WatchPage /> },
   { path: "/search", element: <SearchPage /> },
   { path: "/my-list", element: <MyListPage /> },

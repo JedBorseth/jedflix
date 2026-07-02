@@ -24,6 +24,8 @@ export const upsertProgress = mutation({
     movieId: v.number(),
     mediaType: v.union(v.literal("movie"), v.literal("tv")),
     progressSeconds: v.number(),
+    season: v.optional(v.number()),
+    episode: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
@@ -39,12 +41,15 @@ export const upsertProgress = mutation({
       .unique();
 
     const lastWatchedAt = Date.now();
+    const patch = {
+      progressSeconds: args.progressSeconds,
+      lastWatchedAt,
+      season: args.season,
+      episode: args.episode,
+    };
 
     if (existing) {
-      await ctx.db.patch(existing._id, {
-        progressSeconds: args.progressSeconds,
-        lastWatchedAt,
-      });
+      await ctx.db.patch(existing._id, patch);
       return existing._id;
     }
 
@@ -54,6 +59,8 @@ export const upsertProgress = mutation({
       mediaType: args.mediaType,
       progressSeconds: args.progressSeconds,
       lastWatchedAt,
+      season: args.season,
+      episode: args.episode,
     });
   },
 });

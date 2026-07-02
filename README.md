@@ -59,12 +59,49 @@ bunx convex run seed:seedMovies
 
 - Netflix-style browse page with hero banner and genre rows
 - Movie detail pages with synopsis and metadata
-- Mock full-screen player (no real video streaming yet)
+- Stremio-style full-screen player with Real Debrid streaming (via Go stream-server)
+- Direct or proxied stream delivery toggle in the navbar
+- TV season/episode picker and playback routes
 - Convex Auth sign-in with GitHub or Google
 - My List for saved titles (signed-in users)
 - Star ratings and public reviews on title pages
 - Continue Watching and Recently Watched rows on the home page
 - Watch progress saved while signed in
+
+## Streaming
+
+Playback uses a Go service in [`stream-server/`](stream-server/) that:
+
+1. Searches Torrentio for magnets by IMDb ID
+2. Filters by size (default 50GB max) and seeders (default min 3)
+3. Resolves streams through Real Debrid
+4. Returns direct RD URLs or proxied byte-serving URLs
+
+Configure the frontend:
+
+```bash
+# .env.local
+VITE_STREAM_API_URL=/stream-api
+VITE_STREAM_API_KEY=
+```
+
+Configure the stream server (see [`stream-server/.env.example`](stream-server/.env.example)):
+
+```bash
+REALDEBRID_TOKEN=your_token
+PROXY_SIGNING_SECRET=change-me
+CORS_ORIGINS=http://localhost:5173
+```
+
+Run locally:
+
+```bash
+bun run dev
+```
+
+This starts Vite, Convex, and the Go stream-server.
+
+Player UI components under `src/components/player/stremio/` are derived from [Stremio Web](https://github.com/Stremio/stremio-web) (GPL-2.0).
 
 ## Project structure
 
@@ -79,6 +116,7 @@ tests/            Bun test preload setup
 
 ## Notes
 
-- Playback is simulated UI only — no Mux or file storage yet
+- Streaming requires `REALDEBRID_TOKEN` on the Go stream-server
+- Player components are GPL-2.0 derived from Stremio Web
 - Use `bunx convex deploy` (without `--bun`) for CI/production deploys
 - Convex functions run in Convex's runtime; Bun is used locally for tooling

@@ -12,6 +12,8 @@ export default defineSchema({
     mediaType: mediaTypeValidator,
     progressSeconds: v.number(),
     lastWatchedAt: v.number(),
+    season: v.optional(v.number()),
+    episode: v.optional(v.number()),
   })
     .index("by_user", ["userId"])
     .index("by_user_and_media_type_and_movie_id", ["userId", "mediaType", "movieId"]),

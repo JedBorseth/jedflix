@@ -1,0 +1,14 @@
+services:
+  stream-server:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      REALDEBRID_TOKEN: ${REALDEBRID_TOKEN}
+      TORRENTIO_URL: https://torrentio.strem.fun
+      MAX_VIDEO_SIZE_GB: "50"
+      MIN_SEEDERS: "3"
+      PREFER_INSTANT: "true"
+      PROXY_SIGNING_SECRET: ${PROXY_SIGNING_SECRET:-change-me-in-production}
+      CORS_ORIGINS: http://localhost:5173
+      STREAM_SERVER_API_KEY: ${STREAM_SERVER_API_KEY:-}

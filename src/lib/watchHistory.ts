@@ -5,6 +5,8 @@ export type WatchHistoryRecord = {
   mediaType: MediaType;
   progressSeconds: number;
   lastWatchedAt: number;
+  season?: number;
+  episode?: number;
 };
 
 export type WatchHistoryItem = WatchHistoryRecord & {
