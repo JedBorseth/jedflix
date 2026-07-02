@@ -1,0 +1,6 @@
+[test]
+preload = ["./tests/dom-setup.ts", "./tests/setup.ts"]
+
+[resolve.alias]
+"@" = "./src"
+"@/" = "./src/"
