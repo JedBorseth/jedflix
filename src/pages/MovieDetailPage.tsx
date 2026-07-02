@@ -170,16 +170,26 @@ export function MovieDetailPage({ mediaType }: MovieDetailPageProps) {
         </div>
       </section>
 
-      <SimilarTitlesRow
-        key={`${displayMovie.mediaType}-${displayMovie.id}`}
-        mediaType={displayMovie.mediaType}
-        mediaId={displayMovie.id}
-      />
+      {displayMovie.mediaType === "movie" ? (
+        <SimilarTitlesRow
+          key={`${displayMovie.mediaType}-${displayMovie.id}`}
+          mediaType={displayMovie.mediaType}
+          mediaId={displayMovie.id}
+        />
+      ) : null}
 
       {displayMovie.mediaType === "tv" ? (
-        <div id="episodes" className="mx-auto max-w-[1920px] px-4 pb-24 md:px-12 md:pb-16">
+        <div id="episodes" className="mx-auto max-w-[1920px] px-4 pb-8 md:px-12">
           <EpisodePicker showId={displayMovie.id} />
         </div>
+      ) : null}
+
+      {displayMovie.mediaType === "tv" ? (
+        <SimilarTitlesRow
+          key={`${displayMovie.mediaType}-${displayMovie.id}`}
+          mediaType={displayMovie.mediaType}
+          mediaId={displayMovie.id}
+        />
       ) : null}
 
       <MediaReviews movieId={displayMovie.id} mediaType={displayMovie.mediaType} />
