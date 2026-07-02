@@ -5,7 +5,7 @@ import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "../../../convex/_generated/api";
 import { Button } from "@/components/ui/button";
-import { StarRating } from "@/components/reviews/StarRating";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { MediaType } from "@/lib/types";
 
 type MediaReviewsProps = {
@@ -18,7 +18,7 @@ export function MediaReviews({ movieId, mediaType }: MediaReviewsProps) {
   const reviews = useQuery(api.reviews.getForMedia, { movieId, mediaType });
 
   return (
-    <section className="mx-auto max-w-6xl px-4 pb-16 md:px-12">
+    <section className="mx-auto max-w-6xl px-4 pb-24 md:px-12 md:pb-16">
       <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold">Ratings & Reviews</h2>
@@ -31,7 +31,7 @@ export function MediaReviews({ movieId, mediaType }: MediaReviewsProps) {
                   }`}
             </p>
           ) : (
-            <p className="mt-1 text-sm text-zinc-500">Loading reviews...</p>
+            <Skeleton className="mt-1 h-4 w-48" />
           )}
         </div>
       </div>
@@ -50,7 +50,11 @@ export function MediaReviews({ movieId, mediaType }: MediaReviewsProps) {
       </Unauthenticated>
 
       {reviews === undefined ? (
-        <p className="text-zinc-400">Loading reviews...</p>
+        <div className="space-y-4">
+          {Array.from({ length: 2 }).map((_, index) => (
+            <Skeleton key={index} className="h-28 w-full rounded-lg" />
+          ))}
+        </div>
       ) : reviews.length === 0 ? (
         <p className="text-zinc-500">Be the first to share your thoughts.</p>
       ) : (

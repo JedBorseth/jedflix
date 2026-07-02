@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { MovieCard } from "./MovieCard";
+import { PosterRowSkeleton } from "@/components/ui/skeleton";
 import type { MediaItem, MediaType } from "@/lib/types";
 import { getSimilarMedia } from "@/lib/tmdb";
 
@@ -40,14 +41,7 @@ export function SimilarTitlesRow({ mediaType, mediaId }: SimilarTitlesRowProps) 
     return (
       <section className="mb-8 px-4 md:px-12">
         <h2 className="mb-3 text-lg font-semibold text-white md:text-xl">{rowTitle}</h2>
-        <div className="flex gap-3">
-          {Array.from({ length: 6 }).map((_, index) => (
-            <div
-              key={index}
-              className="h-52 w-36 shrink-0 animate-pulse rounded-md bg-zinc-800 md:w-44"
-            />
-          ))}
-        </div>
+        <PosterRowSkeleton />
       </section>
     );
   }

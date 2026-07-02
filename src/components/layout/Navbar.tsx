@@ -64,13 +64,13 @@ export function Navbar() {
             <div
               className={`flex items-center overflow-hidden rounded-md border border-transparent bg-black/40 transition-all duration-200 ${
                 isSearchOpen
-                  ? "w-44 border-zinc-700 px-2 md:w-72"
+                  ? "w-52 border-zinc-700 px-2 md:w-72"
                   : "w-9 hover:border-zinc-700"
               }`}
             >
               <button
                 type={isSearchOpen ? "submit" : "button"}
-                className="flex h-9 w-9 shrink-0 items-center justify-center text-zinc-200 transition hover:text-white"
+                className="flex h-10 w-9 shrink-0 items-center justify-center text-zinc-200 transition hover:text-white md:h-9"
                 aria-label={isSearchOpen ? "Search" : "Open search"}
                 onClick={() => {
                   if (!isSearchOpen) {
@@ -91,7 +91,7 @@ export function Navbar() {
                     }
                   }}
                   placeholder="Search titles"
-                  className="h-9 border-0 bg-transparent px-1 text-sm text-white placeholder:text-zinc-500 focus-visible:ring-0"
+                  className="h-10 border-0 bg-transparent px-1 text-base text-white placeholder:text-zinc-500 focus-visible:ring-0 md:h-9 md:text-sm"
                 />
               ) : null}
             </div>

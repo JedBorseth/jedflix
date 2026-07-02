@@ -4,6 +4,7 @@ import { HeroBanner } from "@/components/browse/HeroBanner";
 import { MovieRow } from "@/components/browse/MovieRow";
 import { WatchHistoryRow } from "@/components/browse/WatchHistoryRow";
 import { Navbar } from "@/components/layout/Navbar";
+import { HeroBannerSkeleton } from "@/components/ui/skeleton";
 import type { MediaItem, MediaType } from "@/lib/types";
 import { discoverMedia, getTrendingMedia, mediaRows } from "@/lib/tmdb";
 
@@ -59,12 +60,10 @@ export function BrowsePage({ mediaType = "all" }: BrowsePageProps) {
           <p className="text-zinc-400">{error}</p>
         </div>
       ) : (
-        <div className="flex h-[50vh] items-center justify-center pt-20">
-          <p className="text-zinc-400">Loading featured title...</p>
-        </div>
+        <HeroBannerSkeleton />
       )}
 
-      <div className="-mt-16 relative z-10 pb-16">
+      <div className="-mt-16 relative z-10 pb-24 md:pb-16">
         <div className="px-4 pb-6 md:px-12">
           <h1 className="sr-only">{pageTitle}</h1>
         </div>
