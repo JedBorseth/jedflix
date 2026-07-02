@@ -120,3 +120,76 @@ tests/            Bun test preload setup
 - Player components are GPL-2.0 derived from Stremio Web
 - Use `bunx convex deploy` (without `--bun`) for CI/production deploys
 - Convex functions run in Convex's runtime; Bun is used locally for tooling
+
+## Production deployment
+
+Recommended setup: **GitHub Actions on every push to `main`**, plus a VPS for the static frontend and Go stream-server.
+
+| Component | Where it runs | How it deploys |
+|-----------|---------------|----------------|
+| Convex backend | Convex Cloud | `npx convex deploy` in CI |
+| React frontend | Your VPS (`/var/www/jedflix`) | CI builds and rsyncs `dist/` |
+| Go stream-server | Your VPS (Docker on `:8080`) | CI SSHes in and rebuilds the container |
+
+### One-time server setup
+
+1. Clone the repo on the server, e.g. `/opt/jedflix`.
+2. Create the frontend web root, e.g. `/var/www/jedflix`.
+3. Copy and fill in stream-server secrets:
+
+```bash
+cp stream-server/.env.example stream-server/.env
+# REALDEBRID_TOKEN, PROXY_SIGNING_SECRET, CORS_ORIGINS, STREAM_SERVER_API_KEY
+```
+
+4. Configure nginx (or Caddy) to serve the SPA and proxy `/stream-api` to `http://127.0.0.1:8080`. See [`deploy/nginx.conf.example`](deploy/nginx.conf.example).
+5. Set Convex production env vars once:
+
+```bash
+bunx convex env set SITE_URL https://your-domain.example
+```
+
+### GitHub Actions secrets and variables
+
+Create a GitHub **production** environment and add:
+
+| Name | Type | Purpose |
+|------|------|---------|
+| `CONVEX_DEPLOY_KEY` | secret | Production deploy key from the Convex dashboard |
+| `VITE_TMDB_API_KEY` | secret | TMDB API key baked into the frontend build |
+| `VITE_STREAM_API_KEY` | secret | Optional API key for the Go stream-server |
+| `PROD_SSH_HOST` | secret | Server hostname or IP |
+| `PROD_SSH_USER` | secret | SSH user for deploy |
+| `PROD_SSH_KEY` | secret | Private SSH key for deploy |
+| `PROD_WEB_ROOT` | variable | Static site path (default `/var/www/jedflix`) |
+| `PROD_APP_DIR` | variable | Git checkout path (default `/opt/jedflix`) |
+| `VITE_STREAM_API_URL` | variable | Frontend stream base URL (default `/stream-api`) |
+
+Workflow file: [`.github/workflows/deploy-production.yml`](.github/workflows/deploy-production.yml)
+
+On push to `main`, CI will:
+
+1. Run tests
+2. Deploy Convex and build the frontend with the production Convex URL
+3. Rsync `dist/` to the server
+4. Pull latest code on the server and rebuild/restart the stream-server container
+
+You can also trigger a deploy manually from the GitHub Actions tab.
+
+### Manual deploy on the server
+
+For emergency deploys or servers without GitHub Actions access:
+
+```bash
+cp deploy/env.production.example deploy/.env.production
+# fill in CONVEX_DEPLOY_KEY, VITE_TMDB_API_KEY, etc.
+
+./scripts/deploy-production.sh
+```
+
+Useful flags:
+
+- `./scripts/deploy-production.sh --frontend-only`
+- `./scripts/deploy-production.sh --stream-only`
+
+Stream-server secrets stay in `stream-server/.env` and are not overwritten by deploy scripts.
