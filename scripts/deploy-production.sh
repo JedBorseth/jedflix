@@ -2,38 +2,29 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ENV_FILE="${DEPLOY_ENV_FILE:-${ROOT}/deploy/.env.production}"
-WEB_ROOT="${PROD_WEB_ROOT:-/var/www/jedflix}"
+ENV_FILE="${DEPLOY_ENV_FILE:-${ROOT}/.env}"
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/deploy-production.sh [--frontend-only | --stream-only]
+Usage: ./scripts/deploy-production.sh [--pull]
 
-Deploy JedFlix production services on this server.
+Deploy JedFlix on this server using Docker Compose.
 
 Environment:
-  DEPLOY_ENV_FILE   Path to production env file (default: deploy/.env.production)
-  PROD_WEB_ROOT     Static frontend directory (default: /var/www/jedflix)
+  DEPLOY_ENV_FILE   Path to env file (default: .env in repo root)
 
-The env file should define build/runtime values such as:
-  CONVEX_DEPLOY_KEY
-  VITE_TMDB_API_KEY
-  VITE_STREAM_API_URL
-  VITE_STREAM_API_KEY
-
-Stream-server secrets live separately in stream-server/.env.
+Requires:
+  docker compose
+  git checkout at the repo root
+  .env with DOMAIN, Convex URLs, TMDB, and stream-server secrets
 EOF
 }
 
-MODE="all"
+PULL=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --frontend-only)
-      MODE="frontend"
-      shift
-      ;;
-    --stream-only)
-      MODE="stream"
+    --pull)
+      PULL=true
       shift
       ;;
     -h | --help)
@@ -48,51 +39,38 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ "${MODE}" != "stream" ]]; then
-  if [[ ! -f "${ENV_FILE}" ]]; then
-    echo "Missing ${ENV_FILE}. Copy deploy/env.production.example first." >&2
-    exit 1
-  fi
-
-  set -a
-  # shellcheck disable=SC1090
-  source "${ENV_FILE}"
-  set +a
-
-  if [[ -z "${VITE_TMDB_API_KEY:-}" ]]; then
-    echo "VITE_TMDB_API_KEY must be set in ${ENV_FILE}" >&2
-    exit 1
-  fi
-
-  cd "${ROOT}"
-
-  echo "Installing frontend dependencies..."
-  if command -v bun >/dev/null 2>&1; then
-    bun install --frozen-lockfile
-    BUILD_CMD=(bun run build)
-    CONVEX_CMD=(bunx convex deploy --cmd 'bun run build' --cmd-url-env-var-name VITE_CONVEX_URL)
-  else
-    npm ci
-    BUILD_CMD=(npm run build)
-    CONVEX_CMD=(npx convex deploy --cmd 'npm run build' --cmd-url-env-var-name VITE_CONVEX_URL)
-  fi
-
-  if [[ -n "${CONVEX_DEPLOY_KEY:-}" ]]; then
-    echo "Deploying Convex..."
-    "${CONVEX_CMD[@]}"
-  else
-    echo "CONVEX_DEPLOY_KEY not set; building frontend without deploying Convex."
-    "${BUILD_CMD[@]}"
-  fi
-
-  echo "Publishing frontend to ${WEB_ROOT}..."
-  mkdir -p "${WEB_ROOT}"
-  rsync -av --delete "${ROOT}/dist/" "${WEB_ROOT}/"
-  echo "Frontend deploy complete."
+if [[ ! -f "${ENV_FILE}" ]]; then
+  echo "Missing ${ENV_FILE}. Copy .env.example and fill in production values." >&2
+  exit 1
 fi
 
-if [[ "${MODE}" != "frontend" ]]; then
-  "${ROOT}/scripts/deploy-stream-server.sh"
+if ! command -v docker >/dev/null 2>&1; then
+  echo "Docker is required." >&2
+  exit 1
 fi
+
+cd "${ROOT}"
+
+if [[ "${PULL}" == "true" ]]; then
+  git fetch origin main
+  git reset --hard origin/main
+fi
+
+set -a
+# shellcheck disable=SC1090
+source "${ENV_FILE}"
+set +a
+
+if [[ -n "${CONVEX_DEPLOY_KEY:-}" ]] && command -v bun >/dev/null 2>&1; then
+  echo "Deploying Convex..."
+  bunx convex deploy
+elif [[ -n "${CONVEX_DEPLOY_KEY:-}" ]] && command -v npx >/dev/null 2>&1; then
+  echo "Deploying Convex..."
+  npx convex deploy
+fi
+
+echo "Building and restarting Docker stack..."
+docker compose up -d --build
+docker compose ps
 
 echo "Production deploy finished."

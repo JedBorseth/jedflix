@@ -1,0 +1,10 @@
+node_modules
+dist
+.git
+.env.local
+.env
+*.md
+tests
+.cursor
+.agents
+.claude

@@ -1,0 +1,53 @@
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+      BASIC_AUTH_USER: ${BASIC_AUTH_USER:-borseth}
+      BASIC_AUTH_HASH: ${BASIC_AUTH_HASH}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
+      - stream-server
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_CONVEX_URL: ${VITE_CONVEX_URL}
+        VITE_CONVEX_SITE_URL: ${VITE_CONVEX_SITE_URL}
+        VITE_TMDB_API_KEY: ${VITE_TMDB_API_KEY}
+        VITE_STREAM_API_URL: ${VITE_STREAM_API_URL:-/stream-api}
+        VITE_STREAM_API_KEY: ${VITE_STREAM_API_KEY:-}
+    restart: unless-stopped
+    expose:
+      - "80"
+
+  stream-server:
+    build:
+      context: ./stream-server
+    restart: unless-stopped
+    expose:
+      - "8080"
+    environment:
+      REALDEBRID_TOKEN: ${REALDEBRID_TOKEN}
+      TORRENTIO_URL: ${TORRENTIO_URL:-https://torrentio.strem.fun}
+      MAX_VIDEO_SIZE_GB: ${MAX_VIDEO_SIZE_GB:-50}
+      MIN_SEEDERS: ${MIN_SEEDERS:-3}
+      PREFER_INSTANT: ${PREFER_INSTANT:-true}
+      PROXY_SIGNING_SECRET: ${PROXY_SIGNING_SECRET}
+      STREAM_SERVER_API_KEY: ${STREAM_SERVER_API_KEY:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://${DOMAIN}}
+
+volumes:
+  caddy_data:
+  caddy_config:

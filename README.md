@@ -123,73 +123,72 @@ tests/            Bun test preload setup
 
 ## Production deployment
 
-Recommended setup: **GitHub Actions on every push to `main`**, plus a VPS for the static frontend and Go stream-server.
+Production runs on a single server with **Docker Compose**: Caddy (TLS + routing), a built frontend container, and the Go stream-server.
+
+Recommended CD: **GitHub Actions on every push to `main`**.
 
 | Component | Where it runs | How it deploys |
 |-----------|---------------|----------------|
-| Convex backend | Convex Cloud | `npx convex deploy` in CI |
-| React frontend | Your VPS (`/var/www/jedflix`) | CI builds and rsyncs `dist/` |
-| Go stream-server | Your VPS (Docker on `:8080`) | CI SSHes in and rebuilds the container |
+| Convex backend | Convex Cloud | `bunx convex deploy` in CI |
+| React frontend | Docker `frontend` service | Rebuilt on the server from repo `Dockerfile` |
+| Go stream-server | Docker `stream-server` service | Rebuilt on the server from `stream-server/` |
+| TLS / routing | Docker `caddy` service | Uses `deploy/Caddyfile` |
 
-### One-time server setup
+### Server layout
 
-1. Clone the repo on the server, e.g. `/opt/jedflix`.
-2. Create the frontend web root, e.g. `/var/www/jedflix`.
-3. Copy and fill in stream-server secrets:
+Default path on the production box:
 
-```bash
-cp stream-server/.env.example stream-server/.env
-# REALDEBRID_TOKEN, PROXY_SIGNING_SECRET, CORS_ORIGINS, STREAM_SERVER_API_KEY
+```text
+/home/jedborseth/jedflix
+  .env                 # production secrets (not in git)
+  docker-compose.yml
+  Dockerfile
+  deploy/Caddyfile
 ```
 
-4. Configure nginx (or Caddy) to serve the SPA and proxy `/stream-api` to `http://127.0.0.1:8080`. See [`deploy/nginx.conf.example`](deploy/nginx.conf.example).
-5. Set Convex production env vars once:
+Copy the example env file once and fill in real values:
 
 ```bash
-bunx convex env set SITE_URL https://your-domain.example
+cp .env.example .env
+docker compose up -d --build
 ```
 
-### GitHub Actions secrets and variables
+Set Convex production auth URL once:
 
-Create a GitHub **production** environment and add:
+```bash
+bunx convex env set SITE_URL https://borseth.ddns.net
+```
 
-| Name | Type | Purpose |
-|------|------|---------|
-| `CONVEX_DEPLOY_KEY` | secret | Production deploy key from the Convex dashboard |
-| `VITE_TMDB_API_KEY` | secret | TMDB API key baked into the frontend build |
-| `VITE_STREAM_API_KEY` | secret | Optional API key for the Go stream-server |
-| `PROD_SSH_HOST` | secret | Server hostname or IP |
-| `PROD_SSH_USER` | secret | SSH user for deploy |
-| `PROD_SSH_KEY` | secret | Private SSH key for deploy |
-| `PROD_WEB_ROOT` | variable | Static site path (default `/var/www/jedflix`) |
-| `PROD_APP_DIR` | variable | Git checkout path (default `/opt/jedflix`) |
-| `VITE_STREAM_API_URL` | variable | Frontend stream base URL (default `/stream-api`) |
+### GitHub Actions setup
 
-Workflow file: [`.github/workflows/deploy-production.yml`](.github/workflows/deploy-production.yml)
+Add these **repository secrets** (Settings → Secrets and variables → Actions):
+
+| Secret | Value |
+|--------|-------|
+| `PROD_SSH_HOST` | `borseth.ddns.net` |
+| `PROD_SSH_USER` | `jedborseth` |
+| `PROD_SSH_KEY` | Private SSH deploy key (see below) |
+| `CONVEX_DEPLOY_KEY` | Production deploy key from the Convex dashboard |
+
+Optional repository variable:
+
+| Variable | Default |
+|----------|---------|
+| `PROD_APP_DIR` | `/home/jedborseth/jedflix` |
 
 On push to `main`, CI will:
 
 1. Run tests
-2. Deploy Convex and build the frontend with the production Convex URL
-3. Rsync `dist/` to the server
-4. Pull latest code on the server and rebuild/restart the stream-server container
+2. Deploy Convex (when `CONVEX_DEPLOY_KEY` is set)
+3. SSH to the server, `git pull`, and run `docker compose up -d --build`
 
-You can also trigger a deploy manually from the GitHub Actions tab.
+Frontend build args (`VITE_*`, Real Debrid, etc.) stay in the server `.env` file and are **not** stored in GitHub.
 
 ### Manual deploy on the server
 
-For emergency deploys or servers without GitHub Actions access:
-
 ```bash
-cp deploy/env.production.example deploy/.env.production
-# fill in CONVEX_DEPLOY_KEY, VITE_TMDB_API_KEY, etc.
-
-./scripts/deploy-production.sh
+cd ~/jedflix
+./scripts/deploy-production.sh --pull
 ```
 
-Useful flags:
-
-- `./scripts/deploy-production.sh --frontend-only`
-- `./scripts/deploy-production.sh --stream-only`
-
-Stream-server secrets stay in `stream-server/.env` and are not overwritten by deploy scripts.
+Workflow file: [`.github/workflows/deploy-production.yml`](.github/workflows/deploy-production.yml)
