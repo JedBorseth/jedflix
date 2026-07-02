@@ -4,6 +4,7 @@ import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Navbar } from "@/components/layout/Navbar";
 import { MovieCard } from "@/components/browse/MovieCard";
+import { PosterGridSkeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Authenticated, Unauthenticated } from "convex/react";
 import type { MediaItem } from "@/lib/types";
@@ -45,7 +46,7 @@ export function MyListPage() {
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
       <Navbar />
-      <main className="mx-auto max-w-6xl px-4 pb-16 pt-28 md:px-12">
+      <main className="mx-auto max-w-6xl px-4 pb-24 pt-28 md:px-12 md:pb-16">
         <h1 className="mb-8 text-3xl font-bold">My List</h1>
 
         <Unauthenticated>
@@ -59,7 +60,7 @@ export function MyListPage() {
 
         <Authenticated>
           {savedList === undefined ? (
-            <p className="text-zinc-400">Loading your list...</p>
+            <PosterGridSkeleton count={6} />
           ) : savedList.length === 0 ? (
             <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-8 text-center">
               <p className="mb-4 text-zinc-300">
@@ -72,7 +73,7 @@ export function MyListPage() {
           ) : error ? (
             <p className="text-zinc-400">{error}</p>
           ) : movies === undefined ? (
-            <p className="text-zinc-400">Loading your titles...</p>
+            <PosterGridSkeleton count={savedList.length || 6} />
           ) : (
             <div className="flex flex-wrap gap-4">
               {movies.map((movie) => (

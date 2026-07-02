@@ -155,7 +155,7 @@ test("MovieDetailPage renders preview poster immediately for card navigation", a
 test("MovieDetailPage shows loading state without preview data", () => {
   renderDetailPage();
 
-  expect(screen.getByText("Loading...")).toBeInTheDocument();
+  expect(document.querySelectorAll("[aria-hidden='true'].animate-pulse").length).toBeGreaterThan(0);
 });
 
 test("clicking More Like This keeps a single poster-expand name during rerender", async () => {

@@ -101,6 +101,17 @@
     z-index: 2;
   }
 
+  @media (max-width: 767px) {
+    ::view-transition-old(poster-expand),
+    ::view-transition-new(poster-expand) {
+      animation: none;
+    }
+
+    ::view-transition-group(poster-expand) {
+      animation: none;
+    }
+  }
+
   @keyframes page-fade-out {
     from {
       opacity: 1;

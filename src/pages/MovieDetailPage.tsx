@@ -12,6 +12,7 @@ import {
   shouldApplyDetailPosterTransitionName,
 } from "@/lib/posterTransition";
 import { SimilarTitlesRow } from "@/components/browse/SimilarTitlesRow";
+import { DetailPageSkeleton } from "@/components/ui/skeleton";
 import { EpisodePicker } from "@/components/browse/EpisodePicker";
 import { AddToMyListButton } from "@/components/mylist/AddToMyListButton";
 import { MediaReviews } from "@/components/reviews/MediaReviews";
@@ -93,9 +94,7 @@ export function MovieDetailPage({ mediaType }: MovieDetailPageProps) {
     return (
       <div className="min-h-screen bg-zinc-950 text-white">
         <Navbar />
-        <div className="flex h-[60vh] items-center justify-center">
-          <p className="text-zinc-400">Loading...</p>
-        </div>
+        <DetailPageSkeleton />
       </div>
     );
   }
@@ -178,7 +177,7 @@ export function MovieDetailPage({ mediaType }: MovieDetailPageProps) {
       />
 
       {displayMovie.mediaType === "tv" ? (
-        <div id="episodes" className="mx-auto max-w-[1920px] px-4 pb-16 md:px-12">
+        <div id="episodes" className="mx-auto max-w-[1920px] px-4 pb-24 md:px-12 md:pb-16">
           <EpisodePicker showId={displayMovie.id} />
         </div>
       ) : null}

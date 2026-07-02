@@ -1,3 +1,4 @@
+import { shouldUsePosterTransition } from "@/lib/mobile";
 import type { MediaItem, MediaType } from "@/lib/types";
 
 export const POSTER_VIEW_TRANSITION_NAME = "poster-expand";
@@ -75,7 +76,7 @@ export function markPosterTransitionSource(
   poster: HTMLImageElement | null,
   media: MediaItem,
 ) {
-  if (!poster) {
+  if (!poster || !shouldUsePosterTransition()) {
     return;
   }
 
@@ -97,7 +98,7 @@ export function applyDetailPosterTransition(
 
   poster.style.contain = "layout";
 
-  if (!enabled) {
+  if (!enabled || !shouldUsePosterTransition()) {
     poster.style.viewTransitionName = "";
     return;
   }
