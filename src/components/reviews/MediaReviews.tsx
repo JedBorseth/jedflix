@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "../../../convex/_generated/api";
 import { Button } from "@/components/ui/button";
+import { StarRating } from "@/components/reviews/StarRating";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { MediaType } from "@/lib/types";
 
