@@ -1,11 +1,31 @@
+import { lazy, Suspense } from "react";
 import { createBrowserRouter, Navigate, RouterProvider } from "react-router-dom";
 import { RootLayout } from "@/components/layout/RootLayout";
 import { BrowsePage } from "@/pages/BrowsePage";
 import { MovieDetailPage } from "@/pages/MovieDetailPage";
-import { WatchPage } from "@/pages/WatchPage";
 import { MyListPage } from "@/pages/MyListPage";
 import { SignInForm } from "@/components/auth/SignInForm";
 import { SearchPage } from "@/pages/SearchPage";
+
+const WatchPage = lazy(() =>
+  import("@/pages/WatchPage").then((module) => ({ default: module.WatchPage })),
+);
+
+function WatchPageFallback() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-black text-zinc-400">
+      Loading player...
+    </div>
+  );
+}
+
+function LazyWatchPage() {
+  return (
+    <Suspense fallback={<WatchPageFallback />}>
+      <WatchPage />
+    </Suspense>
+  );
+}
 
 const router = createBrowserRouter([
   {
@@ -16,9 +36,9 @@ const router = createBrowserRouter([
       { path: "/shows", element: <BrowsePage mediaType="tv" /> },
       { path: "/movie/:mediaId", element: <MovieDetailPage mediaType="movie" /> },
       { path: "/show/:mediaId", element: <MovieDetailPage mediaType="tv" /> },
-      { path: "/watch/movie/:mediaId", element: <WatchPage /> },
-      { path: "/watch/tv/:mediaId/:season/:episode", element: <WatchPage /> },
-      { path: "/watch/:mediaType/:mediaId", element: <WatchPage /> },
+      { path: "/watch/movie/:mediaId", element: <LazyWatchPage /> },
+      { path: "/watch/tv/:mediaId/:season/:episode", element: <LazyWatchPage /> },
+      { path: "/watch/:mediaType/:mediaId", element: <LazyWatchPage /> },
       { path: "/search", element: <SearchPage /> },
       { path: "/my-list", element: <MyListPage /> },
       { path: "/sign-in", element: <SignInForm /> },
