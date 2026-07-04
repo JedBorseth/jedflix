@@ -5,7 +5,7 @@ WORKDIR /app
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 
-COPY index.html vite.config.ts tsconfig.json tsconfig.app.json tsconfig.node.json postcss.config.js tailwind.config.js components.json ./
+COPY index.html vite.config.ts vite-plugin-vtt-js.ts tsconfig.json tsconfig.app.json tsconfig.node.json postcss.config.js tailwind.config.js components.json ./
 COPY public ./public
 COPY src ./src
 COPY convex ./convex
