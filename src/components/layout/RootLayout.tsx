@@ -1,4 +1,5 @@
 import { Outlet, useLocation } from "react-router-dom";
+import { ScreenKeepAwake } from "@/components/ScreenKeepAwake";
 import { MobileBottomNav } from "@/components/layout/MobileBottomNav";
 import { ScrollToTopOnNavigate } from "@/components/layout/ScrollToTopOnNavigate";
 
@@ -18,6 +19,7 @@ export function RootLayout() {
 
   return (
     <>
+      <ScreenKeepAwake />
       <ScrollToTopOnNavigate />
       <Outlet />
       {showBottomNav ? <MobileBottomNav /> : null}

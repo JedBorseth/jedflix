@@ -2,13 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { MovieCard } from "@/components/browse/MovieCard";
-import {
-  ContinueWatchingCard,
-  getWatchHistoryItemKey,
-} from "@/components/browse/ContinueWatchingCard";
+import { ContinueWatchingCard } from "@/components/browse/ContinueWatchingCard";
 import { PosterRowSkeleton } from "@/components/ui/skeleton";
 import { getMediaDetailsByIds } from "@/lib/tmdb";
 import type { MediaItem } from "@/lib/types";
+import { getWatchHistoryItemKey } from "@/lib/watchHistoryKeys";
 import {
   buildContinueWatchingItems,
   buildRecentlyWatchedItems,

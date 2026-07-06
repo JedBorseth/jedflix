@@ -65,12 +65,12 @@ const neonHorizon: MediaItem = {
 
 mock.module("convex/react", () => ({
   useQuery: () => undefined,
-  Authenticated: ({ children }: { children: React.ReactNode }) => null,
+  Authenticated: () => null,
   Unauthenticated: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
 const getMediaDetails = mock(
-  (_mediaType: "movie" | "tv", mediaId: number) =>
+  (_mediaType: "movie" | "tv", _mediaId: number) =>
     new Promise<MediaItem>(() => undefined),
 );
 const getSimilarMedia = mock(

@@ -33,10 +33,10 @@ func NewClient(cfg config.Config) *Client {
 }
 
 type TorrentInfo struct {
-	ID     string       `json:"id"`
-	Status string       `json:"status"`
+	ID     string        `json:"id"`
+	Status string        `json:"status"`
 	Files  []TorrentFile `json:"files"`
-	Links  []string     `json:"links"`
+	Links  []string      `json:"links"`
 }
 
 type TorrentFile struct {
@@ -86,8 +86,9 @@ func (c *Client) GetTorrentInfo(ctx context.Context, torrentID string) (*Torrent
 	return &info, nil
 }
 
-func (c *Client) WaitReady(ctx context.Context, torrentID string, timeout time.Duration) (*TorrentInfo, error) {
+func (c *Client) WaitReady(ctx context.Context, torrentID string, timeout time.Duration, initial *TorrentInfo) (*TorrentInfo, error) {
 	deadline := time.Now().Add(timeout)
+	info := initial
 	for {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -96,9 +97,12 @@ func (c *Client) WaitReady(ctx context.Context, torrentID string, timeout time.D
 			return nil, fmt.Errorf("real-debrid torrent %s timed out", torrentID)
 		}
 
-		info, err := c.GetTorrentInfo(ctx, torrentID)
-		if err != nil {
-			return nil, err
+		if info == nil {
+			var err error
+			info, err = c.GetTorrentInfo(ctx, torrentID)
+			if err != nil {
+				return nil, err
+			}
 		}
 		switch info.Status {
 		case "downloaded":
@@ -106,6 +110,7 @@ func (c *Client) WaitReady(ctx context.Context, torrentID string, timeout time.D
 		case "error", "magnet_error", "virus", "dead":
 			return nil, fmt.Errorf("real-debrid torrent failed: %s", info.Status)
 		}
+		info = nil
 		time.Sleep(2 * time.Second)
 	}
 }

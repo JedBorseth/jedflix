@@ -6,10 +6,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
+import { useScreenOrientationLock } from "@/hooks/useScreenOrientationLock";
 import { fetchSources, type StreamMode, type StreamSource } from "@/lib/streamApi";
 import { buildDirectStreamHints } from "@/lib/streamPlayback";
 import type { MediaType } from "@/lib/types";
-import { ControlBar, toDisplaySeconds } from "./ControlBar";
+import { ControlBar } from "./ControlBar";
+import { toDisplaySeconds } from "./time";
 import { StreamSourcePicker } from "./StreamSourcePicker";
 import { useStreamResolve } from "./useStreamResolve";
 import { useVideo } from "./useVideo";
@@ -107,6 +109,7 @@ export function StremioPlayer({
   );
 
   const resolveState = useStreamResolve(resolveRequest);
+  const resolving = resolveState.status === "downloading";
 
   useEffect(() => {
     const playbackUrl = resolveState.playbackUrl;
@@ -151,8 +154,9 @@ export function StremioPlayer({
   }, [state.time]);
 
   useEffect(() => {
+    const saveProgress = saveProgressRef.current;
     return () => {
-      saveProgressRef.current.cancel();
+      saveProgress.cancel();
       unload();
     };
   }, [unload]);
@@ -185,10 +189,26 @@ export function StremioPlayer({
   const paused = state.paused ?? false;
   const time = state.time ?? 0;
   const duration = state.duration ?? 0;
-  const resolving = resolveState.status === "downloading";
   const buffering = Boolean(state.buffering) || resolving;
   const failed = resolveState.status === "failed";
   const hideOverlay = controlsHidden && !paused && !showSourcePicker && !buffering && !failed;
+  const isPlaying = !paused && !showSourcePicker && !buffering && !failed && loadedUrlRef.current !== null;
+
+  useScreenOrientationLock(isPlaying);
+
+  const handleSelectSource = useCallback(
+    (source: StreamSource) => {
+      if (sourcesLoading || resolving) {
+        return;
+      }
+      if (selectedSource?.id === source.id) {
+        return;
+      }
+      setSelectedSource(source);
+      setShowSourcePicker(false);
+    },
+    [resolving, selectedSource?.id, sourcesLoading],
+  );
 
   useEffect(() => {
     if (paused || showSourcePicker || buffering || failed) {
@@ -230,6 +250,8 @@ export function StremioPlayer({
     <div
       className={`player-container ${hideOverlay ? "overlay-hidden" : ""}`}
       onMouseMove={onActivity}
+      onTouchMove={onActivity}
+      onTouchStart={onActivity}
     >
       <div className="player-video-layer" onClick={togglePlayPause}>
         <div ref={containerRef} className="player-video-container" />
@@ -240,7 +262,9 @@ export function StremioPlayer({
           sources={sources}
           loading={sourcesLoading}
           error={sourcesError ?? undefined}
-          onSelect={setSelectedSource}
+          disabled={sourcesLoading || resolving}
+          selectedId={selectedSource?.id}
+          onSelect={handleSelectSource}
           onRetry={() => {
             void loadSources();
           }}
@@ -251,6 +275,11 @@ export function StremioPlayer({
         <div className="player-buffering">
           <div className="player-spinner" />
           <p>{resolveState.progress ?? "Buffering..."}</p>
+          {resolving && selectedSource ? (
+            <p className="max-w-md px-4 text-center text-sm text-zinc-400">
+              Resolving {selectedSource.title}
+            </p>
+          ) : null}
         </div>
       ) : null}
 

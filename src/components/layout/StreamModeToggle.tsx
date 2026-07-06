@@ -1,9 +1,18 @@
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { getStreamMode, setStreamMode } from "@/lib/streamMode";
 import type { StreamMode } from "@/lib/streamApi";
+import { cn } from "@/lib/utils";
 import { useEffect, useState } from "react";
 
-export function StreamModeToggle() {
+type StreamModeControlProps = {
+  className?: string;
+  itemClassName?: string;
+};
+
+export function StreamModeControl({
+  className,
+  itemClassName,
+}: StreamModeControlProps) {
   const [mode, setMode] = useState<StreamMode>(() => getStreamMode());
 
   useEffect(() => {
@@ -19,21 +28,31 @@ export function StreamModeToggle() {
           setMode(value);
         }
       }}
-      className="hidden rounded-md border border-zinc-700 bg-black/50 p-0.5 md:flex"
+      className={cn("rounded-md border border-zinc-700 bg-black/50 p-0.5", className)}
       aria-label="Stream delivery mode"
     >
       <ToggleGroupItem
         value="direct"
-        className="h-7 px-2 text-xs data-[state=on]:bg-zinc-800 data-[state=on]:text-white"
+        className={cn(
+          "h-7 px-2 text-xs data-[state=on]:bg-zinc-800 data-[state=on]:text-white",
+          itemClassName,
+        )}
       >
         Direct
       </ToggleGroupItem>
       <ToggleGroupItem
         value="proxy"
-        className="h-7 px-2 text-xs data-[state=on]:bg-zinc-800 data-[state=on]:text-white"
+        className={cn(
+          "h-7 px-2 text-xs data-[state=on]:bg-zinc-800 data-[state=on]:text-white",
+          itemClassName,
+        )}
       >
         Proxy
       </ToggleGroupItem>
     </ToggleGroup>
   );
+}
+
+export function StreamModeToggle() {
+  return <StreamModeControl className="hidden md:flex" />;
 }

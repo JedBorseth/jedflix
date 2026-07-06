@@ -41,11 +41,11 @@ type Source struct {
 }
 
 type StreamResult struct {
-	URL      string `json:"url"`
+	URL       string `json:"url"`
 	DirectURL string `json:"directUrl,omitempty"`
-	Filename string `json:"filename,omitempty"`
-	Filesize int64  `json:"filesize,omitempty"`
-	Mode     Mode   `json:"mode"`
+	Filename  string `json:"filename,omitempty"`
+	Filesize  int64  `json:"filesize,omitempty"`
+	Mode      Mode   `json:"mode"`
 }
 
 type JobStatus string
@@ -58,14 +58,15 @@ const (
 )
 
 type Job struct {
-	ID        string        `json:"jobId"`
-	Status    JobStatus     `json:"status"`
-	Progress  string        `json:"progress,omitempty"`
-	Error     string        `json:"error,omitempty"`
-	Sources   []Source      `json:"sources,omitempty"`
-	Stream    *StreamResult `json:"stream,omitempty"`
-	CreatedAt time.Time     `json:"createdAt"`
-	UpdatedAt time.Time     `json:"updatedAt"`
+	ID         string        `json:"jobId"`
+	Status     JobStatus     `json:"status"`
+	Progress   string        `json:"progress,omitempty"`
+	Error      string        `json:"error,omitempty"`
+	Sources    []Source      `json:"sources,omitempty"`
+	Stream     *StreamResult `json:"stream,omitempty"`
+	CreatedAt  time.Time     `json:"createdAt"`
+	UpdatedAt  time.Time     `json:"updatedAt"`
+	resolveKey string
 }
 
 type Service struct {
@@ -104,15 +105,19 @@ func (s *Service) Start(req Request) (*Job, error) {
 		return nil, fmt.Errorf("REALDEBRID_TOKEN is not configured on the stream server")
 	}
 
+	resolveKey := normalizeResolveKey(req)
 	id := fmt.Sprintf("job_%d", time.Now().UnixNano())
 	job := &Job{
-		ID:        id,
-		Status:    StatusSearching,
-		Progress:  "Searching for streams",
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		ID:         id,
+		Status:     StatusSearching,
+		Progress:   "Searching for streams",
+		CreatedAt:  time.Now(),
+		UpdatedAt:  time.Now(),
+		resolveKey: resolveKey,
 	}
-	s.save(job)
+	if existing, ok := s.saveOrFindActive(job); ok {
+		return existing, nil
+	}
 
 	go s.run(id, req)
 	return cloneJob(job), nil
@@ -159,6 +164,27 @@ func (s *Service) Get(jobID string) (*Job, bool) {
 	return cloneJob(job), true
 }
 
+func (s *Service) saveOrFindActive(next *Job) (*Job, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if next.resolveKey == "" {
+		next.UpdatedAt = time.Now()
+		s.jobs[next.ID] = next
+		return nil, false
+	}
+	for _, existing := range s.jobs {
+		if existing.resolveKey != next.resolveKey {
+			continue
+		}
+		if existing.Status == StatusSearching || existing.Status == StatusDownloading {
+			return cloneJob(existing), true
+		}
+	}
+	next.UpdatedAt = time.Now()
+	s.jobs[next.ID] = next
+	return nil, false
+}
+
 func (s *Service) save(job *Job) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -184,51 +210,7 @@ func (s *Service) run(jobID string, req Request) {
 		return
 	}
 
-	s.update(jobID, StatusSearching, "Searching Torrentio", nil, nil, "")
-
-	releases, err := s.search(ctx, req)
-	if err != nil {
-		s.update(jobID, StatusFailed, "", nil, nil, err.Error())
-		return
-	}
-	if len(releases) == 0 {
-		s.update(jobID, StatusFailed, "", nil, nil, "no streams found")
-		return
-	}
-
-	filtered := search.FilterReleases(releases, s.filterOpts)
-	if len(filtered) == 0 {
-		s.update(jobID, StatusFailed, "", toSources(releases, nil), nil, "no streams passed filters")
-		return
-	}
-
-	hashes := make([]string, 0, len(filtered))
-	for _, release := range filtered {
-		if release.InfoHash != "" {
-			hashes = append(hashes, release.InfoHash)
-		}
-	}
-	instant, _ := s.rd.InstantAvailability(ctx, hashes)
-	ranked := search.ScorePick(filtered, instant, s.cfg.PreferInstant)
-	s.update(jobID, StatusSearching, "Found candidate streams", toSources(ranked, instant), nil, "")
-
-	var lastErr error
-	for i, release := range ranked {
-		s.update(jobID, StatusDownloading, fmt.Sprintf("Trying stream %d/%d", i+1, len(ranked)), toSources(ranked, instant), nil, "")
-		stream, err := s.tryRelease(ctx, req, release, maxBytes, req.Mode)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		s.update(jobID, StatusReady, "Stream ready", toSources(ranked, instant), stream, "")
-		return
-	}
-
-	errMsg := "all candidate streams failed"
-	if lastErr != nil {
-		errMsg = lastErr.Error()
-	}
-	s.update(jobID, StatusFailed, "", toSources(ranked, instant), nil, errMsg)
+	s.update(jobID, StatusFailed, "", nil, nil, "magnet is required")
 }
 
 func (s *Service) search(ctx context.Context, req Request) ([]search.Release, error) {
@@ -271,7 +253,7 @@ func (s *Service) tryRelease(ctx context.Context, req Request, release search.Re
 		return nil, err
 	}
 
-	info, err = s.rd.WaitReady(ctx, torrentID, s.cfg.ResolveTimeout)
+	info, err = s.rd.WaitReady(ctx, torrentID, s.cfg.ResolveTimeout, info)
 	if err != nil {
 		return nil, err
 	}
@@ -332,6 +314,16 @@ func cloneJob(job *Job) *Job {
 		copy.Sources = append([]Source(nil), job.Sources...)
 	}
 	return &copy
+}
+
+func normalizeResolveKey(req Request) string {
+	if infoHash := strings.ToLower(strings.TrimSpace(req.InfoHash)); infoHash != "" {
+		return "hash:" + infoHash
+	}
+	if magnet := strings.ToLower(strings.TrimSpace(req.Magnet)); magnet != "" {
+		return "magnet:" + magnet
+	}
+	return ""
 }
 
 func toSources(releases []search.Release, instant map[string]bool) []Source {

@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Authenticated, Unauthenticated } from "convex/react";
+import { MobileNavMenu } from "@/components/layout/MobileNavMenu";
 import { StreamModeToggle } from "@/components/layout/StreamModeToggle";
 import { UserMenu } from "@/components/UserMenu";
 import { Button } from "@/components/ui/button";
@@ -30,7 +31,7 @@ export function Navbar() {
       return;
     }
 
-    navigate(`/search?q=${encodeURIComponent(trimmedQuery)}`);
+    void navigate(`/search?q=${encodeURIComponent(trimmedQuery)}`);
   }
 
   return (
@@ -96,11 +97,19 @@ export function Navbar() {
               ) : null}
             </div>
           </form>
+          <MobileNavMenu />
           <Authenticated>
-            <UserMenu>{user?.name ?? user?.email ?? "Account"}</UserMenu>
+            <div className="hidden md:block">
+              <UserMenu>{user?.name ?? user?.email ?? "Account"}</UserMenu>
+            </div>
           </Authenticated>
           <Unauthenticated>
-            <Button asChild variant="outline" size="sm" className="border-zinc-600 bg-black/40">
+            <Button
+              asChild
+              variant="outline"
+              size="sm"
+              className="hidden border-zinc-600 bg-black/40 md:inline-flex"
+            >
               <Link to="/sign-in">Sign In</Link>
             </Button>
           </Unauthenticated>

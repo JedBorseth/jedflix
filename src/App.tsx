@@ -6,6 +6,7 @@ import { MovieDetailPage } from "@/pages/MovieDetailPage";
 import { MyListPage } from "@/pages/MyListPage";
 import { SignInForm } from "@/components/auth/SignInForm";
 import { SearchPage } from "@/pages/SearchPage";
+import { SettingsPage } from "@/pages/SettingsPage";
 
 const WatchPage = lazy(() =>
   import("@/pages/WatchPage").then((module) => ({ default: module.WatchPage })),
@@ -41,6 +42,7 @@ const router = createBrowserRouter([
       { path: "/watch/:mediaType/:mediaId", element: <LazyWatchPage /> },
       { path: "/search", element: <SearchPage /> },
       { path: "/my-list", element: <MyListPage /> },
+      { path: "/settings", element: <SettingsPage /> },
       { path: "/sign-in", element: <SignInForm /> },
       { path: "*", element: <Navigate to="/" replace /> },
     ],

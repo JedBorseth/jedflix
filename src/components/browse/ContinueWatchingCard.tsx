@@ -1,7 +1,6 @@
 import { Link } from "react-router-dom";
 import type { WatchHistoryItem } from "@/lib/watchHistory";
 import { getWatchPath } from "@/lib/tmdb";
-import { mediaKey } from "@/lib/watchHistory";
 
 type ContinueWatchingCardProps = {
   item: WatchHistoryItem;
@@ -33,8 +32,4 @@ export function ContinueWatchingCard({ item }: ContinueWatchingCardProps) {
       </p>
     </Link>
   );
-}
-
-export function getWatchHistoryItemKey(item: WatchHistoryItem) {
-  return mediaKey(item.mediaType, item.movieId);
 }

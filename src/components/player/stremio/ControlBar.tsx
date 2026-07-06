@@ -1,6 +1,8 @@
 // Copyright (C) 2017-2023 Smart code 203358507
 // Adapted for JedFlix
 
+import { toDisplaySeconds, toPlayerTimeMs } from "./time";
+
 type ControlBarProps = {
   paused: boolean;
   time: number;
@@ -11,18 +13,6 @@ type ControlBarProps = {
   onSkipBackward: () => void;
   onSkipForward: () => void;
 };
-
-/** @stremio/stremio-video HTMLVideo reports time and duration in milliseconds. */
-export function toDisplaySeconds(timeMs: number): number {
-  if (!Number.isFinite(timeMs) || timeMs < 0) {
-    return 0;
-  }
-  return timeMs / 1000;
-}
-
-export function toPlayerTimeMs(seconds: number): number {
-  return Math.round(seconds * 1000);
-}
 
 function formatTime(totalSeconds: number): string {
   const safeSeconds = Math.floor(Math.max(0, totalSeconds));

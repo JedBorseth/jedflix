@@ -59,7 +59,7 @@ test("MovieCard assigns transition name only to the clicked poster", () => {
   const cards = screen.getAllByTestId("movie-card");
   const images = screen.getAllByRole("img");
 
-  fireEvent.click(cards[1]!);
+  fireEvent.click(cards[1]);
 
   expect(images[0]?.style.viewTransitionName || "").toBe("");
   expect(images[1]?.style.viewTransitionName).toBe("poster-expand");
@@ -75,7 +75,7 @@ test("MovieCard clears an existing poster transition name before navigation", ()
   const cards = screen.getAllByTestId("movie-card");
   const images = screen.getAllByRole("img");
 
-  fireEvent.click(cards[0]!);
+  fireEvent.click(cards[0]);
 
   expect(existingDetailPoster.style.viewTransitionName).toBe("");
   expect(images[0]?.style.viewTransitionName).toBe("poster-expand");

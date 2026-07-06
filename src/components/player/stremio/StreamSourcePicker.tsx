@@ -7,6 +7,8 @@ type StreamSourcePickerProps = {
   sources: StreamSource[];
   loading: boolean;
   error?: string;
+  disabled?: boolean;
+  selectedId?: string;
   onSelect: (source: StreamSource) => void;
   onRetry: () => void;
 };
@@ -22,6 +24,8 @@ export function StreamSourcePicker({
   sources,
   loading,
   error,
+  disabled = false,
+  selectedId,
   onSelect,
   onRetry,
 }: StreamSourcePickerProps) {
@@ -57,7 +61,10 @@ export function StreamSourcePicker({
               <li key={source.id}>
                 <button
                   type="button"
-                  className="player-source-item"
+                  className={`player-source-item ${
+                    selectedId === source.id ? "player-source-item-selected" : ""
+                  }`}
+                  disabled={disabled}
                   onClick={() => onSelect(source)}
                 >
                   <div className="player-source-title">{source.title}</div>
