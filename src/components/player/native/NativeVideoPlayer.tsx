@@ -5,6 +5,8 @@ import { useMutation } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { useScreenOrientationLock } from "@/hooks/useScreenOrientationLock";
 import { fetchSources, resolveStreamUrl, type StreamMode, type StreamSource } from "@/lib/streamApi";
+import { copyTextToClipboard } from "@/lib/clipboard";
+import { IOS_PLAYBACK_ERROR_HINT, isIosDevice, sortSourcesForIosPlayback } from "@/lib/iosPlayback";
 import type { MediaType } from "@/lib/types";
 import { StreamSourcePicker } from "../stremio/StreamSourcePicker";
 import { useStreamResolve } from "../stremio/useStreamResolve";
@@ -47,7 +49,9 @@ export function NativeVideoPlayer({
   const [showSourcePicker, setShowSourcePicker] = useState(true);
   const [fallbackProgress, setFallbackProgress] = useState<string | null>(null);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const [clipboardCopied, setClipboardCopied] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [iosCodecWarning, setIosCodecWarning] = useState<string | null>(null);
 
   const upsertProgress = useMutation(api.watchHistory.upsertProgress);
   const saveProgressRef = useRef<DebouncedSaveProgress | null>(null);
@@ -81,12 +85,14 @@ export function NativeVideoPlayer({
     setSelectedSource(null);
     setFallbackProgress(null);
     setPlaybackError(null);
+    setClipboardCopied(false);
+    setIosCodecWarning(null);
     loadedUrlRef.current = null;
     initialProgressAppliedRef.current = false;
     setShowSourcePicker(true);
     try {
       const found = await fetchSources(baseRequest, realDebridApiKey.trim() || undefined);
-      setSources(found);
+      setSources(sortSourcesForIosPlayback(found));
     } catch (error) {
       setSources([]);
       setSourcesError(error instanceof Error ? error.message : "Failed to load streams");
@@ -163,6 +169,12 @@ export function NativeVideoPlayer({
       }
       setFallbackProgress(null);
       setPlaybackError(null);
+      setClipboardCopied(false);
+      setIosCodecWarning(
+        isIosDevice() && /remux|dts|truehd|atmos|ac3|eac3/i.test(source.title)
+          ? "This release may play without audio in Safari. Pick a Web-DL or x264 stream if sound is missing."
+          : null,
+      );
       setSelectedSource(source);
       setShowSourcePicker(false);
     },
@@ -188,9 +200,45 @@ export function NativeVideoPlayer({
     setSelectedSource(nextSource);
   }, [resolveState.errorCode, resolveState.status, selectedSource, sources]);
 
+  const handlePlaybackError = useCallback(() => {
+    setIsPlaying(false);
+    if (!selectedSource) {
+      setPlaybackError(
+        isIosDevice()
+          ? IOS_PLAYBACK_ERROR_HINT
+          : "This stream could not be played on your device. Try another source or use proxy mode.",
+      );
+      return;
+    }
+
+    const currentIndex = sources.findIndex((source) => source.id === selectedSource.id);
+    const nextSource = sources[currentIndex + 1];
+    if (nextSource) {
+      setFallbackProgress(`Trying stream ${currentIndex + 2} of ${sources.length}`);
+      loadedUrlRef.current = null;
+      setSelectedSource(nextSource);
+      return;
+    }
+
+    const message = isIosDevice()
+      ? IOS_PLAYBACK_ERROR_HINT
+      : "This stream could not be played on your device. Try another source or use proxy mode.";
+    setPlaybackError(message);
+    if (absolutePlaybackUrl) {
+      void copyTextToClipboard(absolutePlaybackUrl).then((copied) => {
+        setClipboardCopied(copied);
+      });
+    }
+  }, [absolutePlaybackUrl, selectedSource, sources]);
+
   return (
     <div className="player-container">
-      <div className="player-video-container">
+      <div className="player-video-container relative">
+        {iosCodecWarning ? (
+          <div className="absolute left-0 right-0 top-0 z-20 bg-amber-500/90 px-4 py-2 text-center text-sm text-black">
+            {iosCodecWarning}
+          </div>
+        ) : null}
         <video
           ref={videoRef}
           className="h-full w-full bg-black object-contain"
@@ -214,10 +262,7 @@ export function NativeVideoPlayer({
             }
             saveProgressRef.current?.(Math.floor(video.currentTime));
           }}
-          onError={() => {
-            setPlaybackError("This stream could not be played on your device. Try another source or use proxy mode.");
-            setIsPlaying(false);
-          }}
+          onError={handlePlaybackError}
         />
       </div>
 
@@ -250,10 +295,13 @@ export function NativeVideoPlayer({
       {failed ? (
         <div className="player-error">
           <h2 className="text-xl font-semibold">Unable to play stream</h2>
-          <p className="text-zinc-300">
+          <p className="max-w-lg text-zinc-300">
             {playbackError ?? resolveState.error ?? "Stream resolve failed."}
           </p>
-          <div className="flex gap-3">
+          {clipboardCopied && absolutePlaybackUrl ? (
+            <p className="text-sm text-emerald-400">Stream URL copied to clipboard.</p>
+          ) : null}
+          <div className="flex flex-wrap gap-3">
             <button
               type="button"
               className="rounded-md bg-white px-4 py-2 text-black"
@@ -261,12 +309,26 @@ export function NativeVideoPlayer({
                 setSelectedSource(null);
                 setFallbackProgress(null);
                 setPlaybackError(null);
+                setClipboardCopied(false);
                 loadedUrlRef.current = null;
                 setShowSourcePicker(true);
               }}
             >
               Pick another stream
             </button>
+            {absolutePlaybackUrl ? (
+              <button
+                type="button"
+                className="rounded-md border border-zinc-600 px-4 py-2 text-white"
+                onClick={() => {
+                  void copyTextToClipboard(absolutePlaybackUrl).then((copied) => {
+                    setClipboardCopied(copied);
+                  });
+                }}
+              >
+                Copy stream URL
+              </button>
+            ) : null}
             <Link to={backPath} className="rounded-md border border-zinc-600 px-4 py-2 text-white">
               Back
             </Link>

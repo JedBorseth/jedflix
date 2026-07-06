@@ -36,6 +36,9 @@ export function StreamSourcePicker({
           <h2 className="text-lg font-semibold text-white">Choose a stream</h2>
           <p className="text-sm text-zinc-400">
             Streams are ranked by quality and Real Debrid cache status.
+            {typeof navigator !== "undefined" && /iPad|iPhone|iPod/.test(navigator.userAgent)
+              ? " On iPhone, Web-DL and x264 releases usually work best in Safari."
+              : ""}
           </p>
         </div>
 

@@ -1,3 +1,4 @@
+import { copyTextToClipboard } from "@/lib/clipboard";
 import type { ExternalPlayer } from "@/lib/userSettings";
 
 export type ExternalPlayerPlatform = "ios" | "android" | "desktop";
@@ -59,9 +60,13 @@ export function getExternalPlayerLabel(player: Exclude<ExternalPlayer, "disabled
   return "OutPlayer";
 }
 
-export function openExternalPlayer(
+export async function openExternalPlayer(
   player: Exclude<ExternalPlayer, "disabled">,
   playbackUrl: string,
-): void {
-  window.location.href = buildExternalPlayerUrl(player, playbackUrl);
+): Promise<{ externalUrl: string; absolutePlaybackUrl: string; copied: boolean }> {
+  const absolutePlaybackUrl = toAbsolutePlaybackUrl(playbackUrl);
+  const externalUrl = buildExternalPlayerUrl(player, playbackUrl);
+  const copied = await copyTextToClipboard(absolutePlaybackUrl);
+  window.location.href = externalUrl;
+  return { externalUrl, absolutePlaybackUrl, copied };
 }

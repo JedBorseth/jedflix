@@ -55,16 +55,38 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set(key, value)
 		}
 	}
-	copyHeader("Content-Type")
 	copyHeader("Content-Length")
 	copyHeader("Content-Range")
 	copyHeader("Accept-Ranges")
 	w.Header().Set("Access-Control-Expose-Headers", "Content-Range, Accept-Ranges, Content-Length")
 
+	contentType := resp.Header.Get("Content-Type")
 	if filename := payload.Filename; filename != "" {
 		w.Header().Set("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, filename))
+		if contentType == "" || contentType == "application/octet-stream" {
+			contentType = guessContentType(filename)
+		}
+	}
+	if contentType != "" {
+		w.Header().Set("Content-Type", contentType)
 	}
 
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, resp.Body)
+}
+
+func guessContentType(filename string) string {
+	lower := strings.ToLower(filename)
+	switch {
+	case strings.HasSuffix(lower, ".mkv"):
+		return "video/x-matroska"
+	case strings.HasSuffix(lower, ".webm"):
+		return "video/webm"
+	case strings.HasSuffix(lower, ".m3u8"):
+		return "application/vnd.apple.mpegurl"
+	case strings.HasSuffix(lower, ".mov"):
+		return "video/quicktime"
+	default:
+		return "video/mp4"
+	}
 }

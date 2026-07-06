@@ -5,7 +5,10 @@ import {
   buildExternalPlayerUrl,
   getExternalPlayerLabel,
   openExternalPlayer,
+  toAbsolutePlaybackUrl,
 } from "@/lib/externalPlayer";
+import { copyTextToClipboard } from "@/lib/clipboard";
+import { sortSourcesForIosPlayback } from "@/lib/iosPlayback";
 import type { ExternalPlayer } from "@/lib/userSettings";
 import type { MediaType } from "@/lib/types";
 import { StreamSourcePicker } from "../stremio/StreamSourcePicker";
@@ -43,6 +46,7 @@ export function ExternalPlayerHandoff({
   const [showSourcePicker, setShowSourcePicker] = useState(true);
   const [fallbackProgress, setFallbackProgress] = useState<string | null>(null);
   const [openFailed, setOpenFailed] = useState(false);
+  const [clipboardCopied, setClipboardCopied] = useState(false);
 
   const playerLabel = getExternalPlayerLabel(externalPlayer);
 
@@ -62,11 +66,12 @@ export function ExternalPlayerHandoff({
     setSelectedSource(null);
     setFallbackProgress(null);
     setOpenFailed(false);
+    setClipboardCopied(false);
     openedUrlRef.current = null;
     setShowSourcePicker(true);
     try {
       const found = await fetchSources(baseRequest, realDebridApiKey.trim() || undefined);
-      setSources(found);
+      setSources(sortSourcesForIosPlayback(found));
     } catch (error) {
       setSources([]);
       setSourcesError(error instanceof Error ? error.message : "Failed to load streams");
@@ -105,7 +110,11 @@ export function ExternalPlayerHandoff({
 
     openedUrlRef.current = resolveState.playbackUrl;
     setOpenFailed(false);
-    openExternalPlayer(externalPlayer, resolveState.playbackUrl);
+    setClipboardCopied(false);
+
+    void openExternalPlayer(externalPlayer, resolveState.playbackUrl).then(({ copied }) => {
+      setClipboardCopied(copied);
+    });
 
     const timeout = window.setTimeout(() => {
       setOpenFailed(true);
@@ -113,6 +122,13 @@ export function ExternalPlayerHandoff({
 
     return () => window.clearTimeout(timeout);
   }, [externalPlayer, ready, resolveState.playbackUrl]);
+
+  const absolutePlaybackUrl = useMemo(() => {
+    if (!resolveState.playbackUrl) {
+      return null;
+    }
+    return toAbsolutePlaybackUrl(resolveState.playbackUrl);
+  }, [resolveState.playbackUrl]);
 
   const handleSelectSource = useCallback(
     (source: StreamSource) => {
@@ -124,6 +140,7 @@ export function ExternalPlayerHandoff({
       }
       setFallbackProgress(null);
       setOpenFailed(false);
+      setClipboardCopied(false);
       openedUrlRef.current = null;
       setSelectedSource(source);
       setShowSourcePicker(false);
@@ -167,13 +184,35 @@ export function ExternalPlayerHandoff({
                 ? ` · S${season}E${episode}`
                 : ""}
             </p>
+            {clipboardCopied ? (
+              <p className="text-sm text-emerald-400">Stream URL copied to clipboard.</p>
+            ) : absolutePlaybackUrl ? (
+              <p className="text-sm text-zinc-500">
+                If {playerLabel} does not open, paste the stream URL manually.
+              </p>
+            ) : null}
             {openFailed && externalUrl ? (
-              <a
-                href={externalUrl}
-                className="inline-block rounded-md bg-white px-4 py-2 text-black"
-              >
-                Open in {playerLabel}
-              </a>
+              <div className="flex flex-wrap items-center justify-center gap-3">
+                <a
+                  href={externalUrl}
+                  className="inline-block rounded-md bg-white px-4 py-2 text-black"
+                >
+                  Open in {playerLabel}
+                </a>
+                {absolutePlaybackUrl ? (
+                  <button
+                    type="button"
+                    className="rounded-md border border-zinc-600 px-4 py-2 text-white"
+                    onClick={() => {
+                      void copyTextToClipboard(absolutePlaybackUrl).then((copied) => {
+                        setClipboardCopied(copied);
+                      });
+                    }}
+                  >
+                    Copy stream URL
+                  </button>
+                ) : null}
+              </div>
             ) : null}
             <div>
               <Link to={backPath} className="text-sm text-zinc-400 underline">
