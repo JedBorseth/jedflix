@@ -1,4 +1,5 @@
 import { copyTextToClipboard } from "@/lib/clipboard";
+import { resolveStreamUrl } from "@/lib/streamApi";
 import type { ExternalPlayer } from "@/lib/userSettings";
 
 export type ExternalPlayerPlatform = "ios" | "android" | "desktop";
@@ -19,10 +20,14 @@ export function detectExternalPlayerPlatform(): ExternalPlayerPlatform {
 }
 
 export function toAbsolutePlaybackUrl(playbackUrl: string): string {
-  if (playbackUrl.startsWith("http://") || playbackUrl.startsWith("https://")) {
-    return playbackUrl;
+  const resolved = resolveStreamUrl(playbackUrl);
+  if (resolved.startsWith("http://") || resolved.startsWith("https://")) {
+    return resolved;
   }
-  return new URL(playbackUrl, window.location.origin).href;
+  if (typeof window === "undefined") {
+    return resolved;
+  }
+  return new URL(resolved, window.location.origin).href;
 }
 
 export function buildExternalPlayerUrl(
@@ -33,9 +38,6 @@ export function buildExternalPlayerUrl(
   const absoluteUrl = toAbsolutePlaybackUrl(playbackUrl);
 
   if (player === "outplayer") {
-    if (platform === "ios") {
-      return `outplayer://${absoluteUrl.replace(/^https?:\/\//, "")}`;
-    }
     return `outplayer://${absoluteUrl}`;
   }
 

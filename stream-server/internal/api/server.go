@@ -36,7 +36,7 @@ func (s *Server) Router() http.Handler {
 
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   s.cfg.CORSOrigins,
-		AllowedMethods:   []string{"GET", "POST", "OPTIONS"},
+		AllowedMethods:   []string{"GET", "HEAD", "POST", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "Range"},
 		ExposedHeaders:   []string{"Content-Range", "Accept-Ranges", "Content-Length"},
 		AllowCredentials: false,

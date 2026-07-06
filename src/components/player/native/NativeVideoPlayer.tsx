@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import { useMutation } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
 import { useScreenOrientationLock } from "@/hooks/useScreenOrientationLock";
-import { fetchSources, resolveStreamUrl, type StreamMode, type StreamSource } from "@/lib/streamApi";
+import { fetchSources, type StreamMode, type StreamSource } from "@/lib/streamApi";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { IOS_PLAYBACK_ERROR_HINT, isIosDevice, sortSourcesForIosPlayback } from "@/lib/iosPlayback";
 import type { MediaType } from "@/lib/types";
@@ -128,7 +128,7 @@ export function NativeVideoPlayer({
     if (!resolveState.playbackUrl) {
       return null;
     }
-    return resolveStreamUrl(resolveState.playbackUrl);
+    return resolveState.playbackUrl;
   }, [resolveState.playbackUrl]);
 
   useEffect(() => {

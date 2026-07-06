@@ -28,7 +28,7 @@ describe("externalPlayer", () => {
       "https://example.com/video.mkv",
       "ios",
     );
-    expect(url).toBe("outplayer://example.com/video.mkv");
+    expect(url).toBe("outplayer://https://example.com/video.mkv");
   });
 
   test("builds VLC desktop deep link", () => {

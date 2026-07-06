@@ -20,6 +20,11 @@ func NewHandler(signer *Signer, client *http.Client) *Handler {
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
 	token := strings.TrimPrefix(r.URL.Path, "/api/v1/proxy/")
 	if token == "" || token == r.URL.Path {
 		http.Error(w, "missing token", http.StatusBadRequest)
@@ -32,7 +37,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	upstreamReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, payload.URL, nil)
+	upstreamReq, err := http.NewRequestWithContext(r.Context(), r.Method, payload.URL, nil)
 	if err != nil {
 		http.Error(w, "failed to create upstream request", http.StatusInternalServerError)
 		return
@@ -58,6 +63,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	copyHeader("Content-Length")
 	copyHeader("Content-Range")
 	copyHeader("Accept-Ranges")
+	if resp.Header.Get("Accept-Ranges") == "" {
+		w.Header().Set("Accept-Ranges", "bytes")
+	}
 	w.Header().Set("Access-Control-Expose-Headers", "Content-Range, Accept-Ranges, Content-Length")
 
 	contentType := resp.Header.Get("Content-Type")
@@ -72,6 +80,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(resp.StatusCode)
+	if r.Method == http.MethodHead {
+		return
+	}
 	_, _ = io.Copy(w, resp.Body)
 }
 

@@ -64,7 +64,11 @@ export function resolveStreamUrl(relativeOrAbsolute: string): string {
   if (relativeOrAbsolute.startsWith("http://") || relativeOrAbsolute.startsWith("https://")) {
     return relativeOrAbsolute;
   }
-  return `${API_BASE.replace(/\/$/, "")}${relativeOrAbsolute.startsWith("/") ? "" : "/"}${relativeOrAbsolute}`;
+  const base = API_BASE.replace(/\/$/, "");
+  if (relativeOrAbsolute.startsWith(`${base}/`) || relativeOrAbsolute === base) {
+    return relativeOrAbsolute;
+  }
+  return `${base}${relativeOrAbsolute.startsWith("/") ? "" : "/"}${relativeOrAbsolute}`;
 }
 
 /** Direct mode plays from Real Debrid CDN; proxy mode uses the Go byte-serving proxy. */
@@ -73,6 +77,11 @@ export function getPlaybackUrl(stream: StreamResult): string {
     return stream.directUrl ?? stream.url;
   }
   return resolveStreamUrl(stream.url);
+}
+
+/** External players should use the Real Debrid CDN URL so they can play any codec and avoid app auth on the proxy. */
+export function getExternalPlaybackUrl(stream: StreamResult): string {
+  return stream.directUrl ?? getPlaybackUrl(stream);
 }
 
 export async function fetchSources(

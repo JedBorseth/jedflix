@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { fetchSources, type StreamMode, type StreamSource } from "@/lib/streamApi";
+import { fetchSources, getExternalPlaybackUrl, type StreamMode, type StreamSource } from "@/lib/streamApi";
 import {
   buildExternalPlayerUrl,
   getExternalPlayerLabel,
@@ -101,18 +101,24 @@ export function ExternalPlayerHandoff({
   const resolveState = useStreamResolve(resolveRequest, selectedSource);
   const resolving = resolveState.status === "downloading";
   const failed = resolveState.status === "failed";
-  const ready = resolveState.status === "ready" && Boolean(resolveState.playbackUrl);
+  const externalPlaybackUrl = useMemo(() => {
+    if (!resolveState.stream) {
+      return null;
+    }
+    return getExternalPlaybackUrl(resolveState.stream);
+  }, [resolveState.stream]);
+  const ready = resolveState.status === "ready" && Boolean(externalPlaybackUrl);
 
   useEffect(() => {
-    if (!ready || !resolveState.playbackUrl || openedUrlRef.current === resolveState.playbackUrl) {
+    if (!ready || !externalPlaybackUrl || openedUrlRef.current === externalPlaybackUrl) {
       return;
     }
 
-    openedUrlRef.current = resolveState.playbackUrl;
+    openedUrlRef.current = externalPlaybackUrl;
     setOpenFailed(false);
     setClipboardCopied(false);
 
-    void openExternalPlayer(externalPlayer, resolveState.playbackUrl).then(({ copied }) => {
+    void openExternalPlayer(externalPlayer, externalPlaybackUrl).then(({ copied }) => {
       setClipboardCopied(copied);
     });
 
@@ -121,14 +127,14 @@ export function ExternalPlayerHandoff({
     }, 2500);
 
     return () => window.clearTimeout(timeout);
-  }, [externalPlayer, ready, resolveState.playbackUrl]);
+  }, [externalPlaybackUrl, externalPlayer, ready]);
 
   const absolutePlaybackUrl = useMemo(() => {
-    if (!resolveState.playbackUrl) {
+    if (!externalPlaybackUrl) {
       return null;
     }
-    return toAbsolutePlaybackUrl(resolveState.playbackUrl);
-  }, [resolveState.playbackUrl]);
+    return toAbsolutePlaybackUrl(externalPlaybackUrl);
+  }, [externalPlaybackUrl]);
 
   const handleSelectSource = useCallback(
     (source: StreamSource) => {
@@ -168,8 +174,8 @@ export function ExternalPlayerHandoff({
   }, [resolveState.errorCode, resolveState.status, selectedSource, sources]);
 
   const externalUrl =
-    resolveState.playbackUrl && ready
-      ? buildExternalPlayerUrl(externalPlayer, resolveState.playbackUrl)
+    externalPlaybackUrl && ready
+      ? buildExternalPlayerUrl(externalPlayer, externalPlaybackUrl)
       : null;
 
   return (
