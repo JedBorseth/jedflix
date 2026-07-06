@@ -20,6 +20,7 @@ const currentMovie: MediaItem = {
   backdropUrl: "https://image.tmdb.org/t/p/w1280/toy-story-2-bg.jpg",
   genre: "Animation",
   year: 1999,
+  releaseDate: "1999-11-24",
   durationMinutes: 92,
   rating: "G",
 };
@@ -33,6 +34,7 @@ const similarMovie: MediaItem = {
   backdropUrl: "https://image.tmdb.org/t/p/w1280/toy-story-4-bg.jpg",
   genre: "Animation",
   year: 2019,
+  releaseDate: "2019-06-21",
   durationMinutes: 100,
   rating: "G",
 };
@@ -46,6 +48,7 @@ const thirdMovie: MediaItem = {
   backdropUrl: "https://image.tmdb.org/t/p/w1280/toy-story-3-bg.jpg",
   genre: "Animation",
   year: 2010,
+  releaseDate: "2010-06-18",
   durationMinutes: 103,
   rating: "G",
 };
@@ -59,6 +62,7 @@ const neonHorizon: MediaItem = {
   backdropUrl: "https://picsum.photos/seed/neon-horizon-bg/1920/1080",
   genre: "Sci-Fi",
   year: 2024,
+  releaseDate: "2024-01-01",
   durationMinutes: 128,
   rating: "PG-13",
 };

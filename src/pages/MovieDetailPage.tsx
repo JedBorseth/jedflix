@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Link, useLocation, useParams } from "react-router-dom";
+import { useLocation, useParams } from "react-router-dom";
 import { AppLink } from "@/components/layout/AppLink";
+import { MediaPlayButton } from "@/components/browse/MediaPlayButton";
 import { Navbar } from "@/components/layout/Navbar";
 import { Button } from "@/components/ui/button";
 import type { MediaItem, MediaType } from "@/lib/types";
@@ -13,6 +14,7 @@ import {
   shouldApplyDetailPosterTransitionName,
 } from "@/lib/posterTransition";
 import { SimilarTitlesRow } from "@/components/browse/SimilarTitlesRow";
+import { CastRow } from "@/components/browse/CastRow";
 import { DetailPageSkeleton } from "@/components/ui/skeleton";
 import { EpisodePicker } from "@/components/browse/EpisodePicker";
 import { AddToMyListButton } from "@/components/mylist/AddToMyListButton";
@@ -147,15 +149,19 @@ export function MovieDetailPage({ mediaType }: MovieDetailPageProps) {
             <p className="mb-8 max-w-2xl text-zinc-200">
               {routeMovie?.description ?? displayMovie.description}
             </p>
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap items-start gap-3">
               {displayMovie.mediaType === "movie" ? (
-                <Button asChild size="lg" className="bg-white text-black hover:bg-zinc-200">
-                  <Link to={getWatchPath("movie", displayMovie.id)}>Play</Link>
-                </Button>
+                <MediaPlayButton
+                  media={displayMovie}
+                  to={getWatchPath("movie", displayMovie.id)}
+                />
               ) : (
-                <Button asChild size="lg" className="bg-white text-black hover:bg-zinc-200">
-                  <a href="#episodes">Browse Episodes</a>
-                </Button>
+                <MediaPlayButton
+                  media={displayMovie}
+                  to="#episodes"
+                  label="Browse Episodes"
+                  useAnchor
+                />
               )}
               <AddToMyListButton
                 movieId={displayMovie.id}
@@ -170,6 +176,12 @@ export function MovieDetailPage({ mediaType }: MovieDetailPageProps) {
           </div>
         </div>
       </section>
+
+      <CastRow
+        key={`cast-${displayMovie.mediaType}-${displayMovie.id}`}
+        mediaType={displayMovie.mediaType}
+        mediaId={displayMovie.id}
+      />
 
       {displayMovie.mediaType === "movie" ? (
         <SimilarTitlesRow

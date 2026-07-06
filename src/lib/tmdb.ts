@@ -1,4 +1,11 @@
-import type { MediaItem, MediaType } from "@/lib/types";
+import type {
+  CastMember,
+  FilmographyItem,
+  MediaItem,
+  MediaType,
+  PersonDetails,
+  PersonSummary,
+} from "@/lib/types";
 
 const TMDB_API_BASE = "https://api.themoviedb.org/3";
 const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p";
@@ -6,6 +13,14 @@ const FALLBACK_POSTER =
   "https://placehold.co/500x750/18181b/a1a1aa?text=No+Poster";
 const FALLBACK_BACKDROP =
   "https://placehold.co/1280x720/09090b/a1a1aa?text=No+Backdrop";
+const FALLBACK_PROFILE =
+  "https://placehold.co/300x450/18181b/a1a1aa?text=No+Photo";
+const MAX_CAST_SIZE = 20;
+const KNOWN_FOR_LIMIT = 12;
+
+type FilmographyCredit = FilmographyItem & {
+  popularity: number;
+};
 
 type TmdbListResponse<T> = {
   results: T[];
@@ -24,10 +39,55 @@ type TmdbListItem = {
   overview?: string;
   poster_path?: string | null;
   backdrop_path?: string | null;
+  profile_path?: string | null;
   release_date?: string;
   first_air_date?: string;
   vote_average?: number;
   genre_ids?: number[];
+  known_for?: TmdbListItem[];
+};
+
+type TmdbCastMember = {
+  id: number;
+  name: string;
+  character?: string;
+  profile_path?: string | null;
+};
+
+type TmdbCreditsResponse = {
+  cast: TmdbCastMember[];
+};
+
+type TmdbPersonDetails = {
+  id: number;
+  name: string;
+  biography?: string;
+  birthday?: string | null;
+  profile_path?: string | null;
+};
+
+type TmdbCombinedCredit = {
+  id: number;
+  media_type?: MediaType;
+  title?: string;
+  name?: string;
+  overview?: string;
+  poster_path?: string | null;
+  backdrop_path?: string | null;
+  release_date?: string;
+  first_air_date?: string;
+  vote_average?: number;
+  popularity?: number;
+  character?: string;
+};
+
+type TmdbCombinedCreditsResponse = {
+  cast: TmdbCombinedCredit[];
+};
+
+export type SearchResults = {
+  media: MediaItem[];
+  people: PersonSummary[];
 };
 
 type TmdbMovieDetails = TmdbListItem & {
@@ -105,6 +165,91 @@ export async function searchMedia(
   return data.results
     .map((item) => normalizeMediaItem(item, mediaType))
     .filter((item): item is MediaItem => item !== null);
+}
+
+export async function searchAll(query: string): Promise<SearchResults> {
+  const data = await tmdbFetch<TmdbListResponse<TmdbListItem>>("/search/multi", {
+    include_adult: false,
+    language: "en-US",
+    page: 1,
+    query,
+  });
+
+  const media: MediaItem[] = [];
+  const people: PersonSummary[] = [];
+
+  for (const item of data.results) {
+    if (item.media_type === "person") {
+      const person = normalizePersonSummary(item);
+      if (person) {
+        people.push(person);
+      }
+      continue;
+    }
+
+    const normalized = normalizeMediaItem(item);
+    if (normalized) {
+      media.push(normalized);
+    }
+  }
+
+  return { media, people };
+}
+
+export async function getMediaCredits(
+  mediaType: MediaType,
+  id: number,
+): Promise<CastMember[]> {
+  const endpoint =
+    mediaType === "movie"
+      ? `/movie/${id}/credits`
+      : `/tv/${id}/aggregate_credits`;
+
+  const data = await tmdbFetch<TmdbCreditsResponse>(endpoint, { language: "en-US" });
+
+  return data.cast.slice(0, MAX_CAST_SIZE).map((member) => ({
+    id: member.id,
+    name: member.name,
+    character: member.character ?? "Unknown role",
+    profileUrl: profileUrl(member.profile_path),
+  }));
+}
+
+export async function getPersonDetails(id: number): Promise<PersonDetails | null> {
+  const [person, creditsResponse] = await Promise.all([
+    tmdbFetch<TmdbPersonDetails>(`/person/${id}`, { language: "en-US" }),
+    tmdbFetch<TmdbCombinedCreditsResponse>(`/person/${id}/combined_credits`, {
+      language: "en-US",
+    }),
+  ]);
+
+  if (!person.name) {
+    return null;
+  }
+
+  const credits = dedupeFilmographyCredits(
+    creditsResponse.cast
+      .map((credit) => normalizeFilmographyCredit(credit))
+      .filter((item): item is FilmographyCredit => item !== null),
+  );
+
+  const filmography = [...credits]
+    .sort((left, right) => (right.year ?? 0) - (left.year ?? 0))
+    .map(stripFilmographyPopularity);
+
+  return {
+    id: person.id,
+    name: person.name,
+    profileUrl: profileUrl(person.profile_path),
+    biography: person.biography?.trim() || "No biography available.",
+    birthday: person.birthday ?? null,
+    knownFor: pickKnownFor(credits, person.biography?.trim() || ""),
+    filmography,
+  };
+}
+
+export function getPersonPath(id: number) {
+  return `/person/${id}`;
 }
 
 export async function getMediaDetails(
@@ -276,6 +421,7 @@ function normalizeMediaItem(
     posterUrl: imageUrl(item.poster_path, "w500", FALLBACK_POSTER),
     backdropUrl: imageUrl(item.backdrop_path, "w1280", FALLBACK_BACKDROP),
     year: getYear(item.release_date ?? item.first_air_date),
+    releaseDate: item.release_date ?? item.first_air_date ?? null,
     rating: formatVoteAverage(item.vote_average),
   };
 }
@@ -307,6 +453,145 @@ function imageUrl(
   fallback: string,
 ) {
   return path ? `${TMDB_IMAGE_BASE}/${size}${path}` : fallback;
+}
+
+function profileUrl(path: string | null | undefined) {
+  return path ? `${TMDB_IMAGE_BASE}/w500${path}` : FALLBACK_PROFILE;
+}
+
+function normalizePersonSummary(item: TmdbListItem): PersonSummary | null {
+  if (!item.name) {
+    return null;
+  }
+
+  const knownForTitles = item.known_for
+    ?.map((credit) => credit.title ?? credit.name)
+    .filter((title): title is string => Boolean(title))
+    .slice(0, 3);
+
+  return {
+    id: item.id,
+    name: item.name,
+    profileUrl: profileUrl(item.profile_path),
+    knownFor: knownForTitles?.length ? knownForTitles.join(", ") : undefined,
+  };
+}
+
+function normalizeFilmographyCredit(credit: TmdbCombinedCredit): FilmographyCredit | null {
+  const normalized = normalizeMediaItem(credit);
+  if (!normalized || !credit.poster_path) {
+    return null;
+  }
+
+  return {
+    ...normalized,
+    character: credit.character || undefined,
+    popularity: credit.popularity ?? 0,
+  };
+}
+
+function pickKnownFor(items: FilmographyCredit[], biography: string): FilmographyItem[] {
+  const highlighted = findBiographyHighlightedCredits(items, biography);
+  const highlightedKeys = new Set(
+    highlighted.map((item) => `${item.mediaType}-${item.id}`),
+  );
+
+  const remaining = [...items]
+    .filter((item) => !highlightedKeys.has(`${item.mediaType}-${item.id}`))
+    .sort((left, right) => right.popularity - left.popularity);
+
+  return [...highlighted, ...remaining]
+    .slice(0, KNOWN_FOR_LIMIT)
+    .map(stripFilmographyPopularity);
+}
+
+function findBiographyHighlightedCredits(
+  items: FilmographyCredit[],
+  biography: string,
+): FilmographyCredit[] {
+  if (!biography) {
+    return [];
+  }
+
+  const highlighted: Array<{ item: FilmographyCredit; index: number }> = [];
+
+  for (const item of items) {
+    const matchIndex = findBiographyTitleMention(biography, item);
+    if (matchIndex >= 0) {
+      highlighted.push({ item, index: matchIndex });
+    }
+  }
+
+  highlighted.sort((left, right) => left.index - right.index);
+
+  const seen = new Set<string>();
+  const results: FilmographyCredit[] = [];
+  for (const { item } of highlighted) {
+    const key = `${item.mediaType}-${item.id}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      results.push(item);
+    }
+  }
+
+  return results;
+}
+
+function findBiographyTitleMention(biography: string, item: FilmographyCredit): number {
+  const titlePattern = escapeRegExp(item.title);
+
+  if (item.year !== null) {
+    const exactYearPattern = new RegExp(
+      `${titlePattern}\\s\\(${item.year}(?:[–\\-][^)]*)?\\)`,
+      "i",
+    );
+    const exactYearMatch = exactYearPattern.exec(biography);
+    if (exactYearMatch) {
+      return exactYearMatch.index;
+    }
+  }
+
+  const titleYearPattern = new RegExp(`${titlePattern}\\s\\((\\d{4})`, "i");
+  const titleYearMatch = titleYearPattern.exec(biography);
+  if (!titleYearMatch) {
+    return -1;
+  }
+
+  const mentionYear = Number(titleYearMatch[1]);
+  if (
+    item.year !== null &&
+    item.year !== mentionYear &&
+    Math.abs(item.year - mentionYear) > 1
+  ) {
+    return -1;
+  }
+
+  return titleYearMatch.index;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function dedupeFilmographyCredits(items: FilmographyCredit[]): FilmographyCredit[] {
+  const bestByKey = new Map<string, FilmographyCredit>();
+
+  for (const item of items) {
+    const key = `${item.mediaType}-${item.id}`;
+    const existing = bestByKey.get(key);
+    if (!existing || item.popularity > existing.popularity) {
+      bestByKey.set(key, item);
+    }
+  }
+
+  return [...bestByKey.values()];
+}
+
+function stripFilmographyPopularity({
+  popularity: _popularity,
+  ...item
+}: FilmographyCredit): FilmographyItem {
+  return item;
 }
 
 function getYear(date: string | undefined): number | null {

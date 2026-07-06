@@ -13,6 +13,7 @@ const movie: MediaItem = {
   backdropUrl: "https://picsum.photos/seed/neon-horizon-bg/1920/1080",
   genre: "Sci-Fi",
   year: 2024,
+  releaseDate: "2024-01-01",
   durationMinutes: 128,
   rating: "PG-13",
 };

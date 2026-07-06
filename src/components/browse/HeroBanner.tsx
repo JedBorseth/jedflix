@@ -1,5 +1,5 @@
-import { Link } from "react-router-dom";
 import { AppLink } from "@/components/layout/AppLink";
+import { MediaPlayButton } from "@/components/browse/MediaPlayButton";
 import { Button } from "@/components/ui/button";
 import type { MediaItem } from "@/lib/types";
 import { formatDuration } from "@/lib/types";
@@ -34,18 +34,15 @@ export function HeroBanner({ movie }: HeroBannerProps) {
           {movie.durationMinutes ? <span>{formatDuration(movie.durationMinutes)}</span> : null}
           {movie.genre ? <span>{movie.genre}</span> : null}
         </div>
-        <div className="flex flex-wrap gap-3">
-          <Button asChild size="lg" className="bg-white text-black hover:bg-zinc-200">
-            <Link
-              to={
-                movie.mediaType === "movie"
-                  ? getWatchPath("movie", movie.id)
-                  : getMediaDetailPath(movie)
-              }
-            >
-              Play
-            </Link>
-          </Button>
+        <div className="flex flex-wrap items-start gap-3">
+          <MediaPlayButton
+            media={movie}
+            to={
+              movie.mediaType === "movie"
+                ? getWatchPath("movie", movie.id)
+                : getMediaDetailPath(movie)
+            }
+          />
           <Button
             asChild
             size="lg"

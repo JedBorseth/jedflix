@@ -23,6 +23,7 @@ const movie: MediaItem = {
   posterUrl: "https://example.com/poster.jpg",
   backdropUrl: "https://example.com/backdrop.jpg",
   year: 2024,
+  releaseDate: "2024-01-01",
   rating: "7.0 TMDB",
 };
 

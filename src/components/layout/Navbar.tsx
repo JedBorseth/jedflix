@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
-import { MagnifyingGlassIcon } from "@radix-ui/react-icons";
+import { MagnifyingGlassIcon, GearIcon } from "@radix-ui/react-icons";
 
 export function Navbar() {
   const user = useQuery(api.users.viewer);
@@ -91,28 +91,38 @@ export function Navbar() {
                       setIsSearchOpen(false);
                     }
                   }}
-                  placeholder="Search titles"
+                  placeholder="Search movies, shows, or cast"
                   className="h-10 border-0 bg-transparent px-1 text-base text-white placeholder:text-zinc-500 focus-visible:ring-0 md:h-9 md:text-sm"
                 />
               ) : null}
             </div>
           </form>
           <MobileNavMenu />
-          <Authenticated>
-            <div className="hidden md:block">
-              <UserMenu>{user?.name ?? user?.email ?? "Account"}</UserMenu>
-            </div>
-          </Authenticated>
-          <Unauthenticated>
+          <div className="hidden items-center gap-3 md:flex">
+            <Unauthenticated>
+              <Button
+                asChild
+                variant="outline"
+                size="sm"
+                className="border-zinc-600 bg-black/40"
+              >
+                <Link to="/sign-in">Sign In</Link>
+              </Button>
+            </Unauthenticated>
             <Button
               asChild
               variant="outline"
-              size="sm"
-              className="hidden border-zinc-600 bg-black/40 md:inline-flex"
+              size="icon"
+              className="h-9 w-9 shrink-0 border-zinc-600 bg-black/40 text-zinc-200 hover:bg-zinc-900 hover:text-white"
             >
-              <Link to="/sign-in">Sign In</Link>
+              <AppLink to="/settings" aria-label="Settings">
+                <GearIcon className="h-5 w-5" />
+              </AppLink>
             </Button>
-          </Unauthenticated>
+            <Authenticated>
+              <UserMenu>{user?.name ?? user?.email ?? "Account"}</UserMenu>
+            </Authenticated>
+          </div>
         </div>
       </nav>
     </header>

@@ -1,12 +1,35 @@
 import { useAuthActions } from "@convex-dev/auth/react";
 import { GearIcon } from "@radix-ui/react-icons";
 import { Authenticated, Unauthenticated } from "convex/react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { ThemeToggle } from "@/components/ThemeToggle";
-import { Button } from "@/components/ui/button";
+import { AppLink } from "@/components/layout/AppLink";
 import { StreamModeControl } from "@/components/layout/StreamModeToggle";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+
+const accountButtonClassName =
+  "h-8 w-auto border-zinc-700 bg-zinc-900/80 px-3 text-zinc-100 hover:bg-zinc-800 hover:text-white";
+
+function MenuLink({
+  to,
+  children,
+  onClick,
+}: {
+  to: string;
+  children: ReactNode;
+  onClick?: () => void;
+}) {
+  return (
+    <AppLink
+      to={to}
+      onClick={onClick}
+      className="inline-flex rounded-md px-3 py-2 text-sm text-zinc-200 transition hover:bg-zinc-900 hover:text-white"
+    >
+      {children}
+    </AppLink>
+  );
+}
 
 export function MobileNavMenu() {
   const [isOpen, setIsOpen] = useState(false);
@@ -52,7 +75,7 @@ export function MobileNavMenu() {
         <button
           type="button"
           className="flex h-10 w-9 shrink-0 items-center justify-center text-zinc-200 transition hover:text-white"
-          aria-label={isOpen ? "Close settings menu" : "Open settings menu"}
+          aria-label={isOpen ? "Close menu" : "Open menu"}
           aria-expanded={isOpen}
           onClick={() => setIsOpen((open) => !open)}
         >
@@ -62,58 +85,81 @@ export function MobileNavMenu() {
 
       <div
         className={cn(
-          "absolute right-0 top-12 w-72 origin-top-right overflow-hidden rounded-lg border border-zinc-800 bg-black/95 p-3 text-sm text-zinc-200 shadow-2xl transition-all duration-200",
+          "absolute right-0 top-12 w-64 origin-top-right overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950/95 p-3 text-sm text-zinc-200 shadow-2xl backdrop-blur-md transition-all duration-200",
           isOpen
             ? "scale-100 opacity-100"
             : "pointer-events-none scale-95 opacity-0",
         )}
       >
-        <div className="space-y-3">
+        <div className="space-y-4">
+          <Authenticated>
+            <div>
+              <p className="mb-2 px-1 text-xs font-medium uppercase tracking-wide text-zinc-500">
+                Account
+              </p>
+              <div className="flex flex-col items-start gap-2">
+                <MenuLink to="/my-list" onClick={closeMenu}>
+                  My List
+                </MenuLink>
+                <Button
+                  asChild
+                  size="sm"
+                  variant="outline"
+                  className={accountButtonClassName}
+                  onClick={closeMenu}
+                >
+                  <AppLink to="/settings">Settings</AppLink>
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-auto w-auto px-3 py-2 text-zinc-200 hover:bg-zinc-900 hover:text-white"
+                  onClick={() => {
+                    closeMenu();
+                    void signOut();
+                  }}
+                >
+                  Sign out
+                </Button>
+              </div>
+            </div>
+          </Authenticated>
+
           <Unauthenticated>
-            <Button
-              asChild
-              variant="outline"
-              className="w-full justify-start border-zinc-700 bg-zinc-950/80 text-zinc-100 hover:bg-zinc-900 hover:text-white"
-              onClick={closeMenu}
-            >
-              <Link to="/sign-in">Sign in</Link>
-            </Button>
+            <div>
+              <p className="mb-2 px-1 text-xs font-medium uppercase tracking-wide text-zinc-500">
+                Account
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  asChild
+                  size="sm"
+                  variant="outline"
+                  className={accountButtonClassName}
+                  onClick={closeMenu}
+                >
+                  <Link to="/sign-in">Sign in</Link>
+                </Button>
+                <Button
+                  asChild
+                  size="sm"
+                  variant="outline"
+                  className={accountButtonClassName}
+                  onClick={closeMenu}
+                >
+                  <Link to="/settings">Settings</Link>
+                </Button>
+              </div>
+            </div>
           </Unauthenticated>
 
-          <div className="rounded-md border border-zinc-800 bg-zinc-950/80 p-3">
-            <div className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
+          <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-3">
+            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
               Stream type
-            </div>
+            </p>
             <StreamModeControl className="justify-start border-zinc-700 bg-black/50" />
           </div>
-
-          <Button
-            asChild
-            variant="ghost"
-            className="w-full justify-start text-zinc-200 hover:bg-zinc-900 hover:text-white"
-            onClick={closeMenu}
-          >
-            <Link to="/settings">Settings</Link>
-          </Button>
-
-          <div className="flex items-center justify-between rounded-md border border-zinc-800 bg-zinc-950/80 p-3">
-            <span className="text-zinc-300">Theme</span>
-            <ThemeToggle />
-          </div>
-
-          <Authenticated>
-            <Button
-              type="button"
-              variant="ghost"
-              className="w-full justify-start text-zinc-200 hover:bg-zinc-900 hover:text-white"
-              onClick={() => {
-                closeMenu();
-                void signOut();
-              }}
-            >
-              Sign out
-            </Button>
-          </Authenticated>
         </div>
       </div>
     </div>
