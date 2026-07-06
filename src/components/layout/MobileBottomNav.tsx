@@ -1,6 +1,7 @@
-import { Link, useLocation } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import { Authenticated } from "convex/react";
 import { HomeIcon, BookmarkIcon, VideoIcon, LayersIcon } from "@radix-ui/react-icons";
+import { AppLink } from "@/components/layout/AppLink";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -55,9 +56,8 @@ function NavLink({
   isActive: boolean;
 }) {
   return (
-    <Link
+    <AppLink
       to={to}
-      viewTransition
       className={cn(
         "flex min-w-0 flex-1 flex-col items-center gap-1 px-1 py-3 text-[11px] transition-colors sm:text-xs",
         isActive ? "text-red-500" : "text-zinc-400 hover:text-zinc-200",
@@ -65,6 +65,6 @@ function NavLink({
     >
       <Icon className="h-5 w-5 shrink-0" />
       <span className="truncate">{label}</span>
-    </Link>
+    </AppLink>
   );
 }

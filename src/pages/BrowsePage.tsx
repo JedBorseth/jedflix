@@ -56,7 +56,7 @@ export function BrowsePage({ mediaType = "all" }: BrowsePageProps) {
       {heroMovie ? (
         <HeroBanner movie={heroMovie} />
       ) : error ? (
-        <div className="flex h-[50vh] items-center justify-center px-4 pt-20 text-center">
+        <div className="pt-navbar flex h-[50vh] items-center justify-center px-4 text-center">
           <p className="text-zinc-400">{error}</p>
         </div>
       ) : (

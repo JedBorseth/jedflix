@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { AppLink } from "@/components/layout/AppLink";
 import type { WatchHistoryItem } from "@/lib/watchHistory";
 import { getWatchPath } from "@/lib/tmdb";
 
@@ -11,9 +11,8 @@ export function ContinueWatchingCard({ item }: ContinueWatchingCardProps) {
   const progressPercent = Math.min((item.progressSeconds / totalSeconds) * 100, 100);
 
   return (
-    <Link
+    <AppLink
       to={getWatchPath(item.mediaType, item.media.id, item.season, item.episode)}
-      viewTransition
       state={{ preview: item.media }}
       className="group relative block w-36 shrink-0 snap-start md:w-44"
     >
@@ -30,6 +29,6 @@ export function ContinueWatchingCard({ item }: ContinueWatchingCardProps) {
       <p className="mt-2 truncate text-sm text-zinc-300 group-hover:text-white">
         {item.media.title}
       </p>
-    </Link>
+    </AppLink>
   );
 }

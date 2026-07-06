@@ -30,7 +30,7 @@ export function MobileNavMenu() {
     }
 
     document.addEventListener("mousedown", handlePointerDown);
-    document.addEventListener("touchstart", handlePointerDown);
+    document.addEventListener("touchstart", handlePointerDown, { passive: true });
     return () => {
       document.removeEventListener("mousedown", handlePointerDown);
       document.removeEventListener("touchstart", handlePointerDown);

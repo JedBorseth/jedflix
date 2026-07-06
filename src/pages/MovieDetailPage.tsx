@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
+import { AppLink } from "@/components/layout/AppLink";
 import { Navbar } from "@/components/layout/Navbar";
 import { Button } from "@/components/ui/button";
 import type { MediaItem, MediaType } from "@/lib/types";
@@ -106,9 +107,9 @@ export function MovieDetailPage({ mediaType }: MovieDetailPageProps) {
         <div className="flex h-[60vh] flex-col items-center justify-center gap-4">
           <p className="text-zinc-400">{error ?? "Title not found."}</p>
           <Button asChild variant="outline">
-            <Link to="/" viewTransition>
+            <AppLink to="/">
               Back to browse
-            </Link>
+            </AppLink>
           </Button>
         </div>
       </div>
@@ -126,7 +127,7 @@ export function MovieDetailPage({ mediaType }: MovieDetailPageProps) {
         />
         <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/80 to-black/40" />
 
-        <div className="relative z-10 mx-auto flex max-w-6xl flex-col gap-8 px-4 pb-16 pt-28 md:flex-row md:px-12">
+        <div className="pt-navbar relative z-10 mx-auto flex max-w-6xl flex-col gap-8 px-4 pb-16 md:flex-row md:px-12">
           <img
             ref={posterRef}
             src={displayMovie.posterUrl}
@@ -161,9 +162,9 @@ export function MovieDetailPage({ mediaType }: MovieDetailPageProps) {
                 mediaType={displayMovie.mediaType}
               />
               <Button asChild size="lg" variant="outline" className="border-zinc-600">
-                <Link to="/" viewTransition>
+                <AppLink to="/">
                   Back to browse
-                </Link>
+                </AppLink>
               </Button>
             </div>
           </div>

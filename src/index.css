@@ -76,8 +76,10 @@
     @apply bg-background text-foreground;
   }
 
-  @view-transition {
-    navigation: auto;
+  @media (min-width: 768px) {
+    @view-transition {
+      navigation: auto;
+    }
   }
 
   ::view-transition-old(root) {
@@ -137,5 +139,11 @@
 
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
+  }
+}
+
+@layer utilities {
+  .pt-navbar {
+    padding-top: calc(7rem + env(safe-area-inset-top, 0px));
   }
 }

@@ -58,7 +58,7 @@ export function SignInForm() {
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
       <Navbar />
-      <div className="mx-auto flex max-w-md flex-col gap-4 px-4 pb-16 pt-28">
+      <div className="pt-navbar mx-auto flex max-w-md flex-col gap-4 px-4 pb-16">
         <h2 className="text-3xl font-bold">Sign In</h2>
         <p className="text-zinc-400">
           Continue with GitHub or Google to save watch progress to your list.

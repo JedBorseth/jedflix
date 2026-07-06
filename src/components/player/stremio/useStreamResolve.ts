@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   getPlaybackUrl,
   pollResolve,
@@ -16,10 +16,34 @@ export type StreamResolveState = {
   playbackUrl?: string;
 };
 
+const idleState: StreamResolveState = { status: "idle" };
+
 export function useStreamResolve(request: ResolveRequest | null) {
   const [state, setState] = useState<StreamResolveState>({ status: "idle" });
   const activeJobRef = useRef<string | null>(null);
   const activeRequestKeyRef = useRef<string | null>(null);
+  const requestKey = useMemo(() => {
+    if (!request?.magnet) {
+      return null;
+    }
+
+    return [
+      request.type,
+      request.imdbId,
+      request.season ?? "",
+      request.episode ?? "",
+      request.mode,
+      request.infoHash || request.magnet,
+    ].join(":");
+  }, [
+    request?.episode,
+    request?.imdbId,
+    request?.infoHash,
+    request?.magnet,
+    request?.mode,
+    request?.season,
+    request?.type,
+  ]);
 
   const applyJob = useCallback((job: ResolveJob) => {
     const playbackUrl = job.stream ? getPlaybackUrl(job.stream) : undefined;
@@ -43,22 +67,13 @@ export function useStreamResolve(request: ResolveRequest | null) {
   }, []);
 
   useEffect(() => {
-    if (!request?.magnet) {
+    if (!request || !requestKey) {
       activeJobRef.current = null;
       activeRequestKeyRef.current = null;
-      setState((current) => (current.status === "idle" ? current : { status: "idle" }));
       return;
     }
 
     let cancelled = false;
-    const requestKey = [
-      request.type,
-      request.imdbId,
-      request.season ?? "",
-      request.episode ?? "",
-      request.mode,
-      request.infoHash || request.magnet,
-    ].join(":");
 
     async function run(currentRequest: NonNullable<typeof request>) {
       setState({ status: "downloading", progress: "Resolving selected stream" });
@@ -106,14 +121,8 @@ export function useStreamResolve(request: ResolveRequest | null) {
   }, [
     applyJob,
     request,
-    request?.episode,
-    request?.imdbId,
-    request?.infoHash,
-    request?.magnet,
-    request?.mode,
-    request?.season,
-    request?.type,
+    requestKey,
   ]);
 
-  return state;
+  return requestKey ? state : idleState;
 }

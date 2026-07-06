@@ -1,5 +1,5 @@
 import { useRef, type MouseEvent } from "react";
-import { Link } from "react-router-dom";
+import { AppLink } from "@/components/layout/AppLink";
 import type { MediaItem } from "@/lib/types";
 import { getMediaDetailPath } from "@/lib/tmdb";
 import { markPosterTransitionSource } from "@/lib/posterTransition";
@@ -17,9 +17,8 @@ export function MovieCard({ movie }: MovieCardProps) {
   }
 
   return (
-    <Link
+    <AppLink
       to={detailPath}
-      viewTransition
       state={{ preview: movie }}
       onClick={handleClick}
       className="group relative block w-36 shrink-0 snap-start md:w-44"
@@ -36,6 +35,6 @@ export function MovieCard({ movie }: MovieCardProps) {
       <p className="mt-2 truncate text-sm text-zinc-300 group-hover:text-white">
         {movie.title}
       </p>
-    </Link>
+    </AppLink>
   );
 }

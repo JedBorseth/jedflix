@@ -49,7 +49,11 @@ type VideoInstance = {
 export function useVideo() {
   const videoRef = useRef<VideoInstance | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const eventsRef = useRef(new EventEmitter());
+  const eventsRef = useRef<EventEmitter | null>(null);
+  if (eventsRef.current === null) {
+    eventsRef.current = new EventEmitter();
+  }
+  const events = eventsRef.current;
   const [state, setState] = useState<VideoState>(initialState);
 
   const dispatch = useCallback(
@@ -77,11 +81,11 @@ export function useVideo() {
         video.dispatch({ type: "observeProp", propName });
       });
       setState((current) => ({ ...current, manifest }));
-      eventsRef.current.emit("implementationChanged", manifest);
+      events.emit("implementationChanged", manifest);
     };
 
-    video.on("error", (...args: unknown[]) => eventsRef.current.emit("error", ...args));
-    video.on("ended", () => eventsRef.current.emit("ended"));
+    video.on("error", (...args: unknown[]) => events.emit("error", ...args));
+    video.on("ended", () => events.emit("ended"));
     video.on("propChanged", onPropChanged as (...args: unknown[]) => void);
     video.on("propValue", onPropChanged as (...args: unknown[]) => void);
     video.on("implementationChanged", onImplementationChanged as (...args: unknown[]) => void);
@@ -94,7 +98,7 @@ export function useVideo() {
       }
       videoRef.current = null;
     };
-  }, []);
+  }, [events]);
 
   const load = useCallback(
     (args: Record<string, unknown>) => {
@@ -147,7 +151,7 @@ export function useVideo() {
   );
 
   return {
-    events: eventsRef.current,
+    events,
     containerRef,
     state,
     load,

@@ -1,6 +1,7 @@
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Authenticated, Unauthenticated } from "convex/react";
+import { AppLink } from "@/components/layout/AppLink";
 import { MobileNavMenu } from "@/components/layout/MobileNavMenu";
 import { StreamModeToggle } from "@/components/layout/StreamModeToggle";
 import { UserMenu } from "@/components/UserMenu";
@@ -17,17 +18,16 @@ export function Navbar() {
   const inputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
 
-  useEffect(() => {
-    if (isSearchOpen) {
-      inputRef.current?.focus();
-    }
-  }, [isSearchOpen]);
+  function openSearch() {
+    setIsSearchOpen(true);
+    window.requestAnimationFrame(() => inputRef.current?.focus());
+  }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmedQuery = query.trim();
     if (!trimmedQuery) {
-      setIsSearchOpen(true);
+      openSearch();
       return;
     }
 
@@ -35,7 +35,7 @@ export function Navbar() {
   }
 
   return (
-    <header className="fixed top-0 z-50 w-full bg-gradient-to-b from-black/80 to-transparent">
+    <header className="fixed top-0 z-50 w-full bg-gradient-to-b from-black/80 to-transparent pt-[env(safe-area-inset-top)]">
       <nav className="mx-auto flex max-w-[1920px] items-center justify-between px-4 py-4 md:px-12">
         <div className="flex items-center gap-6 md:gap-10">
           <StreamModeToggle />
@@ -43,19 +43,19 @@ export function Navbar() {
             JedFlix
           </Link>
           <div className="hidden items-center gap-5 text-sm text-zinc-200 md:flex">
-            <Link to="/" viewTransition className="transition hover:text-white">
+            <AppLink to="/" className="transition hover:text-white">
               Home
-            </Link>
-            <Link to="/shows" viewTransition className="transition hover:text-white">
+            </AppLink>
+            <AppLink to="/shows" className="transition hover:text-white">
               Shows
-            </Link>
-            <Link to="/movies" viewTransition className="transition hover:text-white">
+            </AppLink>
+            <AppLink to="/movies" className="transition hover:text-white">
               Movies
-            </Link>
+            </AppLink>
             <Authenticated>
-              <Link to="/my-list" viewTransition className="transition hover:text-white">
+              <AppLink to="/my-list" className="transition hover:text-white">
                 My List
-              </Link>
+              </AppLink>
             </Authenticated>
           </div>
         </div>
@@ -75,7 +75,7 @@ export function Navbar() {
                 aria-label={isSearchOpen ? "Search" : "Open search"}
                 onClick={() => {
                   if (!isSearchOpen) {
-                    setIsSearchOpen(true);
+                    openSearch();
                   }
                 }}
               >

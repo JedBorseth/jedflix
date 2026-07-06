@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { AppLink } from "@/components/layout/AppLink";
 import { Button } from "@/components/ui/button";
 import type { MediaItem } from "@/lib/types";
 import { formatDuration } from "@/lib/types";
@@ -19,7 +20,7 @@ export function HeroBanner({ movie }: HeroBannerProps) {
       <div className="absolute inset-0 bg-gradient-to-r from-black via-black/70 to-transparent" />
       <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-transparent to-black/30" />
 
-      <div className="relative z-10 flex h-full max-w-2xl flex-col justify-end px-4 pb-16 pt-28 md:px-12">
+      <div className="pt-navbar relative z-10 flex h-full max-w-2xl flex-col justify-end px-4 pb-16 md:px-12">
         <p className="mb-2 text-sm font-medium uppercase tracking-widest text-red-500">
           Featured
         </p>
@@ -51,9 +52,9 @@ export function HeroBanner({ movie }: HeroBannerProps) {
             variant="secondary"
             className="bg-zinc-500/40 text-white hover:bg-zinc-500/60"
           >
-            <Link to={getMediaDetailPath(movie)} viewTransition state={{ preview: movie }}>
+            <AppLink to={getMediaDetailPath(movie)} state={{ preview: movie }}>
               More Info
-            </Link>
+            </AppLink>
           </Button>
         </div>
       </div>

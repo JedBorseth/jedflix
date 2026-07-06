@@ -2,7 +2,7 @@
 // Adapted for JedFlix
 
 import debounce from "lodash.debounce";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Link } from "react-router-dom";
 import { useMutation } from "convex/react";
 import { api } from "../../../../convex/_generated/api";
@@ -29,6 +29,8 @@ type StremioPlayerProps = {
   backPath: string;
 };
 
+type DebouncedSaveProgress = ((progressSeconds: number) => void) & { cancel: () => void };
+
 export function StremioPlayer({
   movieId,
   mediaType,
@@ -50,8 +52,9 @@ export function StremioPlayer({
   const [showSourcePicker, setShowSourcePicker] = useState(true);
   const loadedUrlRef = useRef<string | null>(null);
   const upsertProgress = useMutation(api.watchHistory.upsertProgress);
-  const saveProgressRef = useRef(
-    debounce((progressSeconds: number) => {
+  const saveProgressRef = useRef<DebouncedSaveProgress | null>(null);
+  if (saveProgressRef.current === null) {
+    saveProgressRef.current = debounce((progressSeconds: number) => {
       void upsertProgress({
         movieId,
         mediaType,
@@ -61,8 +64,8 @@ export function StremioPlayer({
       }).catch(() => {
         // Guests cannot save progress.
       });
-    }, 10000),
-  );
+    }, 10000) as DebouncedSaveProgress;
+  }
 
   const baseRequest = useMemo(
     () => ({
@@ -129,7 +132,6 @@ export function StremioPlayer({
       time: initialProgressSeconds * 1000,
     });
     loadedUrlRef.current = playbackUrl;
-    setShowSourcePicker(false);
   }, [
     initialProgressSeconds,
     load,
@@ -149,14 +151,14 @@ export function StremioPlayer({
   useEffect(() => {
     const time = state.time;
     if (typeof time === "number" && toDisplaySeconds(time) > 0) {
-      saveProgressRef.current(toDisplaySeconds(time));
+      saveProgressRef.current?.(toDisplaySeconds(time));
     }
   }, [state.time]);
 
   useEffect(() => {
     const saveProgress = saveProgressRef.current;
     return () => {
-      saveProgress.cancel();
+      saveProgress?.cancel();
       unload();
     };
   }, [unload]);
@@ -191,8 +193,9 @@ export function StremioPlayer({
   const duration = state.duration ?? 0;
   const buffering = Boolean(state.buffering) || resolving;
   const failed = resolveState.status === "failed";
-  const hideOverlay = controlsHidden && !paused && !showSourcePicker && !buffering && !failed;
-  const isPlaying = !paused && !showSourcePicker && !buffering && !failed && loadedUrlRef.current !== null;
+  const forceControlsVisible = paused || showSourcePicker || buffering || failed;
+  const hideOverlay = controlsHidden && !forceControlsVisible;
+  const isPlaying = !forceControlsVisible && loadedUrlRef.current !== null;
 
   useScreenOrientationLock(isPlaying);
 
@@ -206,21 +209,10 @@ export function StremioPlayer({
       }
       setSelectedSource(source);
       setShowSourcePicker(false);
+      scheduleHideControls();
     },
-    [resolving, selectedSource?.id, sourcesLoading],
+    [resolving, scheduleHideControls, selectedSource?.id, sourcesLoading],
   );
-
-  useEffect(() => {
-    if (paused || showSourcePicker || buffering || failed) {
-      setControlsHidden(false);
-      if (hideControlsTimeoutRef.current !== null) {
-        window.clearTimeout(hideControlsTimeoutRef.current);
-        hideControlsTimeoutRef.current = null;
-      }
-      return;
-    }
-    scheduleHideControls();
-  }, [buffering, failed, paused, scheduleHideControls, showSourcePicker]);
 
   const onActivity = useCallback(() => {
     if (showSourcePicker || buffering || failed) {
@@ -236,6 +228,17 @@ export function StremioPlayer({
     showControls();
     setPaused(!paused);
   }, [buffering, failed, paused, setPaused, showControls, showSourcePicker]);
+
+  const handleVideoLayerKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLButtonElement>) => {
+      if (event.key !== "Enter" && event.key !== " ") {
+        return;
+      }
+      event.preventDefault();
+      togglePlayPause();
+    },
+    [togglePlayPause],
+  );
 
   const skipBy = useCallback(
     (deltaMs: number) => {
@@ -253,9 +256,15 @@ export function StremioPlayer({
       onTouchMove={onActivity}
       onTouchStart={onActivity}
     >
-      <div className="player-video-layer" onClick={togglePlayPause}>
+      <button
+        type="button"
+        className="player-video-layer"
+        aria-label={paused ? "Play video" : "Pause video"}
+        onClick={togglePlayPause}
+        onKeyDown={handleVideoLayerKeyDown}
+      >
         <div ref={containerRef} className="player-video-container" />
-      </div>
+      </button>
 
       {showSourcePicker ? (
         <StreamSourcePicker

@@ -43,7 +43,7 @@ export function SearchPage() {
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
       <Navbar />
-      <main className="mx-auto max-w-7xl px-4 pb-24 pt-28 md:px-12 md:pb-16">
+      <main className="pt-navbar mx-auto max-w-7xl px-4 pb-24 md:px-12 md:pb-16">
         <div className="mx-auto max-w-4xl text-center">
           <h1 className="mb-2 text-3xl font-bold">Search</h1>
           <p className="mb-8 text-zinc-400">
