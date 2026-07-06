@@ -10,25 +10,13 @@ export default defineConfig({
     react(),
     vttJsPlugin(),
     VitePWA({
+      strategies: "injectManifest",
+      srcDir: "src",
+      filename: "sw.ts",
       registerType: "autoUpdate",
       includeAssets: ["convex.svg", "pwa-192x192.png", "pwa-512x512.png"],
-      workbox: {
+      injectManifest: {
         globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
-        navigateFallback: "/index.html",
-        navigateFallbackDenylist: [/^\/stream-api/],
-        runtimeCaching: [
-          {
-            urlPattern: /^https:\/\/image\.tmdb\.org\/.*/i,
-            handler: "CacheFirst",
-            options: {
-              cacheName: "tmdb-images",
-              expiration: {
-                maxEntries: 200,
-                maxAgeSeconds: 60 * 60 * 24 * 30,
-              },
-            },
-          },
-        ],
       },
       manifest: {
         name: "JedFlix",

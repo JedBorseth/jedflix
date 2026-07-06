@@ -4,9 +4,12 @@ const SETTINGS_STORAGE_KEY = "jedflix.userSettings";
 const LEGACY_STREAM_MODE_KEY = "jedflix.streamMode";
 const SETTINGS_CHANGED_EVENT = "jedflix:user-settings-changed";
 
+export type ExternalPlayer = "disabled" | "vlc" | "outplayer";
+
 export type UserSettings = {
   realDebridApiKey?: string;
   streamMode?: StreamMode;
+  externalPlayer?: ExternalPlayer;
   updatedAt?: number;
 };
 
@@ -44,6 +47,9 @@ export function saveUserSettings(partial: Partial<UserSettings>): UserSettings {
   }
   if (Object.prototype.hasOwnProperty.call(partial, "streamMode") && partial.streamMode === undefined) {
     delete next.streamMode;
+  }
+  if (Object.prototype.hasOwnProperty.call(partial, "externalPlayer") && partial.externalPlayer === undefined) {
+    delete next.externalPlayer;
   }
 
   writeStoredSettings(next);
@@ -109,6 +115,12 @@ function sanitizeSettings(settings: UserSettings): UserSettings {
     streamMode:
       settings.streamMode === "direct" || settings.streamMode === "proxy"
         ? settings.streamMode
+        : undefined,
+    externalPlayer:
+      settings.externalPlayer === "disabled" ||
+      settings.externalPlayer === "vlc" ||
+      settings.externalPlayer === "outplayer"
+        ? settings.externalPlayer
         : undefined,
     updatedAt: typeof settings.updatedAt === "number" ? settings.updatedAt : undefined,
   };

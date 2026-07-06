@@ -4,6 +4,11 @@ import { authTables } from "@convex-dev/auth/server";
 
 const mediaTypeValidator = v.union(v.literal("movie"), v.literal("tv"));
 const streamModeValidator = v.union(v.literal("direct"), v.literal("proxy"));
+const externalPlayerValidator = v.union(
+  v.literal("disabled"),
+  v.literal("vlc"),
+  v.literal("outplayer"),
+);
 
 export default defineSchema({
   ...authTables,
@@ -40,6 +45,7 @@ export default defineSchema({
     userId: v.id("users"),
     realDebridApiKey: v.optional(v.string()),
     streamMode: v.optional(streamModeValidator),
+    externalPlayer: v.optional(externalPlayerValidator),
     updatedAt: v.number(),
   }).index("by_user", ["userId"]),
 });

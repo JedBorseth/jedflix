@@ -2,9 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
+import { ExternalPlayerHandoff } from "@/components/player/external/ExternalPlayerHandoff";
+import { NativeVideoPlayer } from "@/components/player/native/NativeVideoPlayer";
 import { StremioPlayer } from "@/components/player/stremio/StremioPlayer";
 import { Button } from "@/components/ui/button";
 import { useUserSettings } from "@/hooks/useUserSettings";
+import { isMobileViewport } from "@/lib/mobile";
 import type { MediaItem, MediaType } from "@/lib/types";
 import { getExternalIds, getMediaDetails, getMediaDetailPath } from "@/lib/tmdb";
 
@@ -54,7 +57,7 @@ export function WatchPage() {
   const [movie, setMovie] = useState<MediaItem | null>();
   const [imdbId, setImdbId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const { streamMode, realDebridApiKey } = useUserSettings();
+  const { streamMode, realDebridApiKey, externalPlayer } = useUserSettings();
 
   const history = useQuery(api.watchHistory.getForUser);
   const savedProgress = useMemo(() => {
@@ -133,18 +136,38 @@ export function WatchPage() {
     );
   }
 
-  return (
-    <StremioPlayer
-      movieId={movie.id}
-      mediaType={movie.mediaType}
-      title={movie.title}
-      imdbId={imdbId}
-      season={season}
-      episode={episode}
-      mode={streamMode}
-      realDebridApiKey={realDebridApiKey}
-      initialProgressSeconds={savedProgress}
-      backPath={getMediaDetailPath(movie)}
-    />
-  );
+  const playerProps = {
+    movieId: movie.id,
+    mediaType: movie.mediaType,
+    title: movie.title,
+    imdbId,
+    season,
+    episode,
+    mode: streamMode,
+    realDebridApiKey,
+    initialProgressSeconds: savedProgress,
+    backPath: getMediaDetailPath(movie),
+  };
+
+  if (externalPlayer !== "disabled") {
+    return (
+      <ExternalPlayerHandoff
+        mediaType={movie.mediaType}
+        title={movie.title}
+        imdbId={imdbId}
+        season={season}
+        episode={episode}
+        mode={streamMode}
+        realDebridApiKey={realDebridApiKey}
+        backPath={getMediaDetailPath(movie)}
+        externalPlayer={externalPlayer}
+      />
+    );
+  }
+
+  if (isMobileViewport()) {
+    return <NativeVideoPlayer {...playerProps} />;
+  }
+
+  return <StremioPlayer {...playerProps} />;
 }

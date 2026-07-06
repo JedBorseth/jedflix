@@ -37,6 +37,7 @@ export function useUserSettings() {
         replaceUserSettings({
           realDebridApiKey: remoteSettings.realDebridApiKey,
           streamMode: remoteSettings.streamMode,
+          externalPlayer: remoteSettings.externalPlayer,
           updatedAt: remoteUpdatedAt,
         }),
       );
@@ -71,6 +72,7 @@ export function useUserSettings() {
     settings,
     realDebridApiKey: settings.realDebridApiKey ?? "",
     streamMode: settings.streamMode ?? "proxy",
+    externalPlayer: settings.externalPlayer ?? "disabled",
     saveSettings,
     resetSettings,
     syncEnabled: remoteSettings !== null && remoteSettings !== undefined,
@@ -81,6 +83,7 @@ function remotePayload(settings: UserSettings, partial?: Partial<UserSettings>) 
   const payload: {
     realDebridApiKey?: string | null;
     streamMode?: "direct" | "proxy";
+    externalPlayer?: "disabled" | "vlc" | "outplayer";
     updatedAt?: number;
   } = {
     updatedAt: settings.updatedAt,
@@ -96,6 +99,9 @@ function remotePayload(settings: UserSettings, partial?: Partial<UserSettings>) 
   }
   if (settings.streamMode !== undefined) {
     payload.streamMode = settings.streamMode;
+  }
+  if (settings.externalPlayer !== undefined) {
+    payload.externalPlayer = settings.externalPlayer;
   }
   return payload;
 }

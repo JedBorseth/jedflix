@@ -20,10 +20,19 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useUserSettings } from "@/hooks/useUserSettings";
+import type { ExternalPlayer } from "@/lib/userSettings";
 
 export function SettingsPage() {
-  const { realDebridApiKey, saveSettings, resetSettings, syncEnabled } = useUserSettings();
+  const { realDebridApiKey, externalPlayer, saveSettings, resetSettings, syncEnabled } =
+    useUserSettings();
   const [apiKey, setApiKey] = useState(realDebridApiKey);
   const [saved, setSaved] = useState(false);
 
@@ -100,6 +109,39 @@ export function SettingsPage() {
 
           <Card className="border-zinc-800 bg-zinc-900/60 text-white">
             <CardHeader>
+              <CardTitle>Video Player</CardTitle>
+              <CardDescription className="text-zinc-400">
+                Disabled uses the built-in player (Stremio on desktop, native video on mobile).
+                External players open the stream in VLC or OutPlayer instead.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <label className="text-sm font-medium text-zinc-200" htmlFor="external-player">
+                External player
+              </label>
+              <Select
+                value={externalPlayer}
+                onValueChange={(value) => {
+                  saveSettings({ externalPlayer: value as ExternalPlayer });
+                }}
+              >
+                <SelectTrigger id="external-player" className="max-w-xs">
+                  <SelectValue placeholder="Disabled" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="disabled">Disabled</SelectItem>
+                  <SelectItem value="vlc">VLC</SelectItem>
+                  <SelectItem value="outplayer">OutPlayer</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-sm text-zinc-500">
+                Proxy stream mode is recommended for in-app mobile playback.
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="border-zinc-800 bg-zinc-900/60 text-white">
+            <CardHeader>
               <CardTitle>Reset App</CardTitle>
               <CardDescription className="text-zinc-400">
                 Clear local settings and account-synced settings. Watch history and your list are
@@ -115,8 +157,8 @@ export function SettingsPage() {
                   <DialogHeader>
                     <DialogTitle>Reset app settings?</DialogTitle>
                     <DialogDescription className="text-zinc-400">
-                      This clears your Real Debrid API key and stream mode preference from this
-                      browser and from your account if you are signed in.
+                      This clears your Real Debrid API key, stream mode, and external player
+                      preference from this browser and from your account if you are signed in.
                     </DialogDescription>
                   </DialogHeader>
                   <DialogFooter>

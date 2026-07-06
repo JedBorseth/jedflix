@@ -3,6 +3,11 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 
 const streamModeValidator = v.union(v.literal("direct"), v.literal("proxy"));
+const externalPlayerValidator = v.union(
+  v.literal("disabled"),
+  v.literal("vlc"),
+  v.literal("outplayer"),
+);
 
 export const getForUser = query({
   args: {},
@@ -23,6 +28,7 @@ export const upsert = mutation({
   args: {
     realDebridApiKey: v.optional(v.union(v.string(), v.null())),
     streamMode: v.optional(streamModeValidator),
+    externalPlayer: v.optional(externalPlayerValidator),
     updatedAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
@@ -39,6 +45,7 @@ export const upsert = mutation({
     const patch: {
       realDebridApiKey?: string;
       streamMode?: "direct" | "proxy";
+      externalPlayer?: "disabled" | "vlc" | "outplayer";
       updatedAt: number;
     } = {
       updatedAt: args.updatedAt ?? Date.now(),
@@ -48,6 +55,9 @@ export const upsert = mutation({
     }
     if (args.streamMode !== undefined) {
       patch.streamMode = args.streamMode;
+    }
+    if (args.externalPlayer !== undefined) {
+      patch.externalPlayer = args.externalPlayer;
     }
 
     if (existing) {
@@ -59,6 +69,7 @@ export const upsert = mutation({
       userId: typeof userId;
       realDebridApiKey?: string;
       streamMode?: "direct" | "proxy";
+      externalPlayer?: "disabled" | "vlc" | "outplayer";
       updatedAt: number;
     } = {
       userId,
@@ -69,6 +80,9 @@ export const upsert = mutation({
     }
     if (patch.streamMode !== undefined) {
       doc.streamMode = patch.streamMode;
+    }
+    if (patch.externalPlayer !== undefined) {
+      doc.externalPlayer = patch.externalPlayer;
     }
 
     return await ctx.db.insert("userSettings", doc);
