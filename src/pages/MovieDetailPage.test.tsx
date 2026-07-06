@@ -63,8 +63,13 @@ const neonHorizon: MediaItem = {
   rating: "PG-13",
 };
 
+mock.module("@convex-dev/auth/react", () => ({
+  useAuthActions: () => ({ signOut: () => Promise.resolve() }),
+}));
+
 mock.module("convex/react", () => ({
   useQuery: () => undefined,
+  useMutation: () => () => Promise.resolve(),
   Authenticated: () => null,
   Unauthenticated: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
