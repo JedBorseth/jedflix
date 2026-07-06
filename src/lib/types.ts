@@ -40,7 +40,7 @@ export type FilmographyItem = MediaItem & {
   character?: string;
 };
 
-export type PersonDetails = PersonSummary & {
+export type PersonDetails = Omit<PersonSummary, "knownFor"> & {
   biography: string;
   birthday: string | null;
   knownFor: FilmographyItem[];
