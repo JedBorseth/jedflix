@@ -1,5 +1,3 @@
-import { authenticatedFetch } from "@/lib/authenticatedFetch";
-
 export type StreamMode = "direct" | "proxy";
 
 export type SourcesRequest = {
@@ -88,7 +86,7 @@ export async function fetchSources(
   request: SourcesRequest,
   realDebridToken?: string,
 ): Promise<StreamSource[]> {
-  const response = await authenticatedFetch(`${API_BASE}/api/v1/sources`, {
+  const response = await fetch(`${API_BASE}/api/v1/sources`, {
     method: "POST",
     headers: headers(realDebridToken),
     body: JSON.stringify(request),
@@ -103,7 +101,7 @@ export async function fetchSources(
 
 export async function startResolve(request: ResolveRequest, realDebridToken?: string): Promise<ResolveJob> {
   const { realDebridToken: _realDebridToken, ...body } = request;
-  const response = await authenticatedFetch(`${API_BASE}/api/v1/resolve`, {
+  const response = await fetch(`${API_BASE}/api/v1/resolve`, {
     method: "POST",
     headers: headers(realDebridToken ?? request.realDebridToken),
     body: JSON.stringify(body),
@@ -116,7 +114,7 @@ export async function startResolve(request: ResolveRequest, realDebridToken?: st
 }
 
 export async function pollResolve(jobId: string): Promise<ResolveJob> {
-  const response = await authenticatedFetch(`${API_BASE}/api/v1/resolve/${jobId}`, {
+  const response = await fetch(`${API_BASE}/api/v1/resolve/${jobId}`, {
     headers: headers(),
   });
   if (!response.ok) {

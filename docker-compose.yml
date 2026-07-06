@@ -8,8 +8,6 @@ services:
     environment:
       DOMAIN: ${DOMAIN}
       ACME_EMAIL: ${ACME_EMAIL:-}
-      BASIC_AUTH_USER: ${BASIC_AUTH_USER:-borseth}
-      BASIC_AUTH_HASH: ${BASIC_AUTH_HASH}
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data

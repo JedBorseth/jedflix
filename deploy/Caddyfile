@@ -5,10 +5,6 @@
 {$DOMAIN} {
 	encode gzip zstd
 
-	basic_auth {
-		{$BASIC_AUTH_USER} {$BASIC_AUTH_HASH}
-	}
-
 	handle /stream-api/* {
 		uri strip_prefix /stream-api
 		reverse_proxy stream-server:8080
