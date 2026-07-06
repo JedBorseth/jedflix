@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { authTables } from "@convex-dev/auth/server";
 
 const mediaTypeValidator = v.union(v.literal("movie"), v.literal("tv"));
+const streamModeValidator = v.union(v.literal("direct"), v.literal("proxy"));
 
 export default defineSchema({
   ...authTables,
@@ -35,4 +36,10 @@ export default defineSchema({
   })
     .index("by_media_type_and_movie_id", ["mediaType", "movieId"])
     .index("by_user_and_media_type_and_movie_id", ["userId", "mediaType", "movieId"]),
+  userSettings: defineTable({
+    userId: v.id("users"),
+    realDebridApiKey: v.optional(v.string()),
+    streamMode: v.optional(streamModeValidator),
+    updatedAt: v.number(),
+  }).index("by_user", ["userId"]),
 });

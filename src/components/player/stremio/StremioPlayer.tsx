@@ -25,6 +25,7 @@ type StremioPlayerProps = {
   season?: number;
   episode?: number;
   mode: StreamMode;
+  realDebridApiKey?: string;
   initialProgressSeconds?: number;
   backPath: string;
 };
@@ -39,6 +40,7 @@ export function StremioPlayer({
   season,
   episode,
   mode,
+  realDebridApiKey = "",
   initialProgressSeconds = 0,
   backPath,
 }: StremioPlayerProps) {
@@ -50,6 +52,7 @@ export function StremioPlayer({
   const [sourcesError, setSourcesError] = useState<string | null>(null);
   const [selectedSource, setSelectedSource] = useState<StreamSource | null>(null);
   const [showSourcePicker, setShowSourcePicker] = useState(true);
+  const [fallbackProgress, setFallbackProgress] = useState<string | null>(null);
   const loadedUrlRef = useRef<string | null>(null);
   const upsertProgress = useMutation(api.watchHistory.upsertProgress);
   const saveProgressRef = useRef<DebouncedSaveProgress | null>(null);
@@ -81,10 +84,11 @@ export function StremioPlayer({
     setSourcesLoading(true);
     setSourcesError(null);
     setSelectedSource(null);
+    setFallbackProgress(null);
     loadedUrlRef.current = null;
     setShowSourcePicker(true);
     try {
-      const found = await fetchSources(baseRequest);
+      const found = await fetchSources(baseRequest, realDebridApiKey.trim() || undefined);
       setSources(found);
     } catch (error) {
       setSources([]);
@@ -92,7 +96,7 @@ export function StremioPlayer({
     } finally {
       setSourcesLoading(false);
     }
-  }, [baseRequest]);
+  }, [baseRequest, realDebridApiKey]);
 
   useEffect(() => {
     void loadSources();
@@ -106,12 +110,13 @@ export function StremioPlayer({
             mode,
             magnet: selectedSource.magnet,
             infoHash: selectedSource.infoHash,
+            realDebridToken: realDebridApiKey.trim() || undefined,
           }
         : null,
-    [baseRequest, mode, selectedSource],
+    [baseRequest, mode, realDebridApiKey, selectedSource],
   );
 
-  const resolveState = useStreamResolve(resolveRequest);
+  const resolveState = useStreamResolve(resolveRequest, selectedSource);
   const resolving = resolveState.status === "downloading";
 
   useEffect(() => {
@@ -207,12 +212,32 @@ export function StremioPlayer({
       if (selectedSource?.id === source.id) {
         return;
       }
+      setFallbackProgress(null);
       setSelectedSource(source);
       setShowSourcePicker(false);
       scheduleHideControls();
     },
     [resolving, scheduleHideControls, selectedSource?.id, sourcesLoading],
   );
+
+  useEffect(() => {
+    if (resolveState.status !== "failed" || !selectedSource || !isFallbackError(resolveState.errorCode)) {
+      return;
+    }
+
+    const currentIndex = sources.findIndex((source) => source.id === selectedSource.id);
+    if (currentIndex < 0) {
+      return;
+    }
+    const nextSource = sources[currentIndex + 1];
+    if (!nextSource) {
+      return;
+    }
+
+    setFallbackProgress(`Trying stream ${currentIndex + 2} of ${sources.length}`);
+    loadedUrlRef.current = null;
+    setSelectedSource(nextSource);
+  }, [resolveState.errorCode, resolveState.status, selectedSource, sources]);
 
   const onActivity = useCallback(() => {
     if (showSourcePicker || buffering || failed) {
@@ -283,7 +308,7 @@ export function StremioPlayer({
       {buffering ? (
         <div className="player-buffering">
           <div className="player-spinner" />
-          <p>{resolveState.progress ?? "Buffering..."}</p>
+          <p>{fallbackProgress ?? resolveState.progress ?? "Buffering..."}</p>
           {resolving && selectedSource ? (
             <p className="max-w-md px-4 text-center text-sm text-zinc-400">
               Resolving {selectedSource.title}
@@ -302,6 +327,7 @@ export function StremioPlayer({
               className="rounded-md bg-white px-4 py-2 text-black"
               onClick={() => {
                 setSelectedSource(null);
+                setFallbackProgress(null);
                 loadedUrlRef.current = null;
                 setShowSourcePicker(true);
               }}
@@ -358,5 +384,15 @@ export function StremioPlayer({
         ) : null}
       </div>
     </div>
+  );
+}
+
+function isFallbackError(errorCode?: string): boolean {
+  return (
+    errorCode === "infringing_file" ||
+    errorCode === "timeout" ||
+    errorCode === "no_video_file" ||
+    errorCode === "size_limit" ||
+    errorCode === "no_links"
   );
 }

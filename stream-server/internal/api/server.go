@@ -71,6 +71,9 @@ func (s *Server) handleResolve(w http.ResponseWriter, r *http.Request) {
 	if req.Mode == "" {
 		req.Mode = resolver.ModeProxy
 	}
+	if token := bearerToken(r); token != "" {
+		req.RealDebridToken = token
+	}
 
 	job, err := s.resolver.Start(req)
 	if err != nil {
@@ -98,6 +101,9 @@ func (s *Server) handleSources(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Type == "" {
 		req.Type = "movie"
+	}
+	if token := bearerToken(r); token != "" {
+		req.RealDebridToken = token
 	}
 
 	sources, err := s.resolver.ListSources(req)
@@ -130,6 +136,18 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func bearerToken(r *http.Request) string {
+	value := strings.TrimSpace(r.Header.Get("Authorization"))
+	if value == "" {
+		return ""
+	}
+	kind, token, ok := strings.Cut(value, " ")
+	if !ok || !strings.EqualFold(kind, "Bearer") {
+		return ""
+	}
+	return strings.TrimSpace(token)
 }
 
 func AbsoluteProxyURL(baseURL, relative string) string {

@@ -7,18 +7,20 @@ import (
 )
 
 type FilterOptions struct {
-	MaxVideoSizeGB  float64
-	MinSeeders      int
-	BlockedKeywords []string
-	MaxResolution   int
+	MaxVideoSizeGB         float64
+	MinSeeders             int
+	BlockedKeywords        []string
+	RDBlockedFilenameRegex string
+	MaxResolution          int
 }
 
 func FilterOptionsFromConfig(cfg config.Config) FilterOptions {
 	return FilterOptions{
-		MaxVideoSizeGB:  cfg.MaxVideoSizeGB,
-		MinSeeders:      cfg.MinSeeders,
-		BlockedKeywords: cfg.BlockedKeywords,
-		MaxResolution:   cfg.MaxResolution,
+		MaxVideoSizeGB:         cfg.MaxVideoSizeGB,
+		MinSeeders:             cfg.MinSeeders,
+		BlockedKeywords:        cfg.BlockedKeywords,
+		RDBlockedFilenameRegex: cfg.RDBlockedFilenameRegex,
+		MaxResolution:          cfg.MaxResolution,
 	}
 }
 
@@ -40,6 +42,9 @@ func passesFilters(release Release, opts FilterOptions, maxBytes int64) bool {
 		if keyword != "" && strings.Contains(label, keyword) {
 			return false
 		}
+	}
+	if IsRDBlockedFilename(release.Title, opts.RDBlockedFilenameRegex) {
+		return false
 	}
 	if release.SizeKnown && release.SizeBytes > maxBytes {
 		return false
@@ -88,12 +93,6 @@ func scoreRelease(release Release, instant map[string]bool, preferInstant bool) 
 	}
 	if strings.Contains(label, "remux") {
 		score += 50
-	}
-	if strings.Contains(label, "bluray") || strings.Contains(label, "blu-ray") {
-		score += 30
-	}
-	if strings.Contains(label, "web-dl") || strings.Contains(label, "webdl") {
-		score += 20
 	}
 	switch release.Resolution {
 	case 2160:

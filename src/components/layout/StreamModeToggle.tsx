@@ -1,8 +1,6 @@
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { getStreamMode, setStreamMode } from "@/lib/streamMode";
-import type { StreamMode } from "@/lib/streamApi";
+import { useUserSettings } from "@/hooks/useUserSettings";
 import { cn } from "@/lib/utils";
-import { useEffect, useState } from "react";
 
 type StreamModeControlProps = {
   className?: string;
@@ -13,19 +11,15 @@ export function StreamModeControl({
   className,
   itemClassName,
 }: StreamModeControlProps) {
-  const [mode, setMode] = useState<StreamMode>(() => getStreamMode());
-
-  useEffect(() => {
-    setStreamMode(mode);
-  }, [mode]);
+  const { streamMode, saveSettings } = useUserSettings();
 
   return (
     <ToggleGroup
       type="single"
-      value={mode}
+      value={streamMode}
       onValueChange={(value) => {
         if (value === "direct" || value === "proxy") {
-          setMode(value);
+          saveSettings({ streamMode: value });
         }
       }}
       className={cn("rounded-md border border-zinc-700 bg-black/50 p-0.5", className)}

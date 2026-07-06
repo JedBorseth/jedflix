@@ -11,6 +11,7 @@ export type ResolveRequest = SourcesRequest & {
   mode: StreamMode;
   magnet?: string;
   infoHash?: string;
+  realDebridToken?: string;
 };
 
 export type StreamSource = {
@@ -36,6 +37,7 @@ export type ResolveJob = {
   status: "searching" | "downloading" | "ready" | "failed";
   progress?: string;
   error?: string;
+  errorCode?: string;
   sources?: StreamSource[];
   stream?: StreamResult;
 };
@@ -43,12 +45,15 @@ export type ResolveJob = {
 const API_BASE = import.meta.env.VITE_STREAM_API_URL ?? "/stream-api";
 const API_KEY = import.meta.env.VITE_STREAM_API_KEY;
 
-function headers(): HeadersInit {
+function headers(realDebridToken?: string): HeadersInit {
   const result: Record<string, string> = {
     "Content-Type": "application/json",
   };
   if (API_KEY) {
     result["X-Api-Key"] = API_KEY;
+  }
+  if (realDebridToken) {
+    result.Authorization = `Bearer ${realDebridToken}`;
   }
   return result;
 }
@@ -68,10 +73,13 @@ export function getPlaybackUrl(stream: StreamResult): string {
   return resolveStreamUrl(stream.url);
 }
 
-export async function fetchSources(request: SourcesRequest): Promise<StreamSource[]> {
+export async function fetchSources(
+  request: SourcesRequest,
+  realDebridToken?: string,
+): Promise<StreamSource[]> {
   const response = await fetch(`${API_BASE}/api/v1/sources`, {
     method: "POST",
-    headers: headers(),
+    headers: headers(realDebridToken),
     body: JSON.stringify(request),
   });
   if (!response.ok) {
@@ -82,11 +90,12 @@ export async function fetchSources(request: SourcesRequest): Promise<StreamSourc
   return payload.sources;
 }
 
-export async function startResolve(request: ResolveRequest): Promise<ResolveJob> {
+export async function startResolve(request: ResolveRequest, realDebridToken?: string): Promise<ResolveJob> {
+  const { realDebridToken: _realDebridToken, ...body } = request;
   const response = await fetch(`${API_BASE}/api/v1/resolve`, {
     method: "POST",
-    headers: headers(),
-    body: JSON.stringify(request),
+    headers: headers(realDebridToken ?? request.realDebridToken),
+    body: JSON.stringify(body),
   });
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as { error?: string } | null;

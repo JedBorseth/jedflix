@@ -4,9 +4,9 @@ import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { StremioPlayer } from "@/components/player/stremio/StremioPlayer";
 import { Button } from "@/components/ui/button";
+import { useUserSettings } from "@/hooks/useUserSettings";
 import type { MediaItem, MediaType } from "@/lib/types";
 import { getExternalIds, getMediaDetails, getMediaDetailPath } from "@/lib/tmdb";
-import { getStreamMode } from "@/lib/streamMode";
 
 function parseWatchParams(params: {
   mediaType?: string;
@@ -54,7 +54,7 @@ export function WatchPage() {
   const [movie, setMovie] = useState<MediaItem | null>();
   const [imdbId, setImdbId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const mode = getStreamMode();
+  const { streamMode, realDebridApiKey } = useUserSettings();
 
   const history = useQuery(api.watchHistory.getForUser);
   const savedProgress = useMemo(() => {
@@ -141,7 +141,8 @@ export function WatchPage() {
       imdbId={imdbId}
       season={season}
       episode={episode}
-      mode={mode}
+      mode={streamMode}
+      realDebridApiKey={realDebridApiKey}
       initialProgressSeconds={savedProgress}
       backPath={getMediaDetailPath(movie)}
     />

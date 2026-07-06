@@ -70,12 +70,18 @@ bunx convex run seed:seedMovies
 
 ## Streaming
 
-Playback uses a Go service in [`stream-server/`](stream-server/) that:
+Playback uses Torrentio for source discovery and Real Debrid for resolving playable links.
+The app supports two delivery modes:
+
+- **Direct**: the browser calls the Real Debrid API with the API key saved in Settings and plays the RD CDN URL directly.
+- **Proxy**: the Go service resolves the stream using the user's saved Real Debrid API key when present, or `REALDEBRID_TOKEN` from the server environment as a fallback, then byte-serves playback through `/stream-api`.
+
+The Go service in [`stream-server/`](stream-server/) still:
 
 1. Searches Torrentio for magnets by IMDb ID
-2. Filters by size (default 50GB max) and seeders (default min 3)
-3. Resolves streams through Real Debrid
-4. Returns direct RD URLs or proxied byte-serving URLs
+2. Filters by size (default 50GB max), seeders (default min 3), and known Real Debrid infringing filename patterns
+3. Checks Real Debrid instant availability for cache badges and ranking
+4. Resolves proxied streams and signs proxy URLs
 
 Configure the frontend:
 
@@ -91,6 +97,7 @@ Configure the stream server (see [`stream-server/.env.example`](stream-server/.e
 REALDEBRID_TOKEN=your_token
 PROXY_SIGNING_SECRET=change-me
 CORS_ORIGINS=http://localhost:5173
+RD_BLOCKED_FILENAME_REGEX=web-dl|webrip|bdrip|hdrip|dvdrip|BluRay\.x264|HDTV\.x264|HDTV\.XviD|WEB\.x264|WEB\.h264
 ```
 
 Run locally:
@@ -116,7 +123,8 @@ tests/            Bun test preload setup
 
 ## Notes
 
-- Streaming requires `REALDEBRID_TOKEN` on the Go stream-server
+- Direct streaming requires a Real Debrid API key saved in Settings
+- Proxy streaming can use a saved user Real Debrid API key or `REALDEBRID_TOKEN` on the Go stream-server
 - Player components are GPL-2.0 derived from Stremio Web
 - Use `bunx convex deploy` (without `--bun`) for CI/production deploys
 - Convex functions run in Convex's runtime; Bun is used locally for tooling

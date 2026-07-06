@@ -12,6 +12,7 @@ import type * as auth from "../auth.js";
 import type * as http from "../http.js";
 import type * as myList from "../myList.js";
 import type * as reviews from "../reviews.js";
+import type * as userSettings from "../userSettings.js";
 import type * as users from "../users.js";
 import type * as watchHistory from "../watchHistory.js";
 
@@ -26,6 +27,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   myList: typeof myList;
   reviews: typeof reviews;
+  userSettings: typeof userSettings;
   users: typeof users;
   watchHistory: typeof watchHistory;
 }>;

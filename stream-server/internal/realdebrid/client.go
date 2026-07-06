@@ -3,6 +3,7 @@ package realdebrid
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -24,19 +25,41 @@ type Client struct {
 }
 
 func NewClient(cfg config.Config) *Client {
+	return NewClientWithToken(cfg, cfg.RealDebridToken)
+}
+
+func NewClientWithToken(cfg config.Config, token string) *Client {
 	client := cfg.HTTPClient()
 	client.Timeout = 60 * time.Second
 	return &Client{
-		token:  cfg.RealDebridToken,
+		token:  strings.TrimSpace(token),
 		client: client,
 	}
+}
+
+type APIError struct {
+	Path       string
+	StatusCode int
+	Body       string
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("real-debrid %s returned %d: %s", e.Path, e.StatusCode, e.Body)
 }
 
 type TorrentInfo struct {
 	ID     string        `json:"id"`
 	Status string        `json:"status"`
+	Hash   string        `json:"hash"`
 	Files  []TorrentFile `json:"files"`
 	Links  []string      `json:"links"`
+}
+
+type TorrentListItem struct {
+	ID       string `json:"id"`
+	Filename string `json:"filename"`
+	Hash     string `json:"hash"`
+	Status   string `json:"status"`
 }
 
 type TorrentFile struct {
@@ -84,6 +107,35 @@ func (c *Client) GetTorrentInfo(ctx context.Context, torrentID string) (*Torrent
 		return nil, err
 	}
 	return &info, nil
+}
+
+func (c *Client) ListTorrents(ctx context.Context) ([]TorrentListItem, error) {
+	var torrents []TorrentListItem
+	if err := c.getJSON(ctx, "/torrents", &torrents); err != nil {
+		return nil, err
+	}
+	return torrents, nil
+}
+
+func (c *Client) FindByInfoHash(ctx context.Context, infoHash string) (*TorrentListItem, error) {
+	infoHash = strings.ToLower(strings.TrimSpace(infoHash))
+	if infoHash == "" {
+		return nil, nil
+	}
+	torrents, err := c.ListTorrents(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, torrent := range torrents {
+		if strings.ToLower(strings.TrimSpace(torrent.Hash)) == infoHash {
+			return &torrent, nil
+		}
+	}
+	return nil, nil
+}
+
+func (c *Client) DeleteTorrent(ctx context.Context, torrentID string) error {
+	return c.delete(ctx, "/torrents/delete/"+torrentID)
 }
 
 func (c *Client) WaitReady(ctx context.Context, torrentID string, timeout time.Duration, initial *TorrentInfo) (*TorrentInfo, error) {
@@ -236,7 +288,7 @@ func (c *Client) postForm(ctx context.Context, path string, form url.Values, out
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("real-debrid %s returned %d: %s", path, resp.StatusCode, string(body))
+		return &APIError{Path: path, StatusCode: resp.StatusCode, Body: string(body)}
 	}
 	if out == nil {
 		return nil
@@ -259,9 +311,41 @@ func (c *Client) getJSON(ctx context.Context, path string, out any) error {
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("real-debrid %s returned %d: %s", path, resp.StatusCode, string(body))
+		return &APIError{Path: path, StatusCode: resp.StatusCode, Body: string(body)}
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+func (c *Client) delete(ctx context.Context, path string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, apiBase+path, nil)
+	if err != nil {
+		return err
+	}
+	c.setHeaders(req)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return &APIError{Path: path, StatusCode: resp.StatusCode, Body: string(body)}
+	}
+	return nil
+}
+
+func IsInfringingError(err error) bool {
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	body := strings.ToLower(apiErr.Body)
+	return apiErr.StatusCode == http.StatusUnavailableForLegalReasons ||
+		strings.Contains(body, "infringing_file") ||
+		strings.Contains(body, `"error_code":35`) ||
+		strings.Contains(body, `"error_code": 35`)
 }
 
 func (c *Client) setHeaders(req *http.Request) {

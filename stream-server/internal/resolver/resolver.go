@@ -2,7 +2,10 @@ package resolver
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -21,13 +24,14 @@ const (
 )
 
 type Request struct {
-	Type     string `json:"type"`
-	IMDbID   string `json:"imdbId"`
-	Season   *int   `json:"season,omitempty"`
-	Episode  *int   `json:"episode,omitempty"`
-	Mode     Mode   `json:"mode"`
-	Magnet   string `json:"magnet,omitempty"`
-	InfoHash string `json:"infoHash,omitempty"`
+	Type            string `json:"type"`
+	IMDbID          string `json:"imdbId"`
+	Season          *int   `json:"season,omitempty"`
+	Episode         *int   `json:"episode,omitempty"`
+	Mode            Mode   `json:"mode"`
+	Magnet          string `json:"magnet,omitempty"`
+	InfoHash        string `json:"infoHash,omitempty"`
+	RealDebridToken string `json:"realDebridToken,omitempty"`
 }
 
 type Source struct {
@@ -62,6 +66,7 @@ type Job struct {
 	Status     JobStatus     `json:"status"`
 	Progress   string        `json:"progress,omitempty"`
 	Error      string        `json:"error,omitempty"`
+	ErrorCode  string        `json:"errorCode,omitempty"`
 	Sources    []Source      `json:"sources,omitempty"`
 	Stream     *StreamResult `json:"stream,omitempty"`
 	CreatedAt  time.Time     `json:"createdAt"`
@@ -101,10 +106,11 @@ func (s *Service) Start(req Request) (*Job, error) {
 	if req.Type == "tv" && (req.Season == nil || req.Episode == nil) {
 		return nil, fmt.Errorf("season and episode are required for tv")
 	}
-	if s.cfg.RealDebridToken == "" {
+	if s.realDebridToken(req) == "" {
 		return nil, fmt.Errorf("REALDEBRID_TOKEN is not configured on the stream server")
 	}
 
+	s.pruneJobs()
 	resolveKey := normalizeResolveKey(req)
 	id := fmt.Sprintf("job_%d", time.Now().UnixNano())
 	job := &Job{
@@ -149,7 +155,12 @@ func (s *Service) ListSources(req Request) ([]Source, error) {
 			hashes = append(hashes, release.InfoHash)
 		}
 	}
-	instant, _ := s.rd.InstantAvailability(ctx, hashes)
+	rd := s.rdClient(req)
+	instant, err := rd.InstantAvailability(ctx, hashes)
+	if err != nil {
+		log.Printf("warning: real-debrid instantAvailability failed: %v", err)
+		instant = map[string]bool{}
+	}
 	ranked := search.ScorePick(filtered, instant, s.cfg.PreferInstant)
 	return toSources(ranked, instant), nil
 }
@@ -199,18 +210,19 @@ func (s *Service) run(jobID string, req Request) {
 	maxBytes := int64(s.cfg.MaxVideoSizeGB * 1024 * 1024 * 1024)
 
 	if magnet := strings.TrimSpace(req.Magnet); magnet != "" {
-		s.update(jobID, StatusDownloading, "Resolving selected stream", nil, nil, "")
+		s.update(jobID, StatusDownloading, "Resolving selected stream", nil, nil, "", "")
 		release := search.Release{Magnet: magnet, InfoHash: strings.ToLower(strings.TrimSpace(req.InfoHash))}
 		stream, err := s.tryRelease(ctx, req, release, maxBytes, req.Mode)
 		if err != nil {
-			s.update(jobID, StatusFailed, "", nil, nil, err.Error())
+			code, message := classifyResolveError(err)
+			s.update(jobID, StatusFailed, "", nil, nil, message, code)
 			return
 		}
-		s.update(jobID, StatusReady, "Stream ready", nil, stream, "")
+		s.update(jobID, StatusReady, "Stream ready", nil, stream, "", "")
 		return
 	}
 
-	s.update(jobID, StatusFailed, "", nil, nil, "magnet is required")
+	s.update(jobID, StatusFailed, "", nil, nil, "magnet is required", "")
 }
 
 func (s *Service) search(ctx context.Context, req Request) ([]search.Release, error) {
@@ -225,12 +237,45 @@ func (s *Service) search(ctx context.Context, req Request) ([]search.Release, er
 }
 
 func (s *Service) tryRelease(ctx context.Context, req Request, release search.Release, maxBytes int64, mode Mode) (*StreamResult, error) {
-	torrentID, err := s.rd.AddMagnet(ctx, release.Magnet)
-	if err != nil {
-		return nil, err
+	rd := s.rdClient(req)
+	torrentID := ""
+	cleanupTorrent := false
+
+	if release.InfoHash != "" {
+		existing, err := rd.FindByInfoHash(ctx, release.InfoHash)
+		if err != nil {
+			return nil, err
+		}
+		if existing != nil {
+			if existing.Status == "downloaded" {
+				torrentID = existing.ID
+				cleanupTorrent = true
+			} else if terminalTorrentStatus(existing.Status) {
+				_ = rd.DeleteTorrent(ctx, existing.ID)
+			}
+		}
 	}
 
-	info, err := s.rd.GetTorrentInfo(ctx, torrentID)
+	var err error
+	if torrentID == "" {
+		torrentID, err = rd.AddMagnet(ctx, release.Magnet)
+		cleanupTorrent = true
+	}
+	if err != nil {
+		if realdebrid.IsInfringingError(err) {
+			return nil, newResolveError(ErrorCodeInfringingFile, err)
+		}
+		return nil, err
+	}
+	if cleanupTorrent {
+		defer func() {
+			if err := rd.DeleteTorrent(context.Background(), torrentID); err != nil {
+				log.Printf("warning: failed to delete real-debrid torrent %s: %v", torrentID, err)
+			}
+		}()
+	}
+
+	info, err := rd.GetTorrentInfo(ctx, torrentID)
 	if err != nil {
 		return nil, err
 	}
@@ -243,26 +288,32 @@ func (s *Service) tryRelease(ctx context.Context, req Request, release search.Re
 		file, ok = realdebrid.PickLargestVideoFile(info.Files)
 	}
 	if !ok {
-		return nil, fmt.Errorf("no video file found in torrent")
+		return nil, newResolveError(ErrorCodeNoVideoFile, fmt.Errorf("no video file found in torrent"))
 	}
 	if file.Bytes > maxBytes {
-		return nil, fmt.Errorf("selected file exceeds size limit")
+		return nil, newResolveError(ErrorCodeSizeLimit, fmt.Errorf("selected file exceeds size limit"))
 	}
 
-	if err := s.rd.SelectFiles(ctx, torrentID, []int{file.ID}); err != nil {
+	if err := rd.SelectFiles(ctx, torrentID, []int{file.ID}); err != nil {
+		if realdebrid.IsInfringingError(err) {
+			return nil, newResolveError(ErrorCodeInfringingFile, err)
+		}
 		return nil, err
 	}
 
-	info, err = s.rd.WaitReady(ctx, torrentID, s.cfg.ResolveTimeout, info)
+	info, err = rd.WaitReady(ctx, torrentID, s.cfg.ResolveTimeout, info)
 	if err != nil {
 		return nil, err
 	}
 	if len(info.Links) == 0 {
-		return nil, fmt.Errorf("real-debrid returned no links")
+		return nil, newResolveError(ErrorCodeNoLinks, fmt.Errorf("real-debrid returned no links"))
 	}
 
-	unrestricted, err := s.rd.UnrestrictLink(ctx, info.Links[0])
+	unrestricted, err := rd.UnrestrictLink(ctx, info.Links[0])
 	if err != nil {
+		if realdebrid.IsInfringingError(err) {
+			return nil, newResolveError(ErrorCodeInfringingFile, err)
+		}
 		return nil, err
 	}
 
@@ -285,7 +336,7 @@ func (s *Service) tryRelease(ctx context.Context, req Request, release search.Re
 	return result, nil
 }
 
-func (s *Service) update(jobID string, status JobStatus, progress string, sources []Source, stream *StreamResult, errMsg string) {
+func (s *Service) update(jobID string, status JobStatus, progress string, sources []Source, stream *StreamResult, errMsg string, errCode string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	job, ok := s.jobs[jobID]
@@ -301,6 +352,7 @@ func (s *Service) update(jobID string, status JobStatus, progress string, source
 		job.Stream = stream
 	}
 	job.Error = errMsg
+	job.ErrorCode = errCode
 	job.UpdatedAt = time.Now()
 }
 
@@ -317,13 +369,49 @@ func cloneJob(job *Job) *Job {
 }
 
 func normalizeResolveKey(req Request) string {
+	tokenSuffix := tokenFingerprint(req.RealDebridToken)
 	if infoHash := strings.ToLower(strings.TrimSpace(req.InfoHash)); infoHash != "" {
-		return "hash:" + infoHash
+		return "hash:" + infoHash + tokenSuffix
 	}
 	if magnet := strings.ToLower(strings.TrimSpace(req.Magnet)); magnet != "" {
-		return "magnet:" + magnet
+		return "magnet:" + magnet + tokenSuffix
 	}
 	return ""
+}
+
+func tokenFingerprint(token string) string {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(token))
+	return ":token:" + hex.EncodeToString(sum[:])[:12]
+}
+
+func (s *Service) realDebridToken(req Request) string {
+	if token := strings.TrimSpace(req.RealDebridToken); token != "" {
+		return token
+	}
+	return strings.TrimSpace(s.cfg.RealDebridToken)
+}
+
+func (s *Service) rdClient(req Request) *realdebrid.Client {
+	token := strings.TrimSpace(req.RealDebridToken)
+	if token == "" {
+		return s.rd
+	}
+	return realdebrid.NewClientWithToken(s.cfg, token)
+}
+
+func (s *Service) pruneJobs() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cutoff := time.Now().Add(-30 * time.Minute)
+	for id, job := range s.jobs {
+		if (job.Status == StatusReady || job.Status == StatusFailed) && job.UpdatedAt.Before(cutoff) {
+			delete(s.jobs, id)
+		}
+	}
 }
 
 func toSources(releases []search.Release, instant map[string]bool) []Source {

@@ -10,38 +10,40 @@ import (
 )
 
 type Config struct {
-	Addr               string
-	RealDebridToken    string
-	TorrentioURL       string
-	MaxVideoSizeGB     float64
-	MinSeeders         int
-	PreferInstant      bool
-	BlockedKeywords    []string
-	MaxResolution      int
-	StreamServerAPIKey string
-	ProxySigningSecret string
-	CORSOrigins        []string
-	HTTPProxy          string
-	HTTPSProxy         string
-	ResolveTimeout     time.Duration
+	Addr                   string
+	RealDebridToken        string
+	TorrentioURL           string
+	MaxVideoSizeGB         float64
+	MinSeeders             int
+	PreferInstant          bool
+	BlockedKeywords        []string
+	RDBlockedFilenameRegex string
+	MaxResolution          int
+	StreamServerAPIKey     string
+	ProxySigningSecret     string
+	CORSOrigins            []string
+	HTTPProxy              string
+	HTTPSProxy             string
+	ResolveTimeout         time.Duration
 }
 
 func Load() Config {
 	cfg := Config{
-		Addr:               envOr("ADDR", ":8080"),
-		RealDebridToken:    strings.TrimSpace(os.Getenv("REALDEBRID_TOKEN")),
-		TorrentioURL:       strings.TrimRight(envOr("TORRENTIO_URL", "https://torrentio.strem.fun"), "/"),
-		MaxVideoSizeGB:     envFloat("MAX_VIDEO_SIZE_GB", 50),
-		MinSeeders:         envInt("MIN_SEEDERS", 3),
-		PreferInstant:      envBool("PREFER_INSTANT", true),
-		BlockedKeywords:    splitCSV(envOr("BLOCKED_KEYWORDS", "cam,ts,telesync,hdcam")),
-		MaxResolution:      envInt("MAX_RESOLUTION", 2160),
-		StreamServerAPIKey: os.Getenv("STREAM_SERVER_API_KEY"),
-		ProxySigningSecret: envOr("PROXY_SIGNING_SECRET", "change-me-in-production"),
-		CORSOrigins:        splitCSV(envOr("CORS_ORIGINS", "http://localhost:5173")),
-		HTTPProxy:          os.Getenv("HTTP_PROXY"),
-		HTTPSProxy:         os.Getenv("HTTPS_PROXY"),
-		ResolveTimeout:     time.Duration(envInt("RESOLVE_TIMEOUT_SECONDS", 600)) * time.Second,
+		Addr:                   envOr("ADDR", ":8080"),
+		RealDebridToken:        strings.TrimSpace(os.Getenv("REALDEBRID_TOKEN")),
+		TorrentioURL:           strings.TrimRight(envOr("TORRENTIO_URL", "https://torrentio.strem.fun"), "/"),
+		MaxVideoSizeGB:         envFloat("MAX_VIDEO_SIZE_GB", 50),
+		MinSeeders:             envInt("MIN_SEEDERS", 3),
+		PreferInstant:          envBool("PREFER_INSTANT", true),
+		BlockedKeywords:        splitCSV(envOr("BLOCKED_KEYWORDS", "cam,ts,telesync,hdcam")),
+		RDBlockedFilenameRegex: envOr("RD_BLOCKED_FILENAME_REGEX", `web-dl|webrip|bdrip|hdrip|dvdrip|BluRay\.x264|HDTV\.x264|HDTV\.XviD|WEB\.x264|WEB\.h264`),
+		MaxResolution:          envInt("MAX_RESOLUTION", 2160),
+		StreamServerAPIKey:     os.Getenv("STREAM_SERVER_API_KEY"),
+		ProxySigningSecret:     envOr("PROXY_SIGNING_SECRET", "change-me-in-production"),
+		CORSOrigins:            splitCSV(envOr("CORS_ORIGINS", "http://localhost:5173")),
+		HTTPProxy:              os.Getenv("HTTP_PROXY"),
+		HTTPSProxy:             os.Getenv("HTTPS_PROXY"),
+		ResolveTimeout:         time.Duration(envInt("RESOLVE_TIMEOUT_SECONDS", 600)) * time.Second,
 	}
 	return cfg
 }
