@@ -13,7 +13,10 @@ dist-ssr
 *.local
 .env
 deploy/.env.production
+apps/stream-server/.env
+apps/stream-server/bin/
 stream-server/.env
+.turbo
 
 # Editor directories and files
 .vscode/*

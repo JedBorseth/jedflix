@@ -19,7 +19,7 @@ services:
   frontend:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: apps/web/Dockerfile
       args:
         VITE_CONVEX_URL: ${VITE_CONVEX_URL}
         VITE_CONVEX_SITE_URL: ${VITE_CONVEX_SITE_URL}
@@ -32,7 +32,7 @@ services:
 
   stream-server:
     build:
-      context: ./stream-server
+      context: ./apps/stream-server
     restart: unless-stopped
     expose:
       - "8080"
