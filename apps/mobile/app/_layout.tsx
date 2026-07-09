@@ -55,7 +55,10 @@ export default function RootLayout() {
       <Stack screenOptions={{ headerStyle: { backgroundColor: "#09090b" }, headerTintColor: "#fff", contentStyle: { backgroundColor: "#09090b" } }}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="sign-in" options={{ title: "Sign In", presentation: "modal" }} />
-        <Stack.Screen name="media/[type]/[id]" options={{ title: "Details" }} />
+        <Stack.Screen
+          name="media/[type]/[id]"
+          options={{ title: "Details", headerBackButtonDisplayMode: "minimal" }}
+        />
         <Stack.Screen name="watch/[type]/[id]" options={{ title: "Watch", headerShown: false }} />
       </Stack>
     </AuthRoot>

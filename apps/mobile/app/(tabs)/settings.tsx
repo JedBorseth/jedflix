@@ -6,32 +6,14 @@ import { router } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import type { StreamMode } from "@jedflix/shared";
 
 const LOCAL_RD_KEY = "jedflix.mobile.realDebridApiKey";
 
 export default function SettingsScreen() {
-  return (
-    <View style={styles.container}>
-      <Unauthenticated>
-        <Text style={styles.sectionTitle}>Account</Text>
-        <Pressable style={styles.button} onPress={() => router.push("/sign-in")}>
-          <Text style={styles.buttonText}>Sign In</Text>
-        </Pressable>
-      </Unauthenticated>
-      <Authenticated>
-        <SignedInSettings />
-      </Authenticated>
-    </View>
-  );
-}
-
-function SignedInSettings() {
   const settings = useQuery(api.userSettings.getForUser);
   const upsertSettings = useMutation(api.userSettings.upsert);
   const { signOut } = useAuthActions();
   const [rdKey, setRdKey] = useState("");
-  const [streamMode, setStreamMode] = useState<StreamMode>("direct");
 
   useEffect(() => {
     void SecureStore.getItemAsync(LOCAL_RD_KEY).then((value) => {
@@ -41,16 +23,15 @@ function SignedInSettings() {
 
   useEffect(() => {
     if (settings?.realDebridApiKey) setRdKey(settings.realDebridApiKey);
-    if (settings?.streamMode) setStreamMode(settings.streamMode);
   }, [settings]);
 
   async function saveSettings() {
     await SecureStore.setItemAsync(LOCAL_RD_KEY, rdKey);
-    await upsertSettings({ realDebridApiKey: rdKey || undefined, streamMode });
+    await upsertSettings({ realDebridApiKey: rdKey || undefined, streamMode: "direct" });
   }
 
   return (
-    <>
+    <View style={styles.container}>
       <Text style={styles.sectionTitle}>Streaming</Text>
       <Text style={styles.label}>Real Debrid API key</Text>
       <TextInput
@@ -61,28 +42,29 @@ function SignedInSettings() {
         placeholderTextColor="#71717a"
         style={styles.input}
       />
-      <Text style={styles.label}>Stream mode</Text>
-      <View style={styles.modeRow}>
-        {(["direct", "proxy"] as const).map((mode) => (
-          <Pressable
-            key={mode}
-            style={[styles.modeButton, streamMode === mode && styles.modeButtonActive]}
-            onPress={() => setStreamMode(mode)}>
-            <Text style={styles.modeButtonText}>{mode}</Text>
-          </Pressable>
-        ))}
-      </View>
+      <Text style={styles.helper}>
+        Mobile streams directly from Real Debrid using the native video player.
+      </Text>
       <Pressable style={styles.button} onPress={() => void saveSettings()}>
         <Text style={styles.buttonText}>Save Settings</Text>
       </Pressable>
-      <Pressable
-        style={[styles.button, styles.secondaryButton]}
-        onPress={() => {
-          void signOut().then(() => router.replace("/(tabs)"));
-        }}>
-        <Text style={styles.buttonText}>Sign Out</Text>
-      </Pressable>
-    </>
+
+      <Text style={styles.sectionTitle}>Account</Text>
+      <Unauthenticated>
+        <Pressable style={styles.button} onPress={() => router.push("/sign-in")}>
+          <Text style={styles.buttonText}>Sign In</Text>
+        </Pressable>
+      </Unauthenticated>
+      <Authenticated>
+        <Pressable
+          style={[styles.button, styles.secondaryButton]}
+          onPress={() => {
+            void signOut().then(() => router.replace("/(tabs)"));
+          }}>
+          <Text style={styles.buttonText}>Sign Out</Text>
+        </Pressable>
+      </Authenticated>
+    </View>
   );
 }
 
@@ -98,16 +80,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 16,
   },
-  modeRow: { flexDirection: "row", gap: 8 },
-  modeButton: {
-    flex: 1,
-    backgroundColor: "#27272a",
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: "center",
-  },
-  modeButtonActive: { backgroundColor: "#e50914" },
-  modeButtonText: { color: "#fff", textTransform: "capitalize" },
+  helper: { color: "#71717a", fontSize: 13, lineHeight: 18 },
   button: { backgroundColor: "#e50914", paddingVertical: 14, borderRadius: 8, alignItems: "center" },
   secondaryButton: { backgroundColor: "#3f3f46" },
   buttonText: { color: "#fff", fontWeight: "600" },

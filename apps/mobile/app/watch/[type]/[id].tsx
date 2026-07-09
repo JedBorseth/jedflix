@@ -1,9 +1,8 @@
 import { api } from "@jedflix/convex-api";
-import { useMutation, useQuery } from "convex/react";
-import { useLocalSearchParams } from "expo-router";
+import { useMutation, useQuery, useConvexAuth } from "convex/react";
+import { router, useLocalSearchParams } from "expo-router";
 import * as SecureStore from "expo-secure-store";
-import { useVideoPlayer, VideoView } from "expo-video";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -12,28 +11,58 @@ import {
   Text,
   View,
 } from "react-native";
-import type { MediaType, StreamMode } from "@jedflix/shared";
-import type { StreamSource } from "@jedflix/stream-client";
-import { streamClient } from "@/lib/stream";
+import type { MediaType } from "@jedflix/shared";
+import { NativeStreamPlayer } from "@/components/NativeStreamPlayer";
+import {
+  checkInstantAvailability,
+  formatRealDebridError,
+  isRecoverableStreamError,
+  resolveRealDebridStream,
+} from "@/lib/realDebrid";
+import { IOS_PLAYBACK_HINT, isIosDevice, sortSourcesForMobilePlayback } from "@/lib/iosPlayback";
+import { fetchTorrentioSources, type MobileStreamSource } from "@/lib/torrentio";
 import { tmdb } from "@/lib/tmdb";
 
 const LOCAL_RD_KEY = "jedflix.mobile.realDebridApiKey";
+
+type PlaybackState = {
+  url: string;
+  title: string;
+  sourceIndex: number;
+};
 
 export default function WatchScreen() {
   const params = useLocalSearchParams<{ type: string; id: string }>();
   const mediaType = params.type as MediaType;
   const mediaId = Number(params.id);
   const settings = useQuery(api.userSettings.getForUser);
+  const { isAuthenticated } = useConvexAuth();
   const upsertProgress = useMutation(api.watchHistory.upsertProgress);
+  const lastSavedProgress = useMemo(() => ({ current: 0 }), []);
 
-  const [sources, setSources] = useState<StreamSource[]>([]);
+  const saveProgress = useCallback(
+    (seconds: number) => {
+      if (!isAuthenticated || seconds <= 0 || seconds - lastSavedProgress.current < 15) return;
+      lastSavedProgress.current = seconds;
+      void upsertProgress({
+        mediaType,
+        movieId: mediaId,
+        progressSeconds: seconds,
+      }).catch(() => {
+        // Ignore progress save failures (e.g. auth race).
+      });
+    },
+    [isAuthenticated, lastSavedProgress, mediaId, mediaType, upsertProgress],
+  );
+
+  const [imdbId, setImdbId] = useState<string | null>(null);
+  const [sources, setSources] = useState<MobileStreamSource[]>([]);
   const [loadingSources, setLoadingSources] = useState(true);
   const [resolving, setResolving] = useState(false);
-  const [playbackUrl, setPlaybackUrl] = useState<string | null>(null);
+  const [resolveProgress, setResolveProgress] = useState<string | null>(null);
+  const [playback, setPlayback] = useState<PlaybackState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [rdToken, setRdToken] = useState<string | undefined>();
-
-  const streamMode: StreamMode = settings?.streamMode ?? "direct";
 
   useEffect(() => {
     void SecureStore.getItemAsync(LOCAL_RD_KEY).then((value) => {
@@ -47,14 +76,46 @@ export default function WatchScreen() {
     async function loadSources() {
       setLoadingSources(true);
       setError(null);
+      setImdbId(null);
+
+      if (mediaType === "tv") {
+        setError("TV playback requires season and episode selection (coming soon).");
+        setLoadingSources(false);
+        return;
+      }
+
+      if (!rdToken?.trim()) {
+        setError("Add your Real Debrid API key in Settings to stream.");
+        setLoadingSources(false);
+        return;
+      }
+
       try {
-        const media = await tmdb.getMediaDetails(mediaType, mediaId);
-        if (!media?.imdbId) throw new Error("Missing IMDb ID for this title");
-        const found = await streamClient.fetchSources(
-          { type: mediaType, imdbId: media.imdbId },
-          rdToken,
-        );
-        if (!cancelled) setSources(found);
+        const [media, externalIds] = await Promise.all([
+          tmdb.getMediaDetails(mediaType, mediaId),
+          tmdb.getExternalIds(mediaType, mediaId),
+        ]);
+        if (!media) throw new Error("Title not found");
+        if (!externalIds.imdbId) {
+          throw new Error("This title does not have an IMDb ID required for streaming.");
+        }
+        if (cancelled) return;
+
+        setImdbId(externalIds.imdbId);
+        const found = await fetchTorrentioSources({
+          type: mediaType,
+          imdbId: externalIds.imdbId,
+        });
+        if (cancelled) return;
+
+        const hashes = found.map((source) => source.infoHash).filter((hash): hash is string => !!hash);
+        const cached = await checkInstantAvailability(rdToken, hashes);
+        const withCache = found.map((source) => ({
+          ...source,
+          cached: source.infoHash ? !!cached[source.infoHash.toLowerCase()] : false,
+        }));
+
+        setSources(sortSourcesForMobilePlayback(withCache) as MobileStreamSource[]);
       } catch (loadError) {
         if (!cancelled) {
           setError(loadError instanceof Error ? loadError.message : "Failed to load sources");
@@ -70,82 +131,113 @@ export default function WatchScreen() {
     };
   }, [mediaType, mediaId, rdToken]);
 
-  async function playSource(source: StreamSource) {
-    setResolving(true);
-    setError(null);
-    try {
-      const media = await tmdb.getMediaDetails(mediaType, mediaId);
-      if (!media?.imdbId) throw new Error("Missing IMDb ID");
-
-      const job = await streamClient.startResolve(
-        {
-          type: mediaType,
-          imdbId: media.imdbId,
-          mode: streamMode,
-          magnet: source.magnet,
-          infoHash: source.infoHash,
-          realDebridToken: rdToken,
-        },
-        rdToken,
-      );
-
-      let current = job;
-      while (current.status === "searching" || current.status === "downloading") {
-        await new Promise((resolve) => setTimeout(resolve, 1500));
-        current = await streamClient.pollResolve(current.jobId);
+  const resolveAndPlay = useCallback(
+    async (startIndex: number) => {
+      if (!imdbId) return;
+      if (!rdToken?.trim()) {
+        setError("Add your Real Debrid API key in Settings to stream.");
+        return;
       }
 
-      if (current.status === "failed" || !current.stream) {
-        throw new Error(current.error ?? "Stream resolution failed");
+      setResolving(true);
+      setResolveProgress("Starting resolve");
+      setError(null);
+      setPlayback(null);
+
+      const candidates = sources.slice(startIndex);
+      let lastError: unknown = null;
+
+      for (let attempt = 0; attempt < candidates.length; attempt++) {
+        const candidate = candidates[attempt];
+        if (!candidate) continue;
+        const sourceIndex = startIndex + attempt;
+
+        if (attempt > 0) {
+          setResolveProgress(`Trying stream ${sourceIndex + 1} of ${sources.length}`);
+        }
+
+        try {
+          const stream = await resolveRealDebridStream(
+            candidate,
+            { type: mediaType, imdbId, mode: "direct", realDebridToken: rdToken },
+            rdToken,
+            {
+              fileIdx: candidate.fileIdx,
+              onProgress: (progress) => setResolveProgress(progress),
+            },
+          );
+          setPlayback({
+            url: stream.directUrl ?? stream.url,
+            title: stream.filename ?? candidate.title,
+            sourceIndex,
+          });
+          setResolving(false);
+          setResolveProgress(null);
+          return;
+        } catch (playError) {
+          lastError = playError;
+          if (!isRecoverableStreamError(playError) || attempt === candidates.length - 1) {
+            break;
+          }
+        }
       }
 
-      const url = streamClient.getPlaybackUrl(current.stream);
-      setPlaybackUrl(url);
-    } catch (playError) {
-      setError(playError instanceof Error ? playError.message : "Playback failed");
-    } finally {
+      setError(formatRealDebridError(lastError));
       setResolving(false);
-    }
-  }
+      setResolveProgress(null);
+    },
+    [imdbId, mediaType, rdToken, sources],
+  );
 
-  const player = useVideoPlayer(playbackUrl, (instance) => {
-    instance.loop = false;
-    instance.play();
-  });
-
-  useEffect(() => {
-    if (!playbackUrl) return;
-    const interval = setInterval(() => {
-      const currentTime = player.currentTime;
-      if (currentTime > 0) {
-        void upsertProgress({
-          mediaType,
-          movieId: mediaId,
-          progressSeconds: Math.floor(currentTime),
-        });
+  const handlePlaybackError = useCallback(
+    (message: string) => {
+      if (!playback) return;
+      const nextIndex = playback.sourceIndex + 1;
+      if (nextIndex >= sources.length) {
+        setPlayback(null);
+        setError(
+          isIosDevice()
+            ? `${IOS_PLAYBACK_HINT} (${message})`
+            : `Playback failed: ${message}`,
+        );
+        return;
       }
-    }, 15000);
-    return () => clearInterval(interval);
-  }, [playbackUrl, player, upsertProgress, mediaType, mediaId]);
+
+      setError("This stream could not play. Trying another...");
+      void resolveAndPlay(nextIndex);
+    },
+    [playback, resolveAndPlay, sources.length],
+  );
 
   const header = useMemo(
     () => (
       <View style={styles.header}>
+        <Pressable style={styles.backButton} onPress={() => router.back()}>
+          <Text style={styles.backButtonText}>← Back</Text>
+        </Pressable>
         <Text style={styles.headerTitle}>Choose a stream</Text>
-        <Text style={styles.headerMeta}>Mode: {streamMode}</Text>
+        <Text style={styles.headerMeta}>Direct Real Debrid · Native player</Text>
+        {isIosDevice() ? <Text style={styles.hint}>{IOS_PLAYBACK_HINT}</Text> : null}
         {loadingSources ? <ActivityIndicator color="#e50914" /> : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
-        {resolving ? <Text style={styles.resolving}>Resolving stream...</Text> : null}
+        {resolving ? (
+          <Text style={styles.resolving}>{resolveProgress ?? "Resolving stream..."}</Text>
+        ) : null}
       </View>
     ),
-    [streamMode, loadingSources, error, resolving],
+    [loadingSources, error, resolving, resolveProgress],
   );
 
-  if (playbackUrl) {
+  if (playback) {
     return (
-      <View style={styles.playerContainer}>
-        <VideoView style={styles.video} player={player} allowsFullscreen allowsPictureInPicture />
-      </View>
+      <NativeStreamPlayer
+        key={playback.url}
+        url={playback.url}
+        title={playback.title}
+        onPlaybackError={handlePlaybackError}
+        onBack={() => setPlayback(null)}
+        onProgress={isAuthenticated ? saveProgress : undefined}
+      />
     );
   }
 
@@ -153,14 +245,21 @@ export default function WatchScreen() {
     <FlatList
       style={styles.container}
       data={sources}
-      keyExtractor={(item) => item.id}
+      keyExtractor={(item, index) => item.id || `source-${index}`}
       ListHeaderComponent={header}
       contentContainerStyle={styles.list}
-      renderItem={({ item }) => (
-        <Pressable style={styles.sourceRow} disabled={resolving} onPress={() => void playSource(item)}>
+      renderItem={({ item, index }) => (
+        <Pressable
+          style={styles.sourceRow}
+          disabled={resolving}
+          onPress={() => void resolveAndPlay(index)}>
           <Text style={styles.sourceTitle}>{item.title}</Text>
           <Text style={styles.sourceMeta}>
-            {[item.cached ? "Cached" : null, item.seeders ? `${item.seeders} seeders` : null]
+            {[
+              item.cached ? "Cached" : null,
+              item.sizeGb ? `${item.sizeGb.toFixed(1)} GB` : null,
+              item.seeders ? `${item.seeders} seeders` : null,
+            ]
               .filter(Boolean)
               .join(" · ")}
           </Text>
@@ -174,8 +273,11 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#09090b" },
   list: { padding: 16, gap: 12 },
   header: { gap: 8, marginBottom: 12 },
+  backButton: { alignSelf: "flex-start", paddingVertical: 4 },
+  backButtonText: { color: "#e50914", fontSize: 16, fontWeight: "600" },
   headerTitle: { color: "#fff", fontSize: 22, fontWeight: "700" },
   headerMeta: { color: "#a1a1aa" },
+  hint: { color: "#a1a1aa", fontSize: 12, lineHeight: 18 },
   error: { color: "#fca5a5" },
   resolving: { color: "#fde047" },
   sourceRow: {
@@ -186,6 +288,4 @@ const styles = StyleSheet.create({
   },
   sourceTitle: { color: "#fff", fontSize: 14, marginBottom: 4 },
   sourceMeta: { color: "#a1a1aa", fontSize: 12 },
-  playerContainer: { flex: 1, backgroundColor: "#000" },
-  video: { flex: 1 },
 });
