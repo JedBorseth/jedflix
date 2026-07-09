@@ -131,7 +131,7 @@ const styles = StyleSheet.create({
   hero: { height: 280, marginBottom: 16 },
   heroImage: { width: "100%", height: "100%" },
   heroOverlay: {
-    ...StyleSheet.absoluteFill,
+    ...StyleSheet.absoluteFillObject,
     justifyContent: "flex-end",
     padding: 16,
     backgroundColor: "rgba(0,0,0,0.45)",
