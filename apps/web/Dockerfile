@@ -4,9 +4,12 @@ WORKDIR /app
 
 COPY package.json bun.lock turbo.json ./
 COPY apps/web/package.json ./apps/web/
+COPY apps/mobile/package.json ./apps/mobile/
+COPY apps/stream-server/package.json ./apps/stream-server/
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/stream-client/package.json ./packages/stream-client/
 COPY packages/tmdb/package.json ./packages/tmdb/
+COPY packages/convex-api/package.json ./packages/convex-api/
 RUN bun install --frozen-lockfile
 
 COPY apps/web ./apps/web
@@ -27,7 +30,7 @@ ENV VITE_TMDB_API_KEY=$VITE_TMDB_API_KEY
 ENV VITE_STREAM_API_URL=$VITE_STREAM_API_URL
 ENV VITE_STREAM_API_KEY=$VITE_STREAM_API_KEY
 
-RUN bun run build
+RUN bunx vite build
 
 FROM nginx:1.27-alpine
 
