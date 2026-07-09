@@ -1,0 +1,10 @@
+{
+  "name": "@jedflix/stream-server",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "dev": "go run ./cmd/stream-server",
+    "build": "go build -o bin/stream-server ./cmd/stream-server",
+    "test": "go test ./..."
+  }
+}

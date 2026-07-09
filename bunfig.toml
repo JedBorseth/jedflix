@@ -1,6 +1,9 @@
 [test]
-preload = ["./tests/dom-setup.ts", "./tests/setup.ts"]
+root = "apps/web"
+preload = ["./apps/web/tests/dom-setup.ts", "./apps/web/tests/setup.ts"]
 
 [resolve.alias]
-"@" = "./src"
-"@/" = "./src/"
+"@" = "./apps/web/src"
+"@/" = "./apps/web/src/"
+"@convex" = "./convex"
+"@convex/" = "./convex/"

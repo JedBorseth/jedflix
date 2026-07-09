@@ -50,10 +50,25 @@ bunx convex run seed:seedMovies
 
 | Command | Description |
 |---------|-------------|
-| `bun run dev` | Start Vite frontend and Convex backend |
-| `bun run build` | Type-check and build for production |
-| `bun test` | Run component tests with Bun |
+| `bun run dev` | Start web app, Convex backend, and Go stream-server |
+| `bun run build` | Build all apps via Turborepo |
+| `bun run test` | Run tests across the monorepo |
 | `bun run lint` | Type-check and lint |
+
+## Monorepo layout
+
+```
+apps/
+  web/              Vite React frontend
+  stream-server/    Go stream API (Torrentio + Real Debrid)
+  mobile/           Expo React Native app (in progress)
+packages/
+  shared/           Shared types, validators, and helpers
+  stream-client/    Stream API HTTP client
+  tmdb/             TMDB API client
+convex/             Convex backend (schema, auth, user data)
+deploy/             Caddy and nginx configs
+```
 
 ## Features
 
@@ -76,7 +91,7 @@ The app supports two delivery modes:
 - **Direct**: the browser calls the Real Debrid API with the API key saved in Settings and plays the RD CDN URL directly.
 - **Proxy**: the Go service resolves the stream using the user's saved Real Debrid API key when present, or `REALDEBRID_TOKEN` from the server environment as a fallback, then byte-serves playback through `/stream-api`.
 
-The Go service in [`stream-server/`](stream-server/) still:
+The Go service in [`apps/stream-server/`](apps/stream-server/) still:
 
 1. Searches Torrentio for magnets by IMDb ID
 2. Filters by size (default 50GB max), seeders (default min 3), and known Real Debrid infringing filename patterns
@@ -91,7 +106,7 @@ VITE_STREAM_API_URL=/stream-api
 VITE_STREAM_API_KEY=
 ```
 
-Configure the stream server (see [`stream-server/.env.example`](stream-server/.env.example)):
+Configure the stream server (see [`apps/stream-server/.env.example`](apps/stream-server/.env.example)):
 
 ```bash
 REALDEBRID_TOKEN=your_token
@@ -108,18 +123,11 @@ bun run dev
 
 This starts Vite, Convex, and the Go stream-server.
 
-Player UI components under `src/components/player/stremio/` are derived from [Stremio Web](https://github.com/Stremio/stremio-web) (GPL-2.0).
-
 ## Project structure
 
-```
-convex/           Convex schema, queries, mutations, auth
-src/
-  components/     UI components (browse, player, layout, auth)
-  pages/          Route pages
-  lib/            Shared TypeScript types
-tests/            Bun test preload setup
-```
+See the monorepo layout above. Web UI components under `apps/web/src/components/player/stremio/` are derived from [Stremio Web](https://github.com/Stremio/stremio-web) (GPL-2.0).
+
+Production Docker builds use repo root context with `apps/web/Dockerfile`.
 
 ## Notes
 
@@ -138,8 +146,8 @@ Recommended CD: **GitHub Actions on every push to `main`**.
 | Component | Where it runs | How it deploys |
 |-----------|---------------|----------------|
 | Convex backend | Convex Cloud | `bunx convex deploy` in CI |
-| React frontend | Docker `frontend` service | Rebuilt on the server from repo `Dockerfile` |
-| Go stream-server | Docker `stream-server` service | Rebuilt on the server from `stream-server/` |
+| React frontend | Docker `frontend` service | Rebuilt on the server from `apps/web/Dockerfile` |
+| Go stream-server | Docker `stream-server` service | Rebuilt on the server from `apps/stream-server/` |
 | TLS / routing | Docker `caddy` service | Uses `deploy/Caddyfile` |
 
 ### Server layout
@@ -150,7 +158,7 @@ Default path on the production box:
 /home/jedborseth/jedflix
   .env                 # production secrets (not in git)
   docker-compose.yml
-  Dockerfile
+  apps/web/Dockerfile
   deploy/Caddyfile
 ```
 

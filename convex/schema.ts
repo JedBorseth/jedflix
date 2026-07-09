@@ -1,14 +1,11 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { authTables } from "@convex-dev/auth/server";
-
-const mediaTypeValidator = v.union(v.literal("movie"), v.literal("tv"));
-const streamModeValidator = v.union(v.literal("direct"), v.literal("proxy"));
-const externalPlayerValidator = v.union(
-  v.literal("disabled"),
-  v.literal("vlc"),
-  v.literal("outplayer"),
-);
+import {
+  externalPlayerValidator,
+  mediaTypeValidator,
+  streamModeValidator,
+} from "@jedflix/shared";
 
 export default defineSchema({
   ...authTables,
