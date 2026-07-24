@@ -1,4 +1,4 @@
-/** @stremio/stremio-video HTMLVideo reports time and duration in milliseconds. */
+/** Player hooks report time and duration in milliseconds for ControlBar. */
 export function toDisplaySeconds(timeMs: number): number {
   if (!Number.isFinite(timeMs) || timeMs < 0) {
     return 0;

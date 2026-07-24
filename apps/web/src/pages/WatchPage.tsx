@@ -1,15 +1,29 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { useParams } from "react-router-dom";
 import { useQuery } from "convex/react";
 import { api } from "@convex/_generated/api";
 import { ExternalPlayerHandoff } from "@/components/player/external/ExternalPlayerHandoff";
 import { NativeVideoPlayer } from "@/components/player/native/NativeVideoPlayer";
-import { StremioPlayer } from "@/components/player/stremio/StremioPlayer";
-import { Button } from "@/components/ui/button";
+import { PlayerErrorBoundary } from "@/components/player/shared/PlayerErrorBoundary";
+import { PlayerErrorOverlay } from "@/components/player/shared/PlayerErrorOverlay";
 import { useUserSettings } from "@/hooks/useUserSettings";
 import { isMobileViewport } from "@/lib/mobile";
 import type { MediaItem, MediaType } from "@/lib/types";
 import { getExternalIds, getMediaDetails, getMediaDetailPath } from "@/lib/tmdb";
+
+const VideoJsPlayer = lazy(() =>
+  import("@/components/player/videojs/VideoJsPlayer").then((module) => ({
+    default: module.VideoJsPlayer,
+  })),
+);
+
+function WatchPageFallback() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-black text-white">
+      Loading player...
+    </div>
+  );
+}
 
 function parseWatchParams(params: {
   mediaType?: string;
@@ -118,20 +132,17 @@ export function WatchPage() {
   }, [episode, mediaId, mediaType, season]);
 
   if (movie === undefined) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-black text-white">
-        Loading player...
-      </div>
-    );
+    return <WatchPageFallback />;
   }
 
   if (movie === null || !imdbId) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-black text-white">
-        <p>{error ?? "Title not found."}</p>
-        <Button asChild variant="outline">
-          <Link to="/">Back to browse</Link>
-        </Button>
+      <div className="player-container">
+        <PlayerErrorOverlay
+          title="Unable to start playback"
+          message={error ?? "Title not found."}
+          homePath="/"
+        />
       </div>
     );
   }
@@ -149,25 +160,29 @@ export function WatchPage() {
     backPath: getMediaDetailPath(movie),
   };
 
-  if (externalPlayer !== "disabled") {
-    return (
-      <ExternalPlayerHandoff
-        mediaType={movie.mediaType}
-        title={movie.title}
-        imdbId={imdbId}
-        season={season}
-        episode={episode}
-        mode={streamMode}
-        realDebridApiKey={realDebridApiKey}
-        backPath={getMediaDetailPath(movie)}
-        externalPlayer={externalPlayer}
-      />
-    );
-  }
+  const backPath = getMediaDetailPath(movie);
 
-  if (isMobileViewport()) {
-    return <NativeVideoPlayer {...playerProps} />;
-  }
-
-  return <StremioPlayer {...playerProps} />;
+  return (
+    <PlayerErrorBoundary backPath={backPath}>
+      {externalPlayer !== "disabled" ? (
+        <ExternalPlayerHandoff
+          mediaType={movie.mediaType}
+          title={movie.title}
+          imdbId={imdbId}
+          season={season}
+          episode={episode}
+          mode={streamMode}
+          realDebridApiKey={realDebridApiKey}
+          backPath={backPath}
+          externalPlayer={externalPlayer}
+        />
+      ) : isMobileViewport() ? (
+        <NativeVideoPlayer {...playerProps} />
+      ) : (
+        <Suspense fallback={<WatchPageFallback />}>
+          <VideoJsPlayer {...playerProps} />
+        </Suspense>
+      )}
+    </PlayerErrorBoundary>
+  );
 }

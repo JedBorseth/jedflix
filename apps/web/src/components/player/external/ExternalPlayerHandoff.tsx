@@ -11,6 +11,8 @@ import { copyTextToClipboard } from "@/lib/clipboard";
 import { sortSourcesForIosPlayback } from "@/lib/iosPlayback";
 import type { ExternalPlayer } from "@/lib/userSettings";
 import type { MediaType } from "@/lib/types";
+import { PlayerErrorOverlay } from "../shared/PlayerErrorOverlay";
+import { isFallbackError } from "../shared/playbackErrors";
 import { StreamSourcePicker } from "../stremio/StreamSourcePicker";
 import { useStreamResolve } from "../stremio/useStreamResolve";
 import "../stremio/player.css";
@@ -256,27 +258,18 @@ export function ExternalPlayerHandoff({
       ) : null}
 
       {failed ? (
-        <div className="player-error">
-          <h2 className="text-xl font-semibold">Unable to open stream</h2>
-          <p className="text-zinc-300">{resolveState.error ?? "Stream resolve failed."}</p>
-          <div className="flex gap-3">
-            <button
-              type="button"
-              className="rounded-md bg-white px-4 py-2 text-black"
-              onClick={() => {
-                setSelectedSource(null);
-                setFallbackProgress(null);
-                openedUrlRef.current = null;
-                setShowSourcePicker(true);
-              }}
-            >
-              Pick another stream
-            </button>
-            <Link to={backPath} className="rounded-md border border-zinc-600 px-4 py-2 text-white">
-              Back
-            </Link>
-          </div>
-        </div>
+        <PlayerErrorOverlay
+          title="Unable to open stream"
+          message={resolveState.error ?? "Stream resolve failed."}
+          onRetryStreams={() => {
+            setSelectedSource(null);
+            setFallbackProgress(null);
+            openedUrlRef.current = null;
+            setShowSourcePicker(true);
+          }}
+          backPath={backPath}
+          homePath="/"
+        />
       ) : null}
 
       <div className="player-overlay pointer-events-none">
@@ -303,12 +296,3 @@ export function ExternalPlayerHandoff({
   );
 }
 
-function isFallbackError(errorCode?: string): boolean {
-  return (
-    errorCode === "infringing_file" ||
-    errorCode === "timeout" ||
-    errorCode === "no_video_file" ||
-    errorCode === "size_limit" ||
-    errorCode === "no_links"
-  );
-}

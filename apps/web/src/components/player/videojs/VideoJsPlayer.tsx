@@ -1,6 +1,3 @@
-// Copyright (C) 2017-2023 Smart code 203358507
-// Adapted for JedFlix
-
 import debounce from "lodash.debounce";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Link } from "react-router-dom";
@@ -8,16 +5,17 @@ import { useMutation } from "convex/react";
 import { api } from "@convex/_generated/api";
 import { useScreenOrientationLock } from "@/hooks/useScreenOrientationLock";
 import { fetchSources, type StreamMode, type StreamSource } from "@/lib/streamApi";
-import { buildDirectStreamHints } from "@/lib/streamPlayback";
 import type { MediaType } from "@/lib/types";
-import { ControlBar } from "./ControlBar";
-import { toDisplaySeconds } from "./time";
-import { StreamSourcePicker } from "./StreamSourcePicker";
-import { useStreamResolve } from "./useStreamResolve";
-import { useVideo } from "./useVideo";
-import "./player.css";
+import { PlayerErrorOverlay } from "../shared/PlayerErrorOverlay";
+import { isFallbackError } from "../shared/playbackErrors";
+import { ControlBar } from "../stremio/ControlBar";
+import { toDisplaySeconds } from "../stremio/time";
+import { StreamSourcePicker } from "../stremio/StreamSourcePicker";
+import { useStreamResolve } from "../stremio/useStreamResolve";
+import { useVideoJs } from "./useVideoJs";
+import "../stremio/player.css";
 
-type StremioPlayerProps = {
+type VideoJsPlayerProps = {
   movieId: number;
   mediaType: MediaType;
   title: string;
@@ -32,7 +30,7 @@ type StremioPlayerProps = {
 
 type DebouncedSaveProgress = ((progressSeconds: number) => void) & { cancel: () => void };
 
-export function StremioPlayer({
+export function VideoJsPlayer({
   movieId,
   mediaType,
   title,
@@ -43,8 +41,8 @@ export function StremioPlayer({
   realDebridApiKey = "",
   initialProgressSeconds = 0,
   backPath,
-}: StremioPlayerProps) {
-  const { containerRef, state, load, unload, setPaused, setTime, events } = useVideo();
+}: VideoJsPlayerProps) {
+  const { videoRef, state, load, unload, setPaused, setTime, events } = useVideoJs();
   const [controlsHidden, setControlsHidden] = useState(false);
   const hideControlsTimeoutRef = useRef<number | null>(null);
   const [sources, setSources] = useState<StreamSource[]>([]);
@@ -53,6 +51,7 @@ export function StremioPlayer({
   const [selectedSource, setSelectedSource] = useState<StreamSource | null>(null);
   const [showSourcePicker, setShowSourcePicker] = useState(true);
   const [fallbackProgress, setFallbackProgress] = useState<string | null>(null);
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
   const loadedUrlRef = useRef<string | null>(null);
   const upsertProgress = useMutation(api.watchHistory.upsertProgress);
   const saveProgressRef = useRef<DebouncedSaveProgress | null>(null);
@@ -85,6 +84,7 @@ export function StremioPlayer({
     setSourcesError(null);
     setSelectedSource(null);
     setFallbackProgress(null);
+    setPlaybackError(null);
     loadedUrlRef.current = null;
     setShowSourcePicker(true);
     try {
@@ -126,15 +126,13 @@ export function StremioPlayer({
     }
 
     const filename = resolveState.stream?.filename ?? title;
+    setPlaybackError(null);
 
     load({
-      stream: {
-        url: playbackUrl,
-        name: filename,
-        behaviorHints: buildDirectStreamHints(filename),
-      },
+      url: playbackUrl,
+      filename,
       autoplay: true,
-      time: initialProgressSeconds * 1000,
+      startTimeSeconds: initialProgressSeconds,
     });
     loadedUrlRef.current = playbackUrl;
   }, [
@@ -145,13 +143,60 @@ export function StremioPlayer({
     title,
   ]);
 
+  const tryNextSource = useCallback(
+    (message: string) => {
+      if (!selectedSource) {
+        setPlaybackError(message);
+        return;
+      }
+
+      const currentIndex = sources.findIndex((source) => source.id === selectedSource.id);
+      const nextSource = sources[currentIndex + 1];
+      if (nextSource) {
+        setFallbackProgress(`Trying stream ${currentIndex + 2} of ${sources.length}`);
+        loadedUrlRef.current = null;
+        setPlaybackError(null);
+        setSelectedSource(nextSource);
+        return;
+      }
+
+      setPlaybackError(message);
+    },
+    [selectedSource, sources],
+  );
+
   useEffect(() => {
     const onEnded = () => setPaused(true);
+    const onError = (message: unknown) => {
+      tryNextSource(typeof message === "string" ? message : "Playback failed.");
+    };
+
     events.on("ended", onEnded);
+    events.on("error", onError);
     return () => {
       events.off("ended", onEnded);
+      events.off("error", onError);
     };
-  }, [events, setPaused]);
+  }, [events, setPaused, tryNextSource]);
+
+  useEffect(() => {
+    if (resolveState.status !== "failed" || !selectedSource || !isFallbackError(resolveState.errorCode)) {
+      return;
+    }
+
+    const currentIndex = sources.findIndex((source) => source.id === selectedSource.id);
+    if (currentIndex < 0) {
+      return;
+    }
+    const nextSource = sources[currentIndex + 1];
+    if (!nextSource) {
+      return;
+    }
+
+    setFallbackProgress(`Trying stream ${currentIndex + 2} of ${sources.length}`);
+    loadedUrlRef.current = null;
+    setSelectedSource(nextSource);
+  }, [resolveState.errorCode, resolveState.status, selectedSource, sources]);
 
   useEffect(() => {
     const time = state.time;
@@ -197,7 +242,8 @@ export function StremioPlayer({
   const time = state.time ?? 0;
   const duration = state.duration ?? 0;
   const buffering = Boolean(state.buffering) || resolving;
-  const failed = resolveState.status === "failed";
+  const resolveFailed = resolveState.status === "failed";
+  const failed = resolveFailed || playbackError !== null;
   const forceControlsVisible = paused || showSourcePicker || buffering || failed;
   const hideOverlay = controlsHidden && !forceControlsVisible;
   const isPlaying = !forceControlsVisible && loadedUrlRef.current !== null;
@@ -213,6 +259,7 @@ export function StremioPlayer({
         return;
       }
       setFallbackProgress(null);
+      setPlaybackError(null);
       setSelectedSource(source);
       setShowSourcePicker(false);
       scheduleHideControls();
@@ -220,24 +267,13 @@ export function StremioPlayer({
     [resolving, scheduleHideControls, selectedSource?.id, sourcesLoading],
   );
 
-  useEffect(() => {
-    if (resolveState.status !== "failed" || !selectedSource || !isFallbackError(resolveState.errorCode)) {
-      return;
-    }
-
-    const currentIndex = sources.findIndex((source) => source.id === selectedSource.id);
-    if (currentIndex < 0) {
-      return;
-    }
-    const nextSource = sources[currentIndex + 1];
-    if (!nextSource) {
-      return;
-    }
-
-    setFallbackProgress(`Trying stream ${currentIndex + 2} of ${sources.length}`);
+  const resetToSourcePicker = useCallback(() => {
+    setSelectedSource(null);
+    setFallbackProgress(null);
+    setPlaybackError(null);
     loadedUrlRef.current = null;
-    setSelectedSource(nextSource);
-  }, [resolveState.errorCode, resolveState.status, selectedSource, sources]);
+    setShowSourcePicker(true);
+  }, []);
 
   const onActivity = useCallback(() => {
     if (showSourcePicker || buffering || failed) {
@@ -288,7 +324,15 @@ export function StremioPlayer({
         onClick={togglePlayPause}
         onKeyDown={handleVideoLayerKeyDown}
       >
-        <div ref={containerRef} className="player-video-container" />
+        <div className="player-video-container">
+          <div data-vjs-player className="h-full w-full">
+            <video
+              ref={videoRef}
+              className="video-js vjs-default-skin video-js-player"
+              playsInline
+            />
+          </div>
+        </div>
       </button>
 
       {showSourcePicker ? (
@@ -318,27 +362,12 @@ export function StremioPlayer({
       ) : null}
 
       {failed ? (
-        <div className="player-error">
-          <h2 className="text-xl font-semibold">Unable to play stream</h2>
-          <p className="text-zinc-300">{resolveState.error ?? "Stream resolve failed."}</p>
-          <div className="flex gap-3">
-            <button
-              type="button"
-              className="rounded-md bg-white px-4 py-2 text-black"
-              onClick={() => {
-                setSelectedSource(null);
-                setFallbackProgress(null);
-                loadedUrlRef.current = null;
-                setShowSourcePicker(true);
-              }}
-            >
-              Pick another stream
-            </button>
-            <Link to={backPath} className="rounded-md border border-zinc-600 px-4 py-2 text-white">
-              Back
-            </Link>
-          </div>
-        </div>
+        <PlayerErrorOverlay
+          message={playbackError ?? resolveState.error ?? "Stream resolve failed."}
+          onRetryStreams={resetToSourcePicker}
+          backPath={backPath}
+          homePath="/"
+        />
       ) : null}
 
       <div className="player-overlay">
@@ -384,15 +413,5 @@ export function StremioPlayer({
         ) : null}
       </div>
     </div>
-  );
-}
-
-function isFallbackError(errorCode?: string): boolean {
-  return (
-    errorCode === "infringing_file" ||
-    errorCode === "timeout" ||
-    errorCode === "no_video_file" ||
-    errorCode === "size_limit" ||
-    errorCode === "no_links"
   );
 }
