@@ -8,6 +8,8 @@ import { fetchSources, type StreamMode, type StreamSource } from "@/lib/streamAp
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { IOS_PLAYBACK_ERROR_HINT, isIosDevice, sortSourcesForIosPlayback } from "@/lib/iosPlayback";
 import type { MediaType } from "@/lib/types";
+import { PlayerErrorOverlay } from "../shared/PlayerErrorOverlay";
+import { isFallbackError } from "../shared/playbackErrors";
 import { StreamSourcePicker } from "../stremio/StreamSourcePicker";
 import { useStreamResolve } from "../stremio/useStreamResolve";
 import "../stremio/player.css";
@@ -293,47 +295,36 @@ export function NativeVideoPlayer({
       ) : null}
 
       {failed ? (
-        <div className="player-error">
-          <h2 className="text-xl font-semibold">Unable to play stream</h2>
-          <p className="max-w-lg text-zinc-300">
-            {playbackError ?? resolveState.error ?? "Stream resolve failed."}
-          </p>
+        <PlayerErrorOverlay
+          message={playbackError ?? resolveState.error ?? "Stream resolve failed."}
+          onRetryStreams={() => {
+            setSelectedSource(null);
+            setFallbackProgress(null);
+            setPlaybackError(null);
+            setClipboardCopied(false);
+            loadedUrlRef.current = null;
+            setShowSourcePicker(true);
+          }}
+          backPath={backPath}
+          homePath="/"
+        >
           {clipboardCopied && absolutePlaybackUrl ? (
             <p className="text-sm text-emerald-400">Stream URL copied to clipboard.</p>
           ) : null}
-          <div className="flex flex-wrap gap-3">
+          {absolutePlaybackUrl ? (
             <button
               type="button"
-              className="rounded-md bg-white px-4 py-2 text-black"
+              className="rounded-md border border-zinc-600 px-4 py-2 text-white"
               onClick={() => {
-                setSelectedSource(null);
-                setFallbackProgress(null);
-                setPlaybackError(null);
-                setClipboardCopied(false);
-                loadedUrlRef.current = null;
-                setShowSourcePicker(true);
+                void copyTextToClipboard(absolutePlaybackUrl).then((copied) => {
+                  setClipboardCopied(copied);
+                });
               }}
             >
-              Pick another stream
+              Copy stream URL
             </button>
-            {absolutePlaybackUrl ? (
-              <button
-                type="button"
-                className="rounded-md border border-zinc-600 px-4 py-2 text-white"
-                onClick={() => {
-                  void copyTextToClipboard(absolutePlaybackUrl).then((copied) => {
-                    setClipboardCopied(copied);
-                  });
-                }}
-              >
-                Copy stream URL
-              </button>
-            ) : null}
-            <Link to={backPath} className="rounded-md border border-zinc-600 px-4 py-2 text-white">
-              Back
-            </Link>
-          </div>
-        </div>
+          ) : null}
+        </PlayerErrorOverlay>
       ) : null}
 
       <div className="player-overlay pointer-events-none">
@@ -369,12 +360,3 @@ export function NativeVideoPlayer({
   );
 }
 
-function isFallbackError(errorCode?: string): boolean {
-  return (
-    errorCode === "infringing_file" ||
-    errorCode === "timeout" ||
-    errorCode === "no_video_file" ||
-    errorCode === "size_limit" ||
-    errorCode === "no_links"
-  );
-}

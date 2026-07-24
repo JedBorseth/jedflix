@@ -27,11 +27,9 @@
     "@radix-ui/react-slot": "^1.0.2",
     "@radix-ui/react-toggle": "^1.0.3",
     "@radix-ui/react-toggle-group": "^1.0.4",
-    "@stremio/stremio-video": "^0.0.83",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "convex": "^1.17.0",
-    "eventemitter3": "^5.0.4",
     "lodash.debounce": "^4.0.8",
     "next-themes": "^0.3.0",
     "react": "^18.3.1",
@@ -39,7 +37,8 @@
     "react-router-dom": "^7.18.1",
     "sonner": "^2.0.5",
     "tailwind-merge": "^2.3.0",
-    "tailwindcss-animate": "^1.0.7"
+    "tailwindcss-animate": "^1.0.7",
+    "video.js": "^8.23.9"
   },
   "devDependencies": {
     "@happy-dom/global-registrator": "^20.10.6",
@@ -50,6 +49,7 @@
     "@types/node": "^20.14.9",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
+    "@types/video.js": "^7.3.58",
     "@typescript-eslint/eslint-plugin": "^7.13.1",
     "@typescript-eslint/parser": "^7.13.1",
     "@vitejs/plugin-react": "^4.3.1",
