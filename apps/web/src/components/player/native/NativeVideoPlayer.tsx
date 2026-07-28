@@ -4,9 +4,9 @@ import { Link } from "react-router-dom";
 import { useMutation } from "convex/react";
 import { api } from "@convex/_generated/api";
 import { useScreenOrientationLock } from "@/hooks/useScreenOrientationLock";
-import { fetchSources, type StreamMode, type StreamSource } from "@/lib/streamApi";
+import { fetchSources, type StreamSource } from "@/lib/streamApi";
 import { copyTextToClipboard } from "@/lib/clipboard";
-import { IOS_PLAYBACK_ERROR_HINT, isIosDevice, sortSourcesForIosPlayback } from "@/lib/iosPlayback";
+import { IOS_PLAYBACK_ERROR_HINT, isIosDevice, prepareBrowserSources } from "@/lib/iosPlayback";
 import type { MediaType } from "@/lib/types";
 import { PlayerErrorOverlay } from "../shared/PlayerErrorOverlay";
 import { isFallbackError } from "../shared/playbackErrors";
@@ -21,7 +21,6 @@ type NativeVideoPlayerProps = {
   imdbId: string;
   season?: number;
   episode?: number;
-  mode: StreamMode;
   realDebridApiKey?: string;
   initialProgressSeconds?: number;
   backPath: string;
@@ -36,7 +35,6 @@ export function NativeVideoPlayer({
   imdbId,
   season,
   episode,
-  mode,
   realDebridApiKey = "",
   initialProgressSeconds = 0,
   backPath,
@@ -93,8 +91,11 @@ export function NativeVideoPlayer({
     initialProgressAppliedRef.current = false;
     setShowSourcePicker(true);
     try {
-      const found = await fetchSources(baseRequest, realDebridApiKey.trim() || undefined);
-      setSources(sortSourcesForIosPlayback(found));
+      const found = await fetchSources(
+        { ...baseRequest, playbackProfile: "browser" },
+        realDebridApiKey.trim() || undefined,
+      );
+      setSources(prepareBrowserSources(found));
     } catch (error) {
       setSources([]);
       setSourcesError(error instanceof Error ? error.message : "Failed to load streams");
@@ -112,13 +113,12 @@ export function NativeVideoPlayer({
       selectedSource
         ? {
             ...baseRequest,
-            mode,
-            magnet: selectedSource.magnet,
+                      magnet: selectedSource.magnet,
             infoHash: selectedSource.infoHash,
             realDebridToken: realDebridApiKey.trim() || undefined,
           }
         : null,
-    [baseRequest, mode, realDebridApiKey, selectedSource],
+    [baseRequest, realDebridApiKey, selectedSource],
   );
 
   const resolveState = useStreamResolve(resolveRequest, selectedSource);
@@ -208,7 +208,7 @@ export function NativeVideoPlayer({
       setPlaybackError(
         isIosDevice()
           ? IOS_PLAYBACK_ERROR_HINT
-          : "This stream could not be played on your device. Try another source or use proxy mode.",
+          : "This stream could not be played on your device. Try another compatible source or an external player.",
       );
       return;
     }
@@ -224,7 +224,7 @@ export function NativeVideoPlayer({
 
     const message = isIosDevice()
       ? IOS_PLAYBACK_ERROR_HINT
-      : "This stream could not be played on your device. Try another source or use proxy mode.";
+      : "This stream could not be played on your device. Try another compatible source or an external player.";
     setPlaybackError(message);
     if (absolutePlaybackUrl) {
       void copyTextToClipboard(absolutePlaybackUrl).then((copied) => {
@@ -352,7 +352,7 @@ export function NativeVideoPlayer({
                 Change stream
               </button>
             ) : null}
-            <span className="player-mode-badge">{mode}</span>
+            <span className="player-mode-badge">direct</span>
           </div>
         </div>
       </div>

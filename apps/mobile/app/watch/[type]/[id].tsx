@@ -159,7 +159,7 @@ export default function WatchScreen() {
         try {
           const stream = await resolveRealDebridStream(
             candidate,
-            { type: mediaType, imdbId, mode: "direct", realDebridToken: rdToken },
+            { type: mediaType, imdbId, realDebridToken: rdToken },
             rdToken,
             {
               fileIdx: candidate.fileIdx,

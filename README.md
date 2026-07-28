@@ -88,15 +88,13 @@ deploy/             Caddy and nginx configs
 Playback uses Torrentio for source discovery and Real Debrid for resolving playable links.
 The app supports two delivery modes:
 
-- **Direct**: the browser calls the Real Debrid API with the API key saved in Settings and plays the RD CDN URL directly.
-- **Proxy**: the Go service resolves the stream using the user's saved Real Debrid API key when present, or `REALDEBRID_TOKEN` from the server environment as a fallback, then byte-serves playback through `/stream-api`.
+Playback is **direct-only**: the browser (or mobile app) calls the Real Debrid API with the API key saved in Settings and plays the RD CDN URL directly.
 
 The Go service in [`apps/stream-server/`](apps/stream-server/) still:
 
 1. Searches Torrentio for magnets by IMDb ID
-2. Filters by size (default 50GB max), seeders (default min 3), and known Real Debrid infringing filename patterns
+2. Filters by size (default 50GB max), seeders (default min 3), known Real Debrid infringing filename patterns, and browser-incompatible formats (MKV / Remux / Atmos / TrueHD / DTS) for in-app playback
 3. Checks Real Debrid instant availability for cache badges and ranking
-4. Resolves proxied streams and signs proxy URLs
 
 Configure the frontend:
 
@@ -110,7 +108,6 @@ Configure the stream server (see [`apps/stream-server/.env.example`](apps/stream
 
 ```bash
 REALDEBRID_TOKEN=your_token
-PROXY_SIGNING_SECRET=change-me
 CORS_ORIGINS=http://localhost:5173
 RD_BLOCKED_FILENAME_REGEX=web-dl|webrip|bdrip|hdrip|dvdrip|BluRay\.x264|HDTV\.x264|HDTV\.XviD|WEB\.x264|WEB\.h264
 ```

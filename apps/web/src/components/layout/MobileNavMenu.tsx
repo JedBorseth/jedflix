@@ -4,7 +4,6 @@ import { Authenticated, Unauthenticated } from "convex/react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { AppLink } from "@/components/layout/AppLink";
-import { StreamModeControl } from "@/components/layout/StreamModeToggle";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -154,12 +153,6 @@ export function MobileNavMenu() {
             </div>
           </Unauthenticated>
 
-          <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-3">
-            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500">
-              Stream type
-            </p>
-            <StreamModeControl className="justify-start border-zinc-700 bg-black/50" />
-          </div>
         </div>
       </div>
     </div>

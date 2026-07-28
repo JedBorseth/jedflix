@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { StreamModeControl } from "@/components/layout/StreamModeToggle";
 import { Navbar } from "@/components/layout/Navbar";
 import { Button } from "@/components/ui/button";
 import {
@@ -164,8 +163,7 @@ export function SettingsPage() {
             <CardHeader>
               <CardTitle>Real Debrid API Key</CardTitle>
               <CardDescription className="text-zinc-400">
-                Direct streaming uses this key from your browser. Proxy streaming uses it when
-                present, then falls back to the server REALDEBRID_TOKEN.
+                Required for direct Real Debrid streaming from your browser.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -193,19 +191,6 @@ export function SettingsPage() {
                   : "Sign in to sync settings to your account."}
               </p>
               {saved ? <p className="text-sm text-emerald-400">Settings saved.</p> : null}
-            </CardContent>
-          </Card>
-
-          <Card className="border-zinc-800 bg-zinc-900/60 text-white">
-            <CardHeader>
-              <CardTitle>Stream Mode</CardTitle>
-              <CardDescription className="text-zinc-400">
-                Direct streams resolve with your browser and Real Debrid API key. Proxy streams use
-                the stream server for resolving and byte serving.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <StreamModeControl className="inline-flex" itemClassName="h-9 px-4 text-sm" />
             </CardContent>
           </Card>
 
@@ -239,7 +224,8 @@ export function SettingsPage() {
                 </SelectContent>
               </Select>
               <p className="text-sm text-zinc-500">
-                Proxy stream mode is recommended for in-app mobile playback.
+                Built-in playback uses direct Real Debrid links. Prefer VLC or OutPlayer for MKV /
+                Atmos releases that browsers cannot decode.
               </p>
             </CardContent>
           </Card>

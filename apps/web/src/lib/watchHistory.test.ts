@@ -107,30 +107,27 @@ describe("streaming settings helpers", () => {
     expect(isRDBlockedFilename("Movie.2024.1080p.Remux.HEVC")).toBe(false);
   });
 
-  test("migrates legacy stream mode storage", () => {
+  test("clears legacy stream mode storage", () => {
     localStorage.setItem("jedflix.streamMode", "direct");
 
     const settings = getUserSettings();
 
-    expect(settings.streamMode).toBe("direct");
+    expect(settings).toEqual({});
     expect(localStorage.getItem("jedflix.streamMode")).toBeNull();
-    expect(JSON.parse(localStorage.getItem("jedflix.userSettings") ?? "{}")).toMatchObject({
-      streamMode: "direct",
-    });
   });
 
   test("merges partial settings without dropping other fields", () => {
-    saveUserSettings({ streamMode: "direct", realDebridApiKey: "rd-key" });
-    const next = saveUserSettings({ streamMode: "proxy" });
+    saveUserSettings({ externalPlayer: "vlc", realDebridApiKey: "rd-key" });
+    const next = saveUserSettings({ externalPlayer: "outplayer" });
 
     expect(next).toMatchObject({
-      streamMode: "proxy",
+      externalPlayer: "outplayer",
       realDebridApiKey: "rd-key",
     });
   });
 
   test("clears settings and notifies subscribers", () => {
-    saveUserSettings({ streamMode: "direct", realDebridApiKey: "rd-key" });
+    saveUserSettings({ externalPlayer: "vlc", realDebridApiKey: "rd-key" });
     let notified = false;
     const unsubscribe = subscribeUserSettings(() => {
       notified = true;

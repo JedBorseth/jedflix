@@ -7,7 +7,6 @@ import (
 
 	"github.com/jedborseth/jeds-movies/stream-server/internal/api"
 	"github.com/jedborseth/jeds-movies/stream-server/internal/config"
-	"github.com/jedborseth/jeds-movies/stream-server/internal/proxy"
 	"github.com/jedborseth/jeds-movies/stream-server/internal/realdebrid"
 	"github.com/jedborseth/jeds-movies/stream-server/internal/resolver"
 	"github.com/jedborseth/jeds-movies/stream-server/internal/search"
@@ -24,14 +23,9 @@ func main() {
 
 	searcher := search.NewTorrentioSearcher(cfg)
 	rd := realdebrid.NewClient(cfg)
-	signer := proxy.NewSigner(cfg.ProxySigningSecret)
-	resolverService := resolver.NewService(cfg, searcher, rd, signer)
+	resolverService := resolver.NewService(cfg, searcher, rd)
 
-	proxyClient := cfg.HTTPClient()
-	proxyClient.Timeout = 0
-	proxyHandler := proxy.NewHandler(signer, proxyClient)
-
-	server := api.NewServer(cfg, resolverService, proxyHandler)
+	server := api.NewServer(cfg, resolverService)
 	log.Printf("stream-server listening on %s", cfg.Addr)
 	if err := http.ListenAndServe(cfg.Addr, server.Router()); err != nil {
 		log.Println(err)

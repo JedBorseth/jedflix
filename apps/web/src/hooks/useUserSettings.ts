@@ -48,7 +48,6 @@ export function useUserSettings() {
         replaceUserSettings({
           ...localOnly,
           realDebridApiKey: remoteSettings.realDebridApiKey,
-          streamMode: remoteSettings.streamMode,
           externalPlayer: remoteSettings.externalPlayer,
           updatedAt: remoteUpdatedAt,
         }),
@@ -83,7 +82,6 @@ export function useUserSettings() {
   return {
     settings,
     realDebridApiKey: settings.realDebridApiKey ?? "",
-    streamMode: settings.streamMode ?? "proxy",
     externalPlayer: settings.externalPlayer ?? "disabled",
     deviceType: settings.deviceType,
     contentTypes: settings.contentTypes ?? [],
@@ -110,7 +108,6 @@ function pickLocalOnlyFields(settings: UserSettings): Partial<UserSettings> {
 function remotePayload(settings: UserSettings, partial?: Partial<UserSettings>) {
   const payload: {
     realDebridApiKey?: string | null;
-    streamMode?: "direct" | "proxy";
     externalPlayer?: "disabled" | "vlc" | "outplayer";
     updatedAt?: number;
   } = {
@@ -124,9 +121,6 @@ function remotePayload(settings: UserSettings, partial?: Partial<UserSettings>) 
     partial.realDebridApiKey === undefined
   ) {
     payload.realDebridApiKey = null;
-  }
-  if (settings.streamMode !== undefined) {
-    payload.streamMode = settings.streamMode;
   }
   if (settings.externalPlayer !== undefined) {
     payload.externalPlayer = settings.externalPlayer;

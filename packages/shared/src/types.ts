@@ -1,8 +1,8 @@
 export type MediaType = "movie" | "tv";
 
-export type StreamMode = "direct" | "proxy";
-
 export type ExternalPlayer = "disabled" | "vlc" | "outplayer";
+
+export type PlaybackProfile = "browser" | "external";
 
 export type MediaItem = {
   id: number;

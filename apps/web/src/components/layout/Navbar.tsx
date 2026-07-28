@@ -3,7 +3,6 @@ import { Link, useNavigate } from "react-router-dom";
 import { Authenticated, Unauthenticated } from "convex/react";
 import { AppLink } from "@/components/layout/AppLink";
 import { MobileNavMenu } from "@/components/layout/MobileNavMenu";
-import { StreamModeToggle } from "@/components/layout/StreamModeToggle";
 import { UserMenu } from "@/components/UserMenu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,7 +42,6 @@ export function Navbar() {
     <header className="fixed top-0 z-50 w-full bg-gradient-to-b from-black/80 to-transparent pt-[env(safe-area-inset-top)]">
       <nav className="mx-auto flex max-w-[1920px] items-center justify-between px-4 py-4 md:px-12">
         <div className="flex items-center gap-6 md:gap-10">
-          <StreamModeToggle />
           <Link to="/" className="text-2xl font-bold tracking-tight text-red-600">
             JedFlix
           </Link>

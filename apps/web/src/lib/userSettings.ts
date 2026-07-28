@@ -1,5 +1,3 @@
-import type { StreamMode } from "@jedflix/shared";
-
 const SETTINGS_STORAGE_KEY = "jedflix.userSettings";
 const LEGACY_STREAM_MODE_KEY = "jedflix.streamMode";
 const SETTINGS_CHANGED_EVENT = "jedflix:user-settings-changed";
@@ -14,7 +12,6 @@ export const EXTERNAL_PLAYERS: ExternalPlayer[] = ["disabled", "vlc", "outplayer
 
 export type UserSettings = {
   realDebridApiKey?: string;
-  streamMode?: StreamMode;
   externalPlayer?: ExternalPlayer;
   deviceType?: DeviceType;
   contentTypes?: ContentType[];
@@ -31,16 +28,9 @@ export function getUserSettings(): UserSettings {
   }
 
   const stored = readStoredSettings();
-  const legacyMode = localStorage.getItem(LEGACY_STREAM_MODE_KEY);
-  if (legacyMode === "direct" || legacyMode === "proxy") {
-    const migrated = {
-      ...stored,
-      streamMode: stored.streamMode ?? legacyMode,
-      updatedAt: stored.updatedAt ?? Date.now(),
-    };
-    writeStoredSettings(migrated);
+  // Drop legacy stream-mode key; playback is direct-only now.
+  if (localStorage.getItem(LEGACY_STREAM_MODE_KEY)) {
     localStorage.removeItem(LEGACY_STREAM_MODE_KEY);
-    return migrated;
   }
 
   return stored;
@@ -55,7 +45,6 @@ export function saveUserSettings(partial: Partial<UserSettings>): UserSettings {
   };
 
   clearOptionalField(next, partial, "realDebridApiKey");
-  clearOptionalField(next, partial, "streamMode");
   clearOptionalField(next, partial, "externalPlayer");
   clearOptionalField(next, partial, "deviceType");
   clearOptionalField(next, partial, "contentTypes");
@@ -122,17 +111,13 @@ export function hasRequiredOnboardingFields(settings: UserSettings): boolean {
   );
 }
 
-export function sanitizeSettings(settings: UserSettings): UserSettings {
+export function sanitizeSettings(settings: UserSettings & { streamMode?: unknown }): UserSettings {
   const contentTypes = Array.isArray(settings.contentTypes)
     ? settings.contentTypes.filter(isContentType)
     : undefined;
 
   return {
     realDebridApiKey: settings.realDebridApiKey || undefined,
-    streamMode:
-      settings.streamMode === "direct" || settings.streamMode === "proxy"
-        ? settings.streamMode
-        : undefined,
     externalPlayer: isExternalPlayer(settings.externalPlayer) ? settings.externalPlayer : undefined,
     deviceType: isDeviceType(settings.deviceType) ? settings.deviceType : undefined,
     contentTypes: contentTypes && contentTypes.length > 0 ? contentTypes : undefined,
@@ -177,7 +162,7 @@ function readStoredSettings(): UserSettings {
     return {};
   }
   try {
-    const parsed = JSON.parse(raw) as UserSettings;
+    const parsed = JSON.parse(raw) as UserSettings & { streamMode?: unknown };
     return sanitizeSettings(parsed);
   } catch {
     return {};

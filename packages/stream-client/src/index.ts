@@ -1,5 +1,4 @@
 export type {
-  ResolveJob,
   ResolveRequest,
   SourcesRequest,
   StreamClient,

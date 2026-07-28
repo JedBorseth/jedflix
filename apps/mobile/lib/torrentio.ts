@@ -1,6 +1,6 @@
 import type { StreamSource } from "@jedflix/stream-client";
 import type { MediaType } from "@jedflix/shared";
-import { isRDBlockedFilename } from "@jedflix/shared";
+import { isDirectPlaybackIncompatible, isRDBlockedFilename } from "@jedflix/shared";
 import { buildMagnetLink, extractInfoHash, isValidStreamSource } from "@/lib/magnet";
 
 const TORRENTIO_BASE = "https://torrentio.strem.fun";
@@ -51,7 +51,7 @@ function parseSeeders(text: string): number | undefined {
 
 function normalizeStream(stream: TorrentioStream, index: number): MobileStreamSource | null {
   const label = stream.title?.trim() || stream.name?.trim() || "Unknown release";
-  if (isRDBlockedFilename(label)) return null;
+  if (isRDBlockedFilename(label) || isDirectPlaybackIncompatible(label)) return null;
 
   const description = stream.description?.trim() ?? "";
   const combined = `${label} ${description}`;

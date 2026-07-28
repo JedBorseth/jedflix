@@ -26,9 +26,8 @@ describe("userSettings onboarding fields", () => {
       realDebridApiKey: "token",
     });
 
-    expect(sanitized).toEqual({
+      expect(sanitized).toEqual({
       realDebridApiKey: "token",
-      streamMode: undefined,
       externalPlayer: "vlc",
       deviceType: "tv",
       contentTypes: ["movies_shows", "audiobooks"],

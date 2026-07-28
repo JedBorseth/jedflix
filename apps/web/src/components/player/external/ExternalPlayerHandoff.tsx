@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { fetchSources, getExternalPlaybackUrl, type StreamMode, type StreamSource } from "@/lib/streamApi";
+import { fetchSources, getExternalPlaybackUrl, type StreamSource } from "@/lib/streamApi";
 import {
   buildExternalPlayerUrl,
   getExternalPlayerLabel,
@@ -8,7 +8,7 @@ import {
   toAbsolutePlaybackUrl,
 } from "@/lib/externalPlayer";
 import { copyTextToClipboard } from "@/lib/clipboard";
-import { sortSourcesForIosPlayback } from "@/lib/iosPlayback";
+import { sortDirectPlaybackSources } from "@/lib/iosPlayback";
 import type { ExternalPlayer } from "@/lib/userSettings";
 import type { MediaType } from "@/lib/types";
 import { PlayerErrorOverlay } from "../shared/PlayerErrorOverlay";
@@ -23,7 +23,6 @@ type ExternalPlayerHandoffProps = {
   imdbId: string;
   season?: number;
   episode?: number;
-  mode: StreamMode;
   realDebridApiKey?: string;
   backPath: string;
   externalPlayer: Exclude<ExternalPlayer, "disabled">;
@@ -35,7 +34,6 @@ export function ExternalPlayerHandoff({
   imdbId,
   season,
   episode,
-  mode,
   realDebridApiKey = "",
   backPath,
   externalPlayer,
@@ -72,8 +70,11 @@ export function ExternalPlayerHandoff({
     openedUrlRef.current = null;
     setShowSourcePicker(true);
     try {
-      const found = await fetchSources(baseRequest, realDebridApiKey.trim() || undefined);
-      setSources(sortSourcesForIosPlayback(found));
+      const found = await fetchSources(
+        { ...baseRequest, playbackProfile: "external" },
+        realDebridApiKey.trim() || undefined,
+      );
+      setSources(sortDirectPlaybackSources(found));
     } catch (error) {
       setSources([]);
       setSourcesError(error instanceof Error ? error.message : "Failed to load streams");
@@ -91,13 +92,12 @@ export function ExternalPlayerHandoff({
       selectedSource
         ? {
             ...baseRequest,
-            mode,
-            magnet: selectedSource.magnet,
+                      magnet: selectedSource.magnet,
             infoHash: selectedSource.infoHash,
             realDebridToken: realDebridApiKey.trim() || undefined,
           }
         : null,
-    [baseRequest, mode, realDebridApiKey, selectedSource],
+    [baseRequest, realDebridApiKey, selectedSource],
   );
 
   const resolveState = useStreamResolve(resolveRequest, selectedSource);
