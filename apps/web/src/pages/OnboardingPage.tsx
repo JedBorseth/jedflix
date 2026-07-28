@@ -108,9 +108,9 @@ export function OnboardingPage() {
   }
 
   return (
-    <div className="onboarding-shell min-h-screen bg-zinc-950 text-white">
-      <main className="mx-auto flex min-h-screen max-w-xl flex-col px-4 py-8 md:px-8 md:py-12">
-        <div className="mb-6 flex items-center justify-between gap-3">
+    <div className="onboarding-shell bg-zinc-950 text-white">
+      <main className="onboarding-main">
+        <div className="mb-6 flex shrink-0 items-center justify-between gap-3">
           <p className="text-sm font-medium uppercase tracking-wide text-red-500">JedFlix</p>
           {!isFirst ? (
             <p className="text-xs text-zinc-500">
@@ -120,7 +120,7 @@ export function OnboardingPage() {
         </div>
 
         {!isFirst ? (
-          <div className="mb-8 flex gap-1.5" aria-hidden>
+          <div className="mb-6 flex shrink-0 gap-1.5" aria-hidden>
             {ONBOARDING_STEPS.slice(1).map((item, index) => (
               <span
                 key={item.id}
@@ -133,8 +133,8 @@ export function OnboardingPage() {
           </div>
         ) : null}
 
-        <div className="flex flex-1 flex-col">
-          <div key={step.id} className="onboarding-step-enter flex flex-1 flex-col">
+        <div className="onboarding-body">
+          <div key={step.id} className="onboarding-scroll onboarding-step-enter">
             {step.id === "welcome" ? (
               <WelcomeStep />
             ) : (
@@ -146,13 +146,12 @@ export function OnboardingPage() {
                 </div>
               </>
             )}
+            {stepError ? <p className="mt-4 text-sm text-red-400">{stepError}</p> : null}
           </div>
-
-          {stepError ? <p className="mt-4 text-sm text-red-400">{stepError}</p> : null}
 
           <form.Subscribe selector={(state) => state.isSubmitting}>
             {(isSubmitting) => (
-              <div className="mt-auto flex items-center justify-between gap-3 border-t border-zinc-800 pt-6">
+              <div className="onboarding-footer flex items-center justify-between gap-3">
                 <Button
                   type="button"
                   variant="outline"
@@ -184,7 +183,7 @@ export function OnboardingPage() {
 
 function WelcomeStep() {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center text-center">
+    <div className="flex min-h-full flex-col items-center justify-center py-4 text-center">
       <div className="onboarding-hero relative mb-10 h-44 w-full max-w-sm" aria-hidden>
         <div className="onboarding-poster onboarding-poster-left" />
         <div className="onboarding-poster onboarding-poster-right" />
