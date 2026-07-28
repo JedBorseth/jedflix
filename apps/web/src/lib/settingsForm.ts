@@ -34,24 +34,94 @@ export type OnboardingFormValues = {
   ispWarningAccepted: boolean;
 };
 
+export type OnboardingStepId =
+  | "welcome"
+  | "deviceType"
+  | "contentTypes"
+  | "realDebridApiKey"
+  | "externalPlayer"
+  | "letterboxdUsername"
+  | "virusWarning"
+  | "ispWarning";
+
+export const ONBOARDING_STEPS: Array<{
+  id: OnboardingStepId;
+  title: string;
+  description: string;
+}> = [
+  {
+    id: "welcome",
+    title: "Welcome to JedFlix",
+    description: "A few quick questions and you are ready to stream.",
+  },
+  {
+    id: "deviceType",
+    title: "What device are you on?",
+    description: "We will remember this preference for later features.",
+  },
+  {
+    id: "contentTypes",
+    title: "What do you want to browse?",
+    description: "Pick the library tabs to show. You can change this later.",
+  },
+  {
+    id: "realDebridApiKey",
+    title: "Add your Real Debrid key",
+    description: "Required for direct streaming from your browser.",
+  },
+  {
+    id: "externalPlayer",
+    title: "How do you want to play?",
+    description: "Use the built-in player or hand off to VLC / OutPlayer.",
+  },
+  {
+    id: "letterboxdUsername",
+    title: "Letterboxd username",
+    description: "Optional — for future integrations.",
+  },
+  {
+    id: "virusWarning",
+    title: "Virus warning",
+    description: "Please read and accept before continuing.",
+  },
+  {
+    id: "ispWarning",
+    title: "ISP warning",
+    description: "One last acknowledgement, then you are in.",
+  },
+];
+
+export function validateOnboardingStep(
+  stepId: OnboardingStepId,
+  values: OnboardingFormValues,
+): string | undefined {
+  switch (stepId) {
+    case "welcome":
+    case "letterboxdUsername":
+      return undefined;
+    case "deviceType":
+      return values.deviceType ? undefined : "Select a device type.";
+    case "contentTypes":
+      return values.contentTypes.length > 0 ? undefined : "Select at least one content type.";
+    case "realDebridApiKey":
+      return values.realDebridApiKey.trim() ? undefined : "Enter your Real Debrid API key.";
+    case "externalPlayer":
+      return values.externalPlayer ? undefined : "Select a player preference.";
+    case "virusWarning":
+      return values.virusWarningAccepted ? undefined : "You must accept the virus warning.";
+    case "ispWarning":
+      return values.ispWarningAccepted ? undefined : "You must accept the ISP warning.";
+    default:
+      return undefined;
+  }
+}
+
 export function validateOnboardingValues(values: OnboardingFormValues): string | undefined {
-  if (!values.deviceType) {
-    return "Select a device type.";
-  }
-  if (values.contentTypes.length === 0) {
-    return "Select at least one content type.";
-  }
-  if (!values.realDebridApiKey.trim()) {
-    return "Enter your Real Debrid API key.";
-  }
-  if (!values.externalPlayer) {
-    return "Select an external player preference.";
-  }
-  if (!values.virusWarningAccepted) {
-    return "You must accept the virus warning.";
-  }
-  if (!values.ispWarningAccepted) {
-    return "You must accept the ISP warning.";
+  for (const step of ONBOARDING_STEPS) {
+    const error = validateOnboardingStep(step.id, values);
+    if (error) {
+      return error;
+    }
   }
   return undefined;
 }

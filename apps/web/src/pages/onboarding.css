@@ -1,0 +1,194 @@
+@keyframes onboarding-float-left {
+  0%,
+  100% {
+    transform: translate(-42%, -8%) rotate(-12deg);
+  }
+  50% {
+    transform: translate(-46%, -14%) rotate(-8deg);
+  }
+}
+
+@keyframes onboarding-float-right {
+  0%,
+  100% {
+    transform: translate(42%, -4%) rotate(10deg);
+  }
+  50% {
+    transform: translate(46%, -12%) rotate(14deg);
+  }
+}
+
+@keyframes onboarding-float-center {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-10px) scale(1.03);
+  }
+}
+
+@keyframes onboarding-play-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.45);
+  }
+  50% {
+    transform: scale(1.08);
+    box-shadow: 0 0 0 14px rgba(220, 38, 38, 0);
+  }
+}
+
+@keyframes onboarding-spark {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
+@keyframes onboarding-brand-in {
+  from {
+    opacity: 0;
+    letter-spacing: 0.35em;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    letter-spacing: -0.02em;
+    transform: translateY(0);
+  }
+}
+
+@keyframes onboarding-step-in {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.onboarding-shell {
+  background:
+    radial-gradient(ellipse 70% 50% at 50% -10%, rgba(220, 38, 38, 0.18), transparent 60%),
+    radial-gradient(ellipse 50% 40% at 100% 100%, rgba(39, 39, 42, 0.8), transparent 55%),
+    #09090b;
+}
+
+.onboarding-step-enter {
+  animation: onboarding-step-in 280ms ease-out;
+}
+
+.onboarding-brand {
+  animation: onboarding-brand-in 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.onboarding-hero {
+  perspective: 800px;
+}
+
+.onboarding-poster {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 7.5rem;
+  height: 10.5rem;
+  margin-left: -3.75rem;
+  margin-top: -5.25rem;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.08), transparent 40%),
+    linear-gradient(180deg, #27272a, #18181b 70%, #0a0a0a);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+}
+
+.onboarding-poster-left {
+  animation: onboarding-float-left 4.8s ease-in-out infinite;
+  background:
+    linear-gradient(160deg, rgba(248, 113, 113, 0.25), transparent 45%),
+    linear-gradient(180deg, #3f3f46, #18181b);
+}
+
+.onboarding-poster-right {
+  animation: onboarding-float-right 5.2s ease-in-out infinite;
+  background:
+    linear-gradient(200deg, rgba(251, 146, 60, 0.22), transparent 45%),
+    linear-gradient(180deg, #3f3f46, #18181b);
+}
+
+.onboarding-poster-center {
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  animation: onboarding-float-center 3.6s ease-in-out infinite;
+  background:
+    linear-gradient(165deg, rgba(220, 38, 38, 0.35), transparent 50%),
+    linear-gradient(180deg, #450a0a, #18181b 65%, #09090b);
+  border-color: rgba(220, 38, 38, 0.35);
+}
+
+.onboarding-play {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 9999px;
+  background: #dc2626;
+  position: relative;
+  animation: onboarding-play-pulse 2.2s ease-out infinite;
+}
+
+.onboarding-play::after {
+  content: "";
+  position: absolute;
+  left: 52%;
+  top: 50%;
+  transform: translate(-35%, -50%);
+  border-style: solid;
+  border-width: 0.55rem 0 0.55rem 0.9rem;
+  border-color: transparent transparent transparent #fff;
+}
+
+.onboarding-spark {
+  position: absolute;
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 9999px;
+  background: #fca5a5;
+  animation: onboarding-spark 2.4s ease-in-out infinite;
+}
+
+.onboarding-spark-a {
+  left: 18%;
+  top: 18%;
+  animation-delay: 0.2s;
+}
+
+.onboarding-spark-b {
+  right: 16%;
+  top: 28%;
+  animation-delay: 0.8s;
+}
+
+.onboarding-spark-c {
+  left: 28%;
+  bottom: 12%;
+  animation-delay: 1.3s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-poster,
+  .onboarding-play,
+  .onboarding-spark,
+  .onboarding-brand,
+  .onboarding-step-enter {
+    animation: none !important;
+  }
+}

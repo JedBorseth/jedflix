@@ -7,7 +7,11 @@ import {
   sanitizeSettings,
   saveUserSettings,
 } from "@/lib/userSettings";
-import { toggleContentType, validateOnboardingValues } from "@/lib/settingsForm";
+import {
+  toggleContentType,
+  validateOnboardingStep,
+  validateOnboardingValues,
+} from "@/lib/settingsForm";
 
 afterEach(() => {
   clearUserSettings();
@@ -96,6 +100,24 @@ describe("settingsForm helpers", () => {
         virusWarningAccepted: true,
         ispWarningAccepted: true,
       }),
+    ).toBeUndefined();
+  });
+
+  test("validateOnboardingStep checks one question at a time", () => {
+    const empty = {
+      deviceType: "" as const,
+      contentTypes: [],
+      realDebridApiKey: "",
+      externalPlayer: "" as const,
+      letterboxdUsername: "",
+      virusWarningAccepted: false,
+      ispWarningAccepted: false,
+    };
+    expect(validateOnboardingStep("welcome", empty)).toBeUndefined();
+    expect(validateOnboardingStep("letterboxdUsername", empty)).toBeUndefined();
+    expect(validateOnboardingStep("deviceType", empty)).toBe("Select a device type.");
+    expect(
+      validateOnboardingStep("virusWarning", { ...empty, virusWarningAccepted: true }),
     ).toBeUndefined();
   });
 
