@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { StreamModeControl } from "@/components/layout/StreamModeToggle";
 import { Navbar } from "@/components/layout/Navbar";
 import { Button } from "@/components/ui/button";
@@ -28,22 +29,57 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useUserSettings } from "@/hooks/useUserSettings";
-import type { ExternalPlayer } from "@/lib/userSettings";
+import {
+  CONTENT_TYPE_OPTIONS,
+  DEVICE_TYPE_OPTIONS,
+  EXTERNAL_PLAYER_OPTIONS,
+  ISP_WARNING_TEXT,
+  toggleContentType,
+  VIRUS_WARNING_TEXT,
+} from "@/lib/settingsForm";
+import type { DeviceType, ExternalPlayer } from "@/lib/userSettings";
 
 export function SettingsPage() {
-  const { realDebridApiKey, externalPlayer, saveSettings, resetSettings, syncEnabled } =
-    useUserSettings();
+  const navigate = useNavigate();
+  const {
+    realDebridApiKey,
+    externalPlayer,
+    deviceType,
+    contentTypes,
+    letterboxdUsername,
+    virusWarningAccepted,
+    ispWarningAccepted,
+    saveSettings,
+    resetSettings,
+    syncEnabled,
+  } = useUserSettings();
   const [apiKey, setApiKey] = useState(realDebridApiKey);
+  const [letterboxd, setLetterboxd] = useState(letterboxdUsername);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     setApiKey(realDebridApiKey);
   }, [realDebridApiKey]);
 
+  useEffect(() => {
+    setLetterboxd(letterboxdUsername);
+  }, [letterboxdUsername]);
+
   const handleSaveApiKey = () => {
     saveSettings({ realDebridApiKey: apiKey.trim() || undefined });
     setSaved(true);
     window.setTimeout(() => setSaved(false), 2000);
+  };
+
+  const handleSaveLetterboxd = () => {
+    saveSettings({ letterboxdUsername: letterboxd.trim() || undefined });
+    setSaved(true);
+    window.setTimeout(() => setSaved(false), 2000);
+  };
+
+  const handleReset = () => {
+    resetSettings();
+    void navigate("/onboarding", { replace: true });
   };
 
   return (
@@ -58,6 +94,72 @@ export function SettingsPage() {
         </div>
 
         <div className="space-y-6">
+          <Card className="border-zinc-800 bg-zinc-900/60 text-white">
+            <CardHeader>
+              <CardTitle>Device type</CardTitle>
+              <CardDescription className="text-zinc-400">
+                Stored preference for this device. Playback behavior can use this later.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Select
+                value={deviceType}
+                onValueChange={(value) => {
+                  saveSettings({ deviceType: value as DeviceType });
+                }}
+              >
+                <SelectTrigger className="max-w-xs">
+                  <SelectValue placeholder="Select device type" />
+                </SelectTrigger>
+                <SelectContent>
+                  {DEVICE_TYPE_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </CardContent>
+          </Card>
+
+          <Card className="border-zinc-800 bg-zinc-900/60 text-white">
+            <CardHeader>
+              <CardTitle>Content</CardTitle>
+              <CardDescription className="text-zinc-400">
+                Choose which library tabs appear in navigation.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {CONTENT_TYPE_OPTIONS.map((option) => {
+                const checked = contentTypes.includes(option.value);
+                return (
+                  <label
+                    key={option.value}
+                    className="flex cursor-pointer items-center gap-3 rounded-md border border-zinc-800 bg-zinc-950/50 px-3 py-3 text-sm"
+                  >
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-red-500"
+                      checked={checked}
+                      onChange={(event) => {
+                        const next = toggleContentType(
+                          contentTypes,
+                          option.value,
+                          event.target.checked,
+                        );
+                        if (next.length === 0) {
+                          return;
+                        }
+                        saveSettings({ contentTypes: next });
+                      }}
+                    />
+                    {option.label}
+                  </label>
+                );
+              })}
+            </CardContent>
+          </Card>
+
           <Card className="border-zinc-800 bg-zinc-900/60 text-white">
             <CardHeader>
               <CardTitle>Real Debrid API Key</CardTitle>
@@ -129,9 +231,11 @@ export function SettingsPage() {
                   <SelectValue placeholder="Disabled" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="disabled">Disabled</SelectItem>
-                  <SelectItem value="vlc">VLC</SelectItem>
-                  <SelectItem value="outplayer">OutPlayer</SelectItem>
+                  {EXTERNAL_PLAYER_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
               <p className="text-sm text-zinc-500">
@@ -142,10 +246,83 @@ export function SettingsPage() {
 
           <Card className="border-zinc-800 bg-zinc-900/60 text-white">
             <CardHeader>
+              <CardTitle>Letterboxd</CardTitle>
+              <CardDescription className="text-zinc-400">
+                Optional username for future Letterboxd integrations.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <label className="text-sm font-medium text-zinc-200" htmlFor="letterboxd-username">
+                Username
+              </label>
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <Input
+                  id="letterboxd-username"
+                  type="text"
+                  value={letterboxd}
+                  onChange={(event) => setLetterboxd(event.target.value)}
+                  onBlur={handleSaveLetterboxd}
+                  placeholder="your-username"
+                  className="border-zinc-700 bg-zinc-950 text-white placeholder:text-zinc-600"
+                />
+                <Button type="button" onClick={handleSaveLetterboxd}>
+                  Save
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-zinc-800 bg-zinc-900/60 text-white">
+            <CardHeader>
+              <CardTitle>Safety acknowledgements</CardTitle>
+              <CardDescription className="text-zinc-400">
+                These acknowledgements are required to use the app.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <label className="flex cursor-pointer gap-3 rounded-md border border-zinc-800 bg-zinc-950/50 px-3 py-3 text-sm text-zinc-300">
+                <input
+                  type="checkbox"
+                  className="mt-1 h-4 w-4 shrink-0 accent-red-500"
+                  checked={virusWarningAccepted}
+                  onChange={(event) => {
+                    saveSettings({
+                      virusWarningAccepted: event.target.checked,
+                      ...(event.target.checked ? {} : { onboardingCompleted: false }),
+                    });
+                  }}
+                />
+                <span>
+                  <span className="font-medium text-zinc-100">Virus warning</span>
+                  <span className="mt-1 block text-zinc-400">{VIRUS_WARNING_TEXT}</span>
+                </span>
+              </label>
+              <label className="flex cursor-pointer gap-3 rounded-md border border-zinc-800 bg-zinc-950/50 px-3 py-3 text-sm text-zinc-300">
+                <input
+                  type="checkbox"
+                  className="mt-1 h-4 w-4 shrink-0 accent-red-500"
+                  checked={ispWarningAccepted}
+                  onChange={(event) => {
+                    saveSettings({
+                      ispWarningAccepted: event.target.checked,
+                      ...(event.target.checked ? {} : { onboardingCompleted: false }),
+                    });
+                  }}
+                />
+                <span>
+                  <span className="font-medium text-zinc-100">ISP warning</span>
+                  <span className="mt-1 block text-zinc-400">{ISP_WARNING_TEXT}</span>
+                </span>
+              </label>
+            </CardContent>
+          </Card>
+
+          <Card className="border-zinc-800 bg-zinc-900/60 text-white">
+            <CardHeader>
               <CardTitle>Reset App</CardTitle>
               <CardDescription className="text-zinc-400">
                 Clear local settings and account-synced settings. Watch history and your list are
-                kept.
+                kept. You will need to complete onboarding again.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -157,8 +334,9 @@ export function SettingsPage() {
                   <DialogHeader>
                     <DialogTitle>Reset app settings?</DialogTitle>
                     <DialogDescription className="text-zinc-400">
-                      This clears your Real Debrid API key, stream mode, and external player
-                      preference from this browser and from your account if you are signed in.
+                      This clears your Real Debrid API key, device and content preferences, player
+                      settings, Letterboxd username, and safety acknowledgements from this browser
+                      and from your account if you are signed in. Onboarding will start again.
                     </DialogDescription>
                   </DialogHeader>
                   <DialogFooter>
@@ -166,7 +344,7 @@ export function SettingsPage() {
                       <Button variant="outline">Cancel</Button>
                     </DialogClose>
                     <DialogClose asChild>
-                      <Button variant="destructive" onClick={resetSettings}>
+                      <Button variant="destructive" onClick={handleReset}>
                         Reset settings
                       </Button>
                     </DialogClose>

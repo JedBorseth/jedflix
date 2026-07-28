@@ -4,11 +4,21 @@ import { api } from "@convex/_generated/api";
 import {
   clearUserSettings,
   getUserSettings,
+  isOnboardingComplete,
   replaceUserSettings,
   saveUserSettings,
   subscribeUserSettings,
   type UserSettings,
 } from "@/lib/userSettings";
+
+const LOCAL_ONLY_KEYS = [
+  "deviceType",
+  "contentTypes",
+  "letterboxdUsername",
+  "virusWarningAccepted",
+  "ispWarningAccepted",
+  "onboardingCompleted",
+] as const satisfies ReadonlyArray<keyof UserSettings>;
 
 export function useUserSettings() {
   const remoteSettings = useQuery(api.userSettings.getForUser);
@@ -33,8 +43,10 @@ export function useUserSettings() {
     const remoteUpdatedAt = remoteSettings.updatedAt ?? 0;
     if (remoteUpdatedAt > localUpdatedAt) {
       lastSyncedRemoteAtRef.current = remoteUpdatedAt;
+      const localOnly = pickLocalOnlyFields(settings);
       setSettings(
         replaceUserSettings({
+          ...localOnly,
           realDebridApiKey: remoteSettings.realDebridApiKey,
           streamMode: remoteSettings.streamMode,
           externalPlayer: remoteSettings.externalPlayer,
@@ -73,10 +85,26 @@ export function useUserSettings() {
     realDebridApiKey: settings.realDebridApiKey ?? "",
     streamMode: settings.streamMode ?? "proxy",
     externalPlayer: settings.externalPlayer ?? "disabled",
+    deviceType: settings.deviceType,
+    contentTypes: settings.contentTypes ?? [],
+    letterboxdUsername: settings.letterboxdUsername ?? "",
+    virusWarningAccepted: settings.virusWarningAccepted === true,
+    ispWarningAccepted: settings.ispWarningAccepted === true,
+    onboardingCompleted: isOnboardingComplete(settings),
     saveSettings,
     resetSettings,
     syncEnabled: remoteSettings !== null && remoteSettings !== undefined,
   };
+}
+
+function pickLocalOnlyFields(settings: UserSettings): Partial<UserSettings> {
+  const result: Partial<UserSettings> = {};
+  for (const key of LOCAL_ONLY_KEYS) {
+    if (settings[key] !== undefined) {
+      (result as Record<string, unknown>)[key] = settings[key];
+    }
+  }
+  return result;
 }
 
 function remotePayload(settings: UserSettings, partial?: Partial<UserSettings>) {

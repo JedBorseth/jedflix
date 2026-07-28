@@ -1,18 +1,45 @@
 import { useLocation } from "react-router-dom";
 import { Authenticated } from "convex/react";
-import { HomeIcon, BookmarkIcon, VideoIcon, LayersIcon } from "@radix-ui/react-icons";
+import {
+  BookmarkIcon,
+  CubeIcon,
+  HomeIcon,
+  LayersIcon,
+  ReaderIcon,
+  VideoIcon,
+} from "@radix-ui/react-icons";
 import { AppLink } from "@/components/layout/AppLink";
+import { useUserSettings } from "@/hooks/useUserSettings";
 import { cn } from "@/lib/utils";
+import type { ContentType } from "@/lib/userSettings";
 
-const navItems = [
+type NavItem = {
+  to: string;
+  label: string;
+  icon: typeof HomeIcon;
+  contentType?: ContentType;
+  requiresAuth?: boolean;
+};
+
+const navItems: NavItem[] = [
   { to: "/", label: "Home", icon: HomeIcon },
-  { to: "/shows", label: "Shows", icon: LayersIcon },
-  { to: "/movies", label: "Movies", icon: VideoIcon },
+  { to: "/shows", label: "Shows", icon: LayersIcon, contentType: "movies_shows" },
+  { to: "/movies", label: "Movies", icon: VideoIcon, contentType: "movies_shows" },
+  { to: "/audiobooks", label: "Audiobooks", icon: ReaderIcon, contentType: "audiobooks" },
+  { to: "/video-games", label: "Games", icon: CubeIcon, contentType: "video_games" },
   { to: "/my-list", label: "My List", icon: BookmarkIcon, requiresAuth: true },
-] as const;
+];
 
 export function MobileBottomNav() {
   const { pathname } = useLocation();
+  const { contentTypes } = useUserSettings();
+
+  const visibleItems = navItems.filter((item) => {
+    if (!item.contentType) {
+      return true;
+    }
+    return contentTypes.includes(item.contentType);
+  });
 
   return (
     <nav
@@ -20,7 +47,7 @@ export function MobileBottomNav() {
       aria-label="Mobile navigation"
     >
       <div className="mx-auto flex max-w-lg items-stretch justify-around px-1 pb-[env(safe-area-inset-bottom)]">
-        {navItems.map(({ to, label, icon: Icon, ...item }) => {
+        {visibleItems.map(({ to, label, icon: Icon, ...item }) => {
           if ("requiresAuth" in item && item.requiresAuth) {
             return (
               <Authenticated key={to}>
