@@ -1,5 +1,8 @@
 export type MediaType = "movie" | "tv";
 
+/** @deprecated Playback is direct-only; kept for existing Convex userSettings docs. */
+export type StreamMode = "direct" | "proxy";
+
 export type ExternalPlayer = "disabled" | "vlc" | "outplayer";
 
 export type PlaybackProfile = "browser" | "external";
