@@ -2,8 +2,10 @@ import { lazy, Suspense } from "react";
 import { createBrowserRouter, Navigate, RouterProvider } from "react-router-dom";
 import { RootLayout } from "@/components/layout/RootLayout";
 import { BrowsePage } from "@/pages/BrowsePage";
+import { ComingSoonPage } from "@/pages/ComingSoonPage";
 import { MovieDetailPage } from "@/pages/MovieDetailPage";
 import { MyListPage } from "@/pages/MyListPage";
+import { OnboardingPage } from "@/pages/OnboardingPage";
 import { SignInForm } from "@/components/auth/SignInForm";
 import { SearchPage } from "@/pages/SearchPage";
 import { SettingsPage } from "@/pages/SettingsPage";
@@ -33,9 +35,28 @@ const router = createBrowserRouter([
   {
     element: <RootLayout />,
     children: [
+      { path: "/onboarding", element: <OnboardingPage /> },
       { path: "/", element: <BrowsePage /> },
       { path: "/movies", element: <BrowsePage mediaType="movie" /> },
       { path: "/shows", element: <BrowsePage mediaType="tv" /> },
+      {
+        path: "/audiobooks",
+        element: (
+          <ComingSoonPage
+            title="Audiobooks"
+            description="Audiobook browsing will live here once catalog support is added."
+          />
+        ),
+      },
+      {
+        path: "/video-games",
+        element: (
+          <ComingSoonPage
+            title="Video Games"
+            description="Video game browsing will live here once catalog support is added."
+          />
+        ),
+      },
       { path: "/movie/:mediaId", element: <MovieDetailPage mediaType="movie" /> },
       { path: "/show/:mediaId", element: <MovieDetailPage mediaType="tv" /> },
       { path: "/watch/movie/:mediaId", element: <LazyWatchPage /> },

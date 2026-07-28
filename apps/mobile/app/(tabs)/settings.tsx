@@ -27,7 +27,7 @@ export default function SettingsScreen() {
 
   async function saveSettings() {
     await SecureStore.setItemAsync(LOCAL_RD_KEY, rdKey);
-    await upsertSettings({ realDebridApiKey: rdKey || undefined, streamMode: "direct" });
+    await upsertSettings({ realDebridApiKey: rdKey || undefined });
   }
 
   return (

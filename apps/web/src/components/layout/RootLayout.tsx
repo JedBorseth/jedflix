@@ -1,9 +1,10 @@
 import { Outlet, useLocation } from "react-router-dom";
+import { OnboardingGate } from "@/components/onboarding/OnboardingGate";
 import { ScreenKeepAwake } from "@/components/ScreenKeepAwake";
 import { MobileBottomNav } from "@/components/layout/MobileBottomNav";
 import { ScrollToTopOnNavigate } from "@/components/layout/ScrollToTopOnNavigate";
 
-const HIDE_BOTTOM_NAV_PATHS = ["/sign-in"];
+const HIDE_BOTTOM_NAV_PATHS = ["/sign-in", "/onboarding"];
 
 function shouldShowBottomNav(pathname: string) {
   if (HIDE_BOTTOM_NAV_PATHS.includes(pathname)) {
@@ -18,11 +19,11 @@ export function RootLayout() {
   const showBottomNav = shouldShowBottomNav(pathname);
 
   return (
-    <>
+    <OnboardingGate>
       <ScreenKeepAwake />
       <ScrollToTopOnNavigate />
       <Outlet />
       {showBottomNav ? <MobileBottomNav /> : null}
-    </>
+    </OnboardingGate>
   );
 }

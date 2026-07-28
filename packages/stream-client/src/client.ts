@@ -1,14 +1,14 @@
-import type { StreamMode } from "@jedflix/shared";
+import type { PlaybackProfile } from "@jedflix/shared";
 
 export type SourcesRequest = {
   type: "movie" | "tv";
   imdbId: string;
   season?: number;
   episode?: number;
+  playbackProfile?: PlaybackProfile;
 };
 
 export type ResolveRequest = SourcesRequest & {
-  mode: StreamMode;
   magnet?: string;
   infoHash?: string;
   realDebridToken?: string;
@@ -29,17 +29,7 @@ export type StreamResult = {
   directUrl?: string;
   filename?: string;
   filesize?: number;
-  mode: StreamMode;
-};
-
-export type ResolveJob = {
-  jobId: string;
-  status: "searching" | "downloading" | "ready" | "failed";
-  progress?: string;
-  error?: string;
-  errorCode?: string;
-  sources?: StreamSource[];
-  stream?: StreamResult;
+  mode: "direct";
 };
 
 export type StreamClientConfig = {
@@ -52,8 +42,6 @@ export type StreamClient = {
   getPlaybackUrl: (stream: StreamResult) => string;
   getExternalPlaybackUrl: (stream: StreamResult) => string;
   fetchSources: (request: SourcesRequest, realDebridToken?: string) => Promise<StreamSource[]>;
-  startResolve: (request: ResolveRequest, realDebridToken?: string) => Promise<ResolveJob>;
-  pollResolve: (jobId: string) => Promise<ResolveJob>;
 };
 
 /** JSON contract mirrors apps/stream-server/internal/resolver/resolver.go */
@@ -85,10 +73,7 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
   }
 
   function getPlaybackUrl(stream: StreamResult): string {
-    if (stream.mode === "direct") {
-      return stream.directUrl ?? stream.url;
-    }
-    return resolveStreamUrl(stream.url);
+    return stream.directUrl ?? stream.url;
   }
 
   function getExternalPlaybackUrl(stream: StreamResult): string {
@@ -102,7 +87,10 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
     const response = await fetch(`${apiBase}/api/v1/sources`, {
       method: "POST",
       headers: headers(realDebridToken),
-      body: JSON.stringify(request),
+      body: JSON.stringify({
+        ...request,
+        playbackProfile: request.playbackProfile ?? "browser",
+      }),
     });
     if (!response.ok) {
       const payload = (await response.json().catch(() => null)) as { error?: string } | null;
@@ -112,40 +100,10 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
     return payload.sources;
   }
 
-  async function startResolve(
-    request: ResolveRequest,
-    realDebridToken?: string,
-  ): Promise<ResolveJob> {
-    const { realDebridToken: _realDebridToken, ...body } = request;
-    const response = await fetch(`${apiBase}/api/v1/resolve`, {
-      method: "POST",
-      headers: headers(realDebridToken ?? request.realDebridToken),
-      body: JSON.stringify(body),
-    });
-    if (!response.ok) {
-      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-      throw new Error(payload?.error ?? `Resolve failed (${response.status})`);
-    }
-    return (await response.json()) as ResolveJob;
-  }
-
-  async function pollResolve(jobId: string): Promise<ResolveJob> {
-    const response = await fetch(`${apiBase}/api/v1/resolve/${jobId}`, {
-      headers: headers(),
-    });
-    if (!response.ok) {
-      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-      throw new Error(payload?.error ?? `Resolve poll failed (${response.status})`);
-    }
-    return (await response.json()) as ResolveJob;
-  }
-
   return {
     resolveStreamUrl,
     getPlaybackUrl,
     getExternalPlaybackUrl,
     fetchSources,
-    startResolve,
-    pollResolve,
   };
 }

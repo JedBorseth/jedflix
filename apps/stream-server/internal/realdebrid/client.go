@@ -216,40 +216,53 @@ func (c *Client) UnrestrictLink(ctx context.Context, link string) (*UnrestrictRe
 }
 
 func PickLargestVideoFile(files []TorrentFile) (TorrentFile, bool) {
-	var best TorrentFile
-	found := false
-	for _, file := range files {
-		if !isVideoFile(file.Path) {
-			continue
-		}
-		if !found || file.Bytes > best.Bytes {
-			best = file
-			found = true
-		}
-	}
-	return best, found
+	return pickBestVideoFile(files, nil)
 }
 
 var episodePattern = regexp.MustCompile(`(?i)[Ss](\d{1,2})[Ee](\d{1,2})`)
 
 func PickEpisodeFile(files []TorrentFile, season, episode int) (TorrentFile, bool) {
-	var best TorrentFile
-	found := false
+	matched := make([]TorrentFile, 0)
 	for _, file := range files {
+		if isVideoFile(file.Path) && matchesEpisode(file.Path, season, episode) {
+			matched = append(matched, file)
+		}
+	}
+	if file, ok := pickBestVideoFile(matched, nil); ok {
+		return file, true
+	}
+	return PickLargestVideoFile(files)
+}
+
+func pickBestVideoFile(files []TorrentFile, predicate func(TorrentFile) bool) (TorrentFile, bool) {
+	var bestCompatible TorrentFile
+	var bestAny TorrentFile
+	foundCompatible := false
+	foundAny := false
+
+	for _, file := range files {
+		if predicate != nil && !predicate(file) {
+			continue
+		}
 		if !isVideoFile(file.Path) {
 			continue
 		}
-		if matchesEpisode(file.Path, season, episode) {
-			if !found || file.Bytes > best.Bytes {
-				best = file
-				found = true
+		if !foundAny || file.Bytes > bestAny.Bytes {
+			bestAny = file
+			foundAny = true
+		}
+		if isBrowserCompatibleVideoFile(file.Path) {
+			if !foundCompatible || file.Bytes > bestCompatible.Bytes {
+				bestCompatible = file
+				foundCompatible = true
 			}
 		}
 	}
-	if found {
-		return best, true
+
+	if foundCompatible {
+		return bestCompatible, true
 	}
-	return PickLargestVideoFile(files)
+	return bestAny, foundAny
 }
 
 func matchesEpisode(path string, season, episode int) bool {
@@ -270,6 +283,11 @@ func isVideoFile(path string) bool {
 	default:
 		return false
 	}
+}
+
+func isBrowserCompatibleVideoFile(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	return ext == ".mp4" || ext == ".m4v"
 }
 
 func (c *Client) postForm(ctx context.Context, path string, form url.Values, out any) error {

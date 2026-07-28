@@ -71,7 +71,7 @@ export function WatchPage() {
   const [movie, setMovie] = useState<MediaItem | null>();
   const [imdbId, setImdbId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const { streamMode, realDebridApiKey, externalPlayer } = useUserSettings();
+  const { realDebridApiKey, externalPlayer } = useUserSettings();
 
   const history = useQuery(api.watchHistory.getForUser);
   const savedProgress = useMemo(() => {
@@ -154,7 +154,6 @@ export function WatchPage() {
     imdbId,
     season,
     episode,
-    mode: streamMode,
     realDebridApiKey,
     initialProgressSeconds: savedProgress,
     backPath: getMediaDetailPath(movie),
@@ -171,7 +170,6 @@ export function WatchPage() {
           imdbId={imdbId}
           season={season}
           episode={episode}
-          mode={streamMode}
           realDebridApiKey={realDebridApiKey}
           backPath={backPath}
           externalPlayer={externalPlayer}

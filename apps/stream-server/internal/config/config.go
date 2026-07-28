@@ -20,7 +20,6 @@ type Config struct {
 	RDBlockedFilenameRegex string
 	MaxResolution          int
 	StreamServerAPIKey     string
-	ProxySigningSecret     string
 	CORSOrigins            []string
 	HTTPProxy              string
 	HTTPSProxy             string
@@ -39,7 +38,6 @@ func Load() Config {
 		RDBlockedFilenameRegex: envOr("RD_BLOCKED_FILENAME_REGEX", `web-dl|webrip|bdrip|hdrip|dvdrip|BluRay\.x264|HDTV\.x264|HDTV\.XviD|WEB\.x264|WEB\.h264`),
 		MaxResolution:          envInt("MAX_RESOLUTION", 2160),
 		StreamServerAPIKey:     os.Getenv("STREAM_SERVER_API_KEY"),
-		ProxySigningSecret:     envOr("PROXY_SIGNING_SECRET", "change-me-in-production"),
 		CORSOrigins:            splitCSV(envOr("CORS_ORIGINS", "http://localhost:5173")),
 		HTTPProxy:              os.Getenv("HTTP_PROXY"),
 		HTTPSProxy:             os.Getenv("HTTPS_PROXY"),

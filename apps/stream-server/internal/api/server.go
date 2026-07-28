@@ -9,21 +9,18 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"github.com/jedborseth/jeds-movies/stream-server/internal/config"
-	"github.com/jedborseth/jeds-movies/stream-server/internal/proxy"
 	"github.com/jedborseth/jeds-movies/stream-server/internal/resolver"
 )
 
 type Server struct {
 	cfg      config.Config
 	resolver *resolver.Service
-	proxy    *proxy.Handler
 }
 
-func NewServer(cfg config.Config, resolverService *resolver.Service, proxyHandler *proxy.Handler) *Server {
+func NewServer(cfg config.Config, resolverService *resolver.Service) *Server {
 	return &Server{
 		cfg:      cfg,
 		resolver: resolverService,
-		proxy:    proxyHandler,
 	}
 }
 
@@ -46,51 +43,14 @@ func (s *Server) Router() http.Handler {
 	r.Get("/health", s.handleHealth)
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(s.authMiddleware)
-		r.Post("/resolve", s.handleResolve)
-		r.Get("/resolve/{jobId}", s.handleResolveStatus)
 		r.Post("/sources", s.handleSources)
 	})
-	r.Handle("/api/v1/proxy/*", s.proxy)
 
 	return r
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-}
-
-func (s *Server) handleResolve(w http.ResponseWriter, r *http.Request) {
-	var req resolver.Request
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
-		return
-	}
-	if req.Type == "" {
-		req.Type = "movie"
-	}
-	if req.Mode == "" {
-		req.Mode = resolver.ModeProxy
-	}
-	if token := bearerToken(r); token != "" {
-		req.RealDebridToken = token
-	}
-
-	job, err := s.resolver.Start(req)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
-	writeJSON(w, http.StatusAccepted, job)
-}
-
-func (s *Server) handleResolveStatus(w http.ResponseWriter, r *http.Request) {
-	jobID := chi.URLParam(r, "jobId")
-	job, ok := s.resolver.Get(jobID)
-	if !ok {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "job not found"})
-		return
-	}
-	writeJSON(w, http.StatusOK, job)
 }
 
 func (s *Server) handleSources(w http.ResponseWriter, r *http.Request) {
@@ -101,6 +61,9 @@ func (s *Server) handleSources(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Type == "" {
 		req.Type = "movie"
+	}
+	if req.PlaybackProfile == "" {
+		req.PlaybackProfile = resolver.PlaybackBrowser
 	}
 	if token := bearerToken(r); token != "" {
 		req.RealDebridToken = token
@@ -148,11 +111,4 @@ func bearerToken(r *http.Request) string {
 		return ""
 	}
 	return strings.TrimSpace(token)
-}
-
-func AbsoluteProxyURL(baseURL, relative string) string {
-	if strings.HasPrefix(relative, "http://") || strings.HasPrefix(relative, "https://") {
-		return relative
-	}
-	return strings.TrimRight(baseURL, "/") + relative
 }

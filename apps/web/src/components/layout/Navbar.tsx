@@ -3,20 +3,24 @@ import { Link, useNavigate } from "react-router-dom";
 import { Authenticated, Unauthenticated } from "convex/react";
 import { AppLink } from "@/components/layout/AppLink";
 import { MobileNavMenu } from "@/components/layout/MobileNavMenu";
-import { StreamModeToggle } from "@/components/layout/StreamModeToggle";
 import { UserMenu } from "@/components/UserMenu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useQuery } from "convex/react";
 import { api } from "@convex/_generated/api";
 import { MagnifyingGlassIcon, GearIcon } from "@radix-ui/react-icons";
+import { useUserSettings } from "@/hooks/useUserSettings";
 
 export function Navbar() {
   const user = useQuery(api.users.viewer);
+  const { contentTypes } = useUserSettings();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
+  const showMoviesShows = contentTypes.includes("movies_shows");
+  const showAudiobooks = contentTypes.includes("audiobooks");
+  const showVideoGames = contentTypes.includes("video_games");
 
   function openSearch() {
     setIsSearchOpen(true);
@@ -38,7 +42,6 @@ export function Navbar() {
     <header className="fixed top-0 z-50 w-full bg-gradient-to-b from-black/80 to-transparent pt-[env(safe-area-inset-top)]">
       <nav className="mx-auto flex max-w-[1920px] items-center justify-between px-4 py-4 md:px-12">
         <div className="flex items-center gap-6 md:gap-10">
-          <StreamModeToggle />
           <Link to="/" className="text-2xl font-bold tracking-tight text-red-600">
             JedFlix
           </Link>
@@ -46,12 +49,26 @@ export function Navbar() {
             <AppLink to="/" className="transition hover:text-white">
               Home
             </AppLink>
-            <AppLink to="/shows" className="transition hover:text-white">
-              Shows
-            </AppLink>
-            <AppLink to="/movies" className="transition hover:text-white">
-              Movies
-            </AppLink>
+            {showMoviesShows ? (
+              <>
+                <AppLink to="/shows" className="transition hover:text-white">
+                  Shows
+                </AppLink>
+                <AppLink to="/movies" className="transition hover:text-white">
+                  Movies
+                </AppLink>
+              </>
+            ) : null}
+            {showAudiobooks ? (
+              <AppLink to="/audiobooks" className="transition hover:text-white">
+                Audiobooks
+              </AppLink>
+            ) : null}
+            {showVideoGames ? (
+              <AppLink to="/video-games" className="transition hover:text-white">
+                Video Games
+              </AppLink>
+            ) : null}
             <Authenticated>
               <AppLink to="/my-list" className="transition hover:text-white">
                 My List

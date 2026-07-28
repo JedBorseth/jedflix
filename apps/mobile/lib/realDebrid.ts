@@ -395,14 +395,24 @@ function pickTorrentFile(files: TorrentFile[], fileIdx?: number): TorrentFile | 
 }
 
 function pickLargestVideoFile(files: TorrentFile[]): TorrentFile | null {
-  return files.filter((file) => isVideoFile(file.path)).sort((a, b) => b.bytes - a.bytes)[0] ?? null;
+  return pickBestVideoFile(files);
 }
 
 function pickEpisodeFile(files: TorrentFile[], season: number, episode: number): TorrentFile | null {
-  const matching = files
-    .filter((file) => isVideoFile(file.path) && matchesEpisode(file.path, season, episode))
-    .sort((a, b) => b.bytes - a.bytes)[0];
-  return matching ?? pickLargestVideoFile(files);
+  const matching = files.filter(
+    (file) => isVideoFile(file.path) && matchesEpisode(file.path, season, episode),
+  );
+  return pickBestVideoFile(matching) ?? pickLargestVideoFile(files);
+}
+
+function pickBestVideoFile(files: TorrentFile[]): TorrentFile | null {
+  const videos = files.filter((file) => isVideoFile(file.path));
+  if (videos.length === 0) return null;
+  const compatible = videos
+    .filter((file) => isBrowserCompatibleVideoFile(file.path))
+    .sort((a, b) => b.bytes - a.bytes);
+  if (compatible[0]) return compatible[0];
+  return [...videos].sort((a, b) => b.bytes - a.bytes)[0] ?? null;
 }
 
 function matchesEpisode(path: string, season: number, episode: number): boolean {
@@ -416,6 +426,11 @@ function isVideoFile(path: string): boolean {
   return [".mkv", ".mp4", ".avi", ".mov", ".wmv", ".m4v", ".ts"].some((ext) =>
     path.toLowerCase().endsWith(ext),
   );
+}
+
+function isBrowserCompatibleVideoFile(path: string): boolean {
+  const lower = path.toLowerCase();
+  return lower.endsWith(".mp4") || lower.endsWith(".m4v");
 }
 
 function isTerminalStatus(status?: string): boolean {

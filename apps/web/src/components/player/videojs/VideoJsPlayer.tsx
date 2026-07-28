@@ -4,7 +4,8 @@ import { Link } from "react-router-dom";
 import { useMutation } from "convex/react";
 import { api } from "@convex/_generated/api";
 import { useScreenOrientationLock } from "@/hooks/useScreenOrientationLock";
-import { fetchSources, type StreamMode, type StreamSource } from "@/lib/streamApi";
+import { fetchSources, type StreamSource } from "@/lib/streamApi";
+import { prepareBrowserSources } from "@/lib/iosPlayback";
 import type { MediaType } from "@/lib/types";
 import { PlayerErrorOverlay } from "../shared/PlayerErrorOverlay";
 import { isFallbackError } from "../shared/playbackErrors";
@@ -22,7 +23,6 @@ type VideoJsPlayerProps = {
   imdbId: string;
   season?: number;
   episode?: number;
-  mode: StreamMode;
   realDebridApiKey?: string;
   initialProgressSeconds?: number;
   backPath: string;
@@ -37,7 +37,6 @@ export function VideoJsPlayer({
   imdbId,
   season,
   episode,
-  mode,
   realDebridApiKey = "",
   initialProgressSeconds = 0,
   backPath,
@@ -88,8 +87,11 @@ export function VideoJsPlayer({
     loadedUrlRef.current = null;
     setShowSourcePicker(true);
     try {
-      const found = await fetchSources(baseRequest, realDebridApiKey.trim() || undefined);
-      setSources(found);
+      const found = await fetchSources(
+        { ...baseRequest, playbackProfile: "browser" },
+        realDebridApiKey.trim() || undefined,
+      );
+      setSources(prepareBrowserSources(found));
     } catch (error) {
       setSources([]);
       setSourcesError(error instanceof Error ? error.message : "Failed to load streams");
@@ -107,13 +109,12 @@ export function VideoJsPlayer({
       selectedSource
         ? {
             ...baseRequest,
-            mode,
-            magnet: selectedSource.magnet,
+                      magnet: selectedSource.magnet,
             infoHash: selectedSource.infoHash,
             realDebridToken: realDebridApiKey.trim() || undefined,
           }
         : null,
-    [baseRequest, mode, realDebridApiKey, selectedSource],
+    [baseRequest, realDebridApiKey, selectedSource],
   );
 
   const resolveState = useStreamResolve(resolveRequest, selectedSource);
@@ -395,7 +396,7 @@ export function VideoJsPlayer({
                 Change stream
               </button>
             ) : null}
-            <span className="player-mode-badge">{mode}</span>
+            <span className="player-mode-badge">direct</span>
           </div>
         </div>
 

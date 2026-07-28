@@ -27,6 +27,7 @@ export const getForUser = query({
 export const upsert = mutation({
   args: {
     realDebridApiKey: v.optional(v.union(v.string(), v.null())),
+    // Kept optional for backwards compatibility with older clients; ignored by web UI.
     streamMode: v.optional(streamModeValidator),
     externalPlayer: v.optional(externalPlayerValidator),
     updatedAt: v.optional(v.number()),
@@ -44,7 +45,6 @@ export const upsert = mutation({
 
     const patch: {
       realDebridApiKey?: string;
-      streamMode?: "direct" | "proxy";
       externalPlayer?: "disabled" | "vlc" | "outplayer";
       updatedAt: number;
     } = {
@@ -52,9 +52,6 @@ export const upsert = mutation({
     };
     if (args.realDebridApiKey !== undefined) {
       patch.realDebridApiKey = args.realDebridApiKey ?? undefined;
-    }
-    if (args.streamMode !== undefined) {
-      patch.streamMode = args.streamMode;
     }
     if (args.externalPlayer !== undefined) {
       patch.externalPlayer = args.externalPlayer;
@@ -68,7 +65,6 @@ export const upsert = mutation({
     const doc: {
       userId: typeof userId;
       realDebridApiKey?: string;
-      streamMode?: "direct" | "proxy";
       externalPlayer?: "disabled" | "vlc" | "outplayer";
       updatedAt: number;
     } = {
@@ -77,9 +73,6 @@ export const upsert = mutation({
     };
     if (patch.realDebridApiKey !== undefined) {
       doc.realDebridApiKey = patch.realDebridApiKey;
-    }
-    if (patch.streamMode !== undefined) {
-      doc.streamMode = patch.streamMode;
     }
     if (patch.externalPlayer !== undefined) {
       doc.externalPlayer = patch.externalPlayer;
