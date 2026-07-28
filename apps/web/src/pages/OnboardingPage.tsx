@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useUserSettings } from "@/hooks/useUserSettings";
+import { validateLetterboxdUsername } from "@/lib/letterboxd";
 import {
   CONTENT_TYPE_OPTIONS,
   DEVICE_TYPE_OPTIONS,
@@ -26,6 +27,7 @@ export function OnboardingPage() {
   const { settings, saveSettings } = useUserSettings();
   const [stepIndex, setStepIndex] = useState(0);
   const [stepError, setStepError] = useState<string | null>(null);
+  const [isVerifying, setIsVerifying] = useState(false);
 
   const form = useForm({
     defaultValues: {
@@ -69,13 +71,33 @@ export function OnboardingPage() {
     setStepIndex((current) => Math.max(0, current - 1));
   }
 
-  function goNext() {
+  async function goNext() {
     const values = form.state.values;
     const error = validateOnboardingStep(step.id, values);
     if (error) {
       setStepError(error);
       return;
     }
+
+    if (step.id === "letterboxdUsername") {
+      const raw = values.letterboxdUsername.trim();
+      if (raw) {
+        setIsVerifying(true);
+        setStepError(null);
+        const verified = await validateLetterboxdUsername(raw);
+        setIsVerifying(false);
+        if (verified.error) {
+          setStepError(verified.error);
+          return;
+        }
+        if (verified.username) {
+          form.setFieldValue("letterboxdUsername", verified.username);
+        }
+      } else {
+        form.setFieldValue("letterboxdUsername", "");
+      }
+    }
+
     setStepError(null);
 
     if (isLast) {
@@ -135,19 +157,21 @@ export function OnboardingPage() {
                   type="button"
                   variant="outline"
                   className="border-zinc-700 bg-transparent"
-                  disabled={isFirst || isSubmitting}
+                  disabled={isFirst || isSubmitting || isVerifying}
                   onClick={goBack}
                 >
                   Back
                 </Button>
-                <Button type="button" disabled={isSubmitting} onClick={goNext}>
-                  {isSubmitting
-                    ? "Saving..."
-                    : isFirst
-                      ? "Get started"
-                      : isLast
-                        ? "Finish"
-                        : "Continue"}
+                <Button type="button" disabled={isSubmitting || isVerifying} onClick={() => void goNext()}>
+                  {isVerifying
+                    ? "Checking Letterboxd..."
+                    : isSubmitting
+                      ? "Saving..."
+                      : isFirst
+                        ? "Get started"
+                        : isLast
+                          ? "Finish"
+                          : "Continue"}
                 </Button>
               </div>
             )}

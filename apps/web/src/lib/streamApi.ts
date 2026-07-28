@@ -6,17 +6,20 @@ const streamClient = createStreamClient({
 });
 
 export type {
+  LetterboxdFilm,
+  LetterboxdFilmsResponse,
+  LetterboxdVerifyResponse,
   ResolveRequest,
   SourcesRequest,
   StreamResult,
   StreamSource,
 } from "@jedflix/stream-client";
 
-export type { PlaybackProfile } from "@jedflix/shared";
-
 export const {
   resolveStreamUrl,
   getPlaybackUrl,
   getExternalPlaybackUrl,
   fetchSources,
+  fetchLetterboxdFilmsByDate,
+  verifyLetterboxdUsername,
 } = streamClient;

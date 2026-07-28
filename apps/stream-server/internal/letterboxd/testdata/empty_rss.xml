@@ -1,0 +1,8 @@
+<?xml version='1.0' encoding='utf-8'?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:letterboxd="https://letterboxd.com" xmlns:tmdb="https://themoviedb.org">
+  <channel>
+    <title>Letterboxd - Empty User</title>
+    <link>https://letterboxd.com/emptyuser/</link>
+    <description>Letterboxd - Empty User</description>
+  </channel>
+</rss>

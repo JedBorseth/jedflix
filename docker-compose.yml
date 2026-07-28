@@ -44,6 +44,8 @@ services:
       PREFER_INSTANT: ${PREFER_INSTANT:-true}
       STREAM_SERVER_API_KEY: ${STREAM_SERVER_API_KEY:-}
       CORS_ORIGINS: ${CORS_ORIGINS:-https://${DOMAIN}}
+      LETTERBOXD_BASE_URL: ${LETTERBOXD_BASE_URL:-https://letterboxd.com}
+      LETTERBOXD_CACHE_TTL: ${LETTERBOXD_CACHE_TTL:-1h}
 
 volumes:
   caddy_data:

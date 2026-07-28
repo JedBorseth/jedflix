@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Authenticated } from "convex/react";
 import { HeroBanner } from "@/components/browse/HeroBanner";
+import { LetterboxdRow } from "@/components/browse/LetterboxdRow";
 import { MovieRow } from "@/components/browse/MovieRow";
 import { WatchHistoryRow } from "@/components/browse/WatchHistoryRow";
 import { Navbar } from "@/components/layout/Navbar";
@@ -68,10 +69,13 @@ export function BrowsePage({ mediaType = "all" }: BrowsePageProps) {
           <h1 className="sr-only">{pageTitle}</h1>
         </div>
         {mediaType === "all" ? (
-          <Authenticated>
-            <WatchHistoryRow title="Continue Watching" mode="continue" />
-            <WatchHistoryRow title="Recently Watched" mode="recent" />
-          </Authenticated>
+          <>
+            <Authenticated>
+              <WatchHistoryRow title="Continue Watching" mode="continue" />
+              <WatchHistoryRow title="Recently Watched" mode="recent" />
+            </Authenticated>
+            <LetterboxdRow title="From Letterboxd" />
+          </>
         ) : null}
         {rows.map((row) => (
           <MovieRow

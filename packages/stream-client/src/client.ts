@@ -32,6 +32,35 @@ export type StreamResult = {
   mode: "direct";
 };
 
+export type LetterboxdFilm = {
+  slug: string;
+  title: string;
+  year?: number;
+  posterUrl?: string;
+  watchedDate?: string;
+  tmdbId?: number;
+  rating?: number;
+  link?: string;
+};
+
+export type LetterboxdFilmsResponse = {
+  user: string;
+  displayName?: string;
+  films: LetterboxdFilm[];
+  cachedAt: number;
+  source: string;
+};
+
+export type LetterboxdVerifyResponse = {
+  valid: boolean;
+  username: string;
+  displayName?: string;
+  filmCount: number;
+  films?: LetterboxdFilm[];
+  cachedAt: number;
+  error?: string;
+};
+
 export type StreamClientConfig = {
   apiBase: string;
   apiKey?: string;
@@ -42,6 +71,8 @@ export type StreamClient = {
   getPlaybackUrl: (stream: StreamResult) => string;
   getExternalPlaybackUrl: (stream: StreamResult) => string;
   fetchSources: (request: SourcesRequest, realDebridToken?: string) => Promise<StreamSource[]>;
+  fetchLetterboxdFilmsByDate: (username: string) => Promise<LetterboxdFilmsResponse>;
+  verifyLetterboxdUsername: (username: string) => Promise<LetterboxdVerifyResponse>;
 };
 
 /** JSON contract mirrors apps/stream-server/internal/resolver/resolver.go */
@@ -100,10 +131,45 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
     return payload.sources;
   }
 
+  async function fetchLetterboxdFilmsByDate(username: string): Promise<LetterboxdFilmsResponse> {
+    const encoded = encodeURIComponent(username.trim());
+    const response = await fetch(`${apiBase}/api/v1/letterboxd/${encoded}/films/by/date`, {
+      headers: headers(),
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(payload?.error ?? `Letterboxd fetch failed (${response.status})`);
+    }
+    return (await response.json()) as LetterboxdFilmsResponse;
+  }
+
+  async function verifyLetterboxdUsername(username: string): Promise<LetterboxdVerifyResponse> {
+    const encoded = encodeURIComponent(username.trim());
+    const response = await fetch(`${apiBase}/api/v1/letterboxd/${encoded}/verify`, {
+      headers: headers(),
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as
+        | LetterboxdVerifyResponse
+        | { error?: string }
+        | null;
+      if (payload && "valid" in payload) {
+        return payload;
+      }
+      throw new Error(
+        (payload && "error" in payload && payload.error) ||
+          `Letterboxd verification failed (${response.status})`,
+      );
+    }
+    return (await response.json()) as LetterboxdVerifyResponse;
+  }
+
   return {
     resolveStreamUrl,
     getPlaybackUrl,
     getExternalPlaybackUrl,
     fetchSources,
+    fetchLetterboxdFilmsByDate,
+    verifyLetterboxdUsername,
   };
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/jedborseth/jeds-movies/stream-server/internal/api"
 	"github.com/jedborseth/jeds-movies/stream-server/internal/config"
+	"github.com/jedborseth/jeds-movies/stream-server/internal/letterboxd"
 	"github.com/jedborseth/jeds-movies/stream-server/internal/realdebrid"
 	"github.com/jedborseth/jeds-movies/stream-server/internal/resolver"
 	"github.com/jedborseth/jeds-movies/stream-server/internal/search"
@@ -24,8 +25,9 @@ func main() {
 	searcher := search.NewTorrentioSearcher(cfg)
 	rd := realdebrid.NewClient(cfg)
 	resolverService := resolver.NewService(cfg, searcher, rd)
+	letterboxdClient := letterboxd.NewClient(cfg)
 
-	server := api.NewServer(cfg, resolverService)
+	server := api.NewServer(cfg, resolverService, letterboxdClient)
 	log.Printf("stream-server listening on %s", cfg.Addr)
 	if err := http.ListenAndServe(cfg.Addr, server.Router()); err != nil {
 		log.Println(err)

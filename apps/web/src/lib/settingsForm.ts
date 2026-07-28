@@ -77,7 +77,8 @@ export const ONBOARDING_STEPS: Array<{
   {
     id: "letterboxdUsername",
     title: "Letterboxd username",
-    description: "Optional — for future integrations.",
+    description:
+      "Optional — personalize your home feed with recent watches. Profile must be public and have diary entries.",
   },
   {
     id: "virusWarning",

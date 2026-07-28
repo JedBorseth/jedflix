@@ -28,6 +28,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useUserSettings } from "@/hooks/useUserSettings";
+import { validateLetterboxdUsername } from "@/lib/letterboxd";
 import {
   CONTENT_TYPE_OPTIONS,
   DEVICE_TYPE_OPTIONS,
@@ -51,6 +52,9 @@ export function SettingsPage() {
   const [apiKey, setApiKey] = useState(realDebridApiKey);
   const [letterboxd, setLetterboxd] = useState(letterboxdUsername);
   const [saved, setSaved] = useState(false);
+  const [letterboxdError, setLetterboxdError] = useState<string | null>(null);
+  const [letterboxdSuccess, setLetterboxdSuccess] = useState<string | null>(null);
+  const [isVerifyingLetterboxd, setIsVerifyingLetterboxd] = useState(false);
 
   useEffect(() => {
     setApiKey(realDebridApiKey);
@@ -66,8 +70,36 @@ export function SettingsPage() {
     window.setTimeout(() => setSaved(false), 2000);
   };
 
-  const handleSaveLetterboxd = () => {
-    saveSettings({ letterboxdUsername: letterboxd.trim() || undefined });
+  const handleSaveLetterboxd = async () => {
+    const raw = letterboxd.trim();
+    setLetterboxdError(null);
+    setLetterboxdSuccess(null);
+
+    if (!raw) {
+      saveSettings({ letterboxdUsername: undefined });
+      setLetterboxd("");
+      setLetterboxdSuccess("Letterboxd username cleared.");
+      setSaved(true);
+      window.setTimeout(() => setSaved(false), 2000);
+      return;
+    }
+
+    setIsVerifyingLetterboxd(true);
+    const verified = await validateLetterboxdUsername(raw);
+    setIsVerifyingLetterboxd(false);
+
+    if (verified.error) {
+      setLetterboxdError(verified.error);
+      return;
+    }
+
+    const username = verified.username ?? raw.toLowerCase();
+    setLetterboxd(username);
+    saveSettings({ letterboxdUsername: username });
+    const count = verified.result?.filmCount ?? 0;
+    setLetterboxdSuccess(
+      `Connected @${username} — ${count} recent diary film${count === 1 ? "" : "s"} found.`,
+    );
     setSaved(true);
     window.setTimeout(() => setSaved(false), 2000);
   };
@@ -230,7 +262,7 @@ export function SettingsPage() {
             <CardHeader>
               <CardTitle>Letterboxd</CardTitle>
               <CardDescription className="text-zinc-400">
-                Optional username for future Letterboxd integrations.
+                Public username used to personalize your home feed with recent diary watches.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -242,15 +274,26 @@ export function SettingsPage() {
                   id="letterboxd-username"
                   type="text"
                   value={letterboxd}
-                  onChange={(event) => setLetterboxd(event.target.value)}
-                  onBlur={handleSaveLetterboxd}
+                  onChange={(event) => {
+                    setLetterboxd(event.target.value);
+                    setLetterboxdError(null);
+                    setLetterboxdSuccess(null);
+                  }}
                   placeholder="your-username"
                   className="border-zinc-700 bg-zinc-950 text-white placeholder:text-zinc-600"
                 />
-                <Button type="button" onClick={handleSaveLetterboxd}>
-                  Save
+                <Button
+                  type="button"
+                  disabled={isVerifyingLetterboxd}
+                  onClick={() => void handleSaveLetterboxd()}
+                >
+                  {isVerifyingLetterboxd ? "Checking..." : "Save"}
                 </Button>
               </div>
+              {letterboxdError ? <p className="text-sm text-red-400">{letterboxdError}</p> : null}
+              {letterboxdSuccess ? (
+                <p className="text-sm text-emerald-400">{letterboxdSuccess}</p>
+              ) : null}
             </CardContent>
           </Card>
 

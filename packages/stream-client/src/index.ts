@@ -1,4 +1,7 @@
 export type {
+  LetterboxdFilm,
+  LetterboxdFilmsResponse,
+  LetterboxdVerifyResponse,
   ResolveRequest,
   SourcesRequest,
   StreamClient,
