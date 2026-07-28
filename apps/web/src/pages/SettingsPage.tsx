@@ -32,9 +32,7 @@ import {
   CONTENT_TYPE_OPTIONS,
   DEVICE_TYPE_OPTIONS,
   EXTERNAL_PLAYER_OPTIONS,
-  ISP_WARNING_TEXT,
   toggleContentType,
-  VIRUS_WARNING_TEXT,
 } from "@/lib/settingsForm";
 import type { DeviceType, ExternalPlayer } from "@/lib/userSettings";
 
@@ -46,8 +44,6 @@ export function SettingsPage() {
     deviceType,
     contentTypes,
     letterboxdUsername,
-    virusWarningAccepted,
-    ispWarningAccepted,
     saveSettings,
     resetSettings,
     syncEnabled,
@@ -260,51 +256,6 @@ export function SettingsPage() {
 
           <Card className="border-zinc-800 bg-zinc-900/60 text-white">
             <CardHeader>
-              <CardTitle>Safety acknowledgements</CardTitle>
-              <CardDescription className="text-zinc-400">
-                These acknowledgements are required to use the app.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <label className="flex cursor-pointer gap-3 rounded-md border border-zinc-800 bg-zinc-950/50 px-3 py-3 text-sm text-zinc-300">
-                <input
-                  type="checkbox"
-                  className="mt-1 h-4 w-4 shrink-0 accent-red-500"
-                  checked={virusWarningAccepted}
-                  onChange={(event) => {
-                    saveSettings({
-                      virusWarningAccepted: event.target.checked,
-                      ...(event.target.checked ? {} : { onboardingCompleted: false }),
-                    });
-                  }}
-                />
-                <span>
-                  <span className="font-medium text-zinc-100">Virus warning</span>
-                  <span className="mt-1 block text-zinc-400">{VIRUS_WARNING_TEXT}</span>
-                </span>
-              </label>
-              <label className="flex cursor-pointer gap-3 rounded-md border border-zinc-800 bg-zinc-950/50 px-3 py-3 text-sm text-zinc-300">
-                <input
-                  type="checkbox"
-                  className="mt-1 h-4 w-4 shrink-0 accent-red-500"
-                  checked={ispWarningAccepted}
-                  onChange={(event) => {
-                    saveSettings({
-                      ispWarningAccepted: event.target.checked,
-                      ...(event.target.checked ? {} : { onboardingCompleted: false }),
-                    });
-                  }}
-                />
-                <span>
-                  <span className="font-medium text-zinc-100">ISP warning</span>
-                  <span className="mt-1 block text-zinc-400">{ISP_WARNING_TEXT}</span>
-                </span>
-              </label>
-            </CardContent>
-          </Card>
-
-          <Card className="border-zinc-800 bg-zinc-900/60 text-white">
-            <CardHeader>
               <CardTitle>Reset App</CardTitle>
               <CardDescription className="text-zinc-400">
                 Clear local settings and account-synced settings. Watch history and your list are
@@ -321,8 +272,8 @@ export function SettingsPage() {
                     <DialogTitle>Reset app settings?</DialogTitle>
                     <DialogDescription className="text-zinc-400">
                       This clears your Real Debrid API key, device and content preferences, player
-                      settings, Letterboxd username, and safety acknowledgements from this browser
-                      and from your account if you are signed in. Onboarding will start again.
+                      settings, and Letterboxd username from this browser and from your account if
+                      you are signed in. Onboarding will start again.
                     </DialogDescription>
                   </DialogHeader>
                   <DialogFooter>
