@@ -1,6 +1,9 @@
 import { lazy, Suspense } from "react";
 import { createBrowserRouter, Navigate, RouterProvider } from "react-router-dom";
 import { RootLayout } from "@/components/layout/RootLayout";
+import { AudiobookDetailPage } from "@/pages/AudiobookDetailPage";
+import { AudiobooksPage } from "@/pages/AudiobooksPage";
+import { AuthorPage } from "@/pages/AuthorPage";
 import { BrowsePage } from "@/pages/BrowsePage";
 import { ComingSoonPage } from "@/pages/ComingSoonPage";
 import { MovieDetailPage } from "@/pages/MovieDetailPage";
@@ -39,15 +42,7 @@ const router = createBrowserRouter([
       { path: "/", element: <BrowsePage /> },
       { path: "/movies", element: <BrowsePage mediaType="movie" /> },
       { path: "/shows", element: <BrowsePage mediaType="tv" /> },
-      {
-        path: "/audiobooks",
-        element: (
-          <ComingSoonPage
-            title="Audiobooks"
-            description="Audiobook browsing will live here once catalog support is added."
-          />
-        ),
-      },
+      { path: "/audiobooks", element: <AudiobooksPage /> },
       {
         path: "/video-games",
         element: (
@@ -59,6 +54,8 @@ const router = createBrowserRouter([
       },
       { path: "/movie/:mediaId", element: <MovieDetailPage mediaType="movie" /> },
       { path: "/show/:mediaId", element: <MovieDetailPage mediaType="tv" /> },
+      { path: "/audiobook/:workId", element: <AudiobookDetailPage /> },
+      { path: "/author/:authorId", element: <AuthorPage /> },
       { path: "/watch/movie/:mediaId", element: <LazyWatchPage /> },
       { path: "/watch/tv/:mediaId/:season/:episode", element: <LazyWatchPage /> },
       { path: "/watch/:mediaType/:mediaId", element: <LazyWatchPage /> },

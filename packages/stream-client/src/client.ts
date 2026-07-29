@@ -64,6 +64,49 @@ export type LetterboxdVerifyResponse = {
   error?: string;
 };
 
+export type OpenLibraryBook = {
+  id: string;
+  title: string;
+  description: string;
+  coverUrl: string;
+  authors: string[];
+  authorKeys: string[];
+  year: number | null;
+  pageCount: number | null;
+  subjects: string[];
+};
+
+export type OpenLibraryAuthorSummary = {
+  id: string;
+  name: string;
+  photoUrl: string;
+  topWork?: string;
+  workCount?: number;
+};
+
+export type OpenLibraryAuthorDetails = OpenLibraryAuthorSummary & {
+  biography: string;
+  birthDate?: string;
+  works: OpenLibraryBook[];
+};
+
+export type OpenLibrarySubjectRow = {
+  title: string;
+  subject: string;
+  books: OpenLibraryBook[];
+};
+
+export type OpenLibraryBrowseResponse = {
+  trending: OpenLibraryBook[];
+  rows: OpenLibrarySubjectRow[];
+  cachedAt: number;
+};
+
+export type OpenLibrarySearchResponse = {
+  books: OpenLibraryBook[];
+  authors: OpenLibraryAuthorSummary[];
+};
+
 export type StreamClientConfig = {
   apiBase: string;
   apiKey?: string;
@@ -81,6 +124,10 @@ export type StreamClient = {
   ) => Promise<StreamResult>;
   fetchLetterboxdFilmsByDate: (username: string) => Promise<LetterboxdFilmsResponse>;
   verifyLetterboxdUsername: (username: string) => Promise<LetterboxdVerifyResponse>;
+  fetchOpenLibraryBrowse: () => Promise<OpenLibraryBrowseResponse>;
+  searchOpenLibrary: (query: string) => Promise<OpenLibrarySearchResponse>;
+  fetchOpenLibraryWork: (workId: string) => Promise<OpenLibraryBook>;
+  fetchOpenLibraryAuthor: (authorId: string) => Promise<OpenLibraryAuthorDetails>;
 };
 
 /** JSON contract mirrors apps/stream-server/internal/resolver/resolver.go */
@@ -218,6 +265,61 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
     return (await response.json()) as LetterboxdVerifyResponse;
   }
 
+  async function fetchOpenLibraryBrowse(): Promise<OpenLibraryBrowseResponse> {
+    const response = await fetch(`${apiBase}/api/v1/openlibrary/browse`, {
+      headers: headers(),
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(payload?.error ?? `Open Library browse failed (${response.status})`);
+    }
+    return normalizeBrowseResponse(await response.json());
+  }
+
+  async function searchOpenLibrary(query: string): Promise<OpenLibrarySearchResponse> {
+    const params = new URLSearchParams({ q: query.trim() });
+    const response = await fetch(`${apiBase}/api/v1/openlibrary/search?${params.toString()}`, {
+      headers: headers(),
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(payload?.error ?? `Open Library search failed (${response.status})`);
+    }
+    const payload = (await response.json()) as OpenLibrarySearchResponse;
+    return {
+      books: (payload.books ?? []).map(normalizeBook),
+      authors: payload.authors ?? [],
+    };
+  }
+
+  async function fetchOpenLibraryWork(workId: string): Promise<OpenLibraryBook> {
+    const encoded = encodeURIComponent(workId.trim());
+    const response = await fetch(`${apiBase}/api/v1/openlibrary/works/${encoded}`, {
+      headers: headers(),
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(payload?.error ?? `Open Library work failed (${response.status})`);
+    }
+    return normalizeBook(await response.json());
+  }
+
+  async function fetchOpenLibraryAuthor(authorId: string): Promise<OpenLibraryAuthorDetails> {
+    const encoded = encodeURIComponent(authorId.trim());
+    const response = await fetch(`${apiBase}/api/v1/openlibrary/authors/${encoded}`, {
+      headers: headers(),
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(payload?.error ?? `Open Library author failed (${response.status})`);
+    }
+    const payload = (await response.json()) as OpenLibraryAuthorDetails;
+    return {
+      ...payload,
+      works: (payload.works ?? []).map(normalizeBook),
+    };
+  }
+
   return {
     resolveStreamUrl,
     getPlaybackUrl,
@@ -226,6 +328,32 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
     resolveStream,
     fetchLetterboxdFilmsByDate,
     verifyLetterboxdUsername,
+    fetchOpenLibraryBrowse,
+    searchOpenLibrary,
+    fetchOpenLibraryWork,
+    fetchOpenLibraryAuthor,
+  };
+}
+
+function normalizeBrowseResponse(payload: OpenLibraryBrowseResponse): OpenLibraryBrowseResponse {
+  return {
+    trending: (payload.trending ?? []).map(normalizeBook),
+    rows: (payload.rows ?? []).map((row) => ({
+      ...row,
+      books: (row.books ?? []).map(normalizeBook),
+    })),
+    cachedAt: payload.cachedAt,
+  };
+}
+
+function normalizeBook(book: OpenLibraryBook): OpenLibraryBook {
+  return {
+    ...book,
+    authors: book.authors ?? [],
+    authorKeys: book.authorKeys ?? [],
+    subjects: book.subjects ?? [],
+    year: book.year ?? null,
+    pageCount: book.pageCount ?? null,
   };
 }
 

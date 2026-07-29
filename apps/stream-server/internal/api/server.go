@@ -13,20 +13,28 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/jedborseth/jeds-movies/stream-server/internal/config"
 	"github.com/jedborseth/jeds-movies/stream-server/internal/letterboxd"
+	"github.com/jedborseth/jeds-movies/stream-server/internal/openlibrary"
 	"github.com/jedborseth/jeds-movies/stream-server/internal/resolver"
 )
 
 type Server struct {
-	cfg        config.Config
-	resolver   *resolver.Service
-	letterboxd *letterboxd.Client
+	cfg         config.Config
+	resolver    *resolver.Service
+	letterboxd  *letterboxd.Client
+	openLibrary *openlibrary.Client
 }
 
-func NewServer(cfg config.Config, resolverService *resolver.Service, letterboxdClient *letterboxd.Client) *Server {
+func NewServer(
+	cfg config.Config,
+	resolverService *resolver.Service,
+	letterboxdClient *letterboxd.Client,
+	openLibraryClient *openlibrary.Client,
+) *Server {
 	return &Server{
-		cfg:        cfg,
-		resolver:   resolverService,
-		letterboxd: letterboxdClient,
+		cfg:         cfg,
+		resolver:    resolverService,
+		letterboxd:  letterboxdClient,
+		openLibrary: openLibraryClient,
 	}
 }
 
@@ -53,6 +61,10 @@ func (s *Server) Router() http.Handler {
 		r.Post("/resolve", s.handleResolve)
 		r.Get("/letterboxd/{username}/verify", s.handleLetterboxdVerify)
 		r.Get("/letterboxd/{username}/films/by/date", s.handleLetterboxdFilmsByDate)
+		r.Get("/openlibrary/browse", s.handleOpenLibraryBrowse)
+		r.Get("/openlibrary/search", s.handleOpenLibrarySearch)
+		r.Get("/openlibrary/works/{workId}", s.handleOpenLibraryWork)
+		r.Get("/openlibrary/authors/{authorId}", s.handleOpenLibraryAuthor)
 	})
 
 	return r
@@ -186,6 +198,68 @@ func (s *Server) handleLetterboxdFilmsByDate(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleOpenLibraryBrowse(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	defer cancel()
+
+	result, err := s.openLibrary.Browse(ctx)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleOpenLibrarySearch(w http.ResponseWriter, r *http.Request) {
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	defer cancel()
+
+	result, err := s.openLibrary.Search(ctx, query)
+	if err != nil {
+		writeOpenLibraryError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleOpenLibraryWork(w http.ResponseWriter, r *http.Request) {
+	workID := chi.URLParam(r, "workId")
+	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	defer cancel()
+
+	result, err := s.openLibrary.GetWork(ctx, workID)
+	if err != nil {
+		writeOpenLibraryError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleOpenLibraryAuthor(w http.ResponseWriter, r *http.Request) {
+	authorID := chi.URLParam(r, "authorId")
+	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	defer cancel()
+
+	result, err := s.openLibrary.GetAuthor(ctx, authorID)
+	if err != nil {
+		writeOpenLibraryError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func writeOpenLibraryError(w http.ResponseWriter, err error) {
+	status := http.StatusBadGateway
+	switch {
+	case errors.Is(err, openlibrary.ErrBadRequest):
+		status = http.StatusBadRequest
+	case errors.Is(err, openlibrary.ErrNotFound):
+		status = http.StatusNotFound
+	}
+	writeJSON(w, status, map[string]string{"error": err.Error()})
 }
 
 func (s *Server) authMiddleware(next http.Handler) http.Handler {

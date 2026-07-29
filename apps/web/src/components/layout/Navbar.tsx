@@ -1,5 +1,5 @@
 import { FormEvent, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Authenticated, Unauthenticated } from "convex/react";
 import { AppLink } from "@/components/layout/AppLink";
 import { MobileNavMenu } from "@/components/layout/MobileNavMenu";
@@ -11,9 +11,30 @@ import { api } from "@convex/_generated/api";
 import { MagnifyingGlassIcon, GearIcon } from "@radix-ui/react-icons";
 import { useUserSettings } from "@/hooks/useUserSettings";
 
-export function Navbar() {
+export type SearchMode = "media" | "books";
+
+type NavbarProps = {
+  searchMode?: SearchMode;
+};
+
+function isBooksPath(pathname: string, search: string): boolean {
+  if (
+    pathname.startsWith("/audiobooks") ||
+    pathname.startsWith("/audiobook/") ||
+    pathname.startsWith("/author/")
+  ) {
+    return true;
+  }
+  if (pathname.startsWith("/search")) {
+    return new URLSearchParams(search).get("type") === "books";
+  }
+  return false;
+}
+
+export function Navbar({ searchMode }: NavbarProps) {
   const user = useQuery(api.users.viewer);
   const { contentTypes } = useUserSettings();
+  const location = useLocation();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -21,6 +42,12 @@ export function Navbar() {
   const showMoviesShows = contentTypes.includes("movies_shows");
   const showAudiobooks = contentTypes.includes("audiobooks");
   const showVideoGames = contentTypes.includes("video_games");
+  const activeSearchMode: SearchMode =
+    searchMode ?? (isBooksPath(location.pathname, location.search) ? "books" : "media");
+  const searchPlaceholder =
+    activeSearchMode === "books"
+      ? "Search books or authors"
+      : "Search movies, shows, or cast";
 
   function openSearch() {
     setIsSearchOpen(true);
@@ -35,7 +62,11 @@ export function Navbar() {
       return;
     }
 
-    void navigate(`/search?q=${encodeURIComponent(trimmedQuery)}`);
+    const params = new URLSearchParams({ q: trimmedQuery });
+    if (activeSearchMode === "books") {
+      params.set("type", "books");
+    }
+    void navigate(`/search?${params.toString()}`);
   }
 
   return (
@@ -108,7 +139,7 @@ export function Navbar() {
                       setIsSearchOpen(false);
                     }
                   }}
-                  placeholder="Search movies, shows, or cast"
+                  placeholder={searchPlaceholder}
                   className="h-10 border-0 bg-transparent px-1 text-base text-white placeholder:text-zinc-500 focus-visible:ring-0 md:h-9 md:text-sm"
                 />
               ) : null}

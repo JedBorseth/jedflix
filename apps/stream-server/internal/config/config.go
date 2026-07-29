@@ -26,6 +26,8 @@ type Config struct {
 	ResolveTimeout         time.Duration
 	LetterboxdBaseURL      string
 	LetterboxdCacheTTL     time.Duration
+	OpenLibraryBaseURL     string
+	OpenLibraryCacheTTL    time.Duration
 }
 
 func Load() Config {
@@ -46,6 +48,8 @@ func Load() Config {
 		ResolveTimeout:         time.Duration(envInt("RESOLVE_TIMEOUT_SECONDS", 600)) * time.Second,
 		LetterboxdBaseURL:      strings.TrimRight(envOr("LETTERBOXD_BASE_URL", "https://letterboxd.com"), "/"),
 		LetterboxdCacheTTL:     envDuration("LETTERBOXD_CACHE_TTL", time.Hour),
+		OpenLibraryBaseURL:     strings.TrimRight(envOr("OPEN_LIBRARY_BASE_URL", "https://openlibrary.org"), "/"),
+		OpenLibraryCacheTTL:    envDuration("OPEN_LIBRARY_CACHE_TTL", 12*time.Hour),
 	}
 	return cfg
 }

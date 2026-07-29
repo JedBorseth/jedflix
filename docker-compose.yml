@@ -46,6 +46,8 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-https://${DOMAIN}}
       LETTERBOXD_BASE_URL: ${LETTERBOXD_BASE_URL:-https://letterboxd.com}
       LETTERBOXD_CACHE_TTL: ${LETTERBOXD_CACHE_TTL:-1h}
+      OPEN_LIBRARY_BASE_URL: ${OPEN_LIBRARY_BASE_URL:-https://openlibrary.org}
+      OPEN_LIBRARY_CACHE_TTL: ${OPEN_LIBRARY_CACHE_TTL:-12h}
 
 volumes:
   caddy_data:
