@@ -44,7 +44,7 @@ export function sortDirectPlaybackSources<T extends { title: string; cached?: bo
   sources: T[],
 ): T[] {
   return [...sources].sort((left, right) => {
-    const cachedDelta = Number(right.cached) - Number(left.cached);
+    const cachedDelta = Number(Boolean(right.cached)) - Number(Boolean(left.cached));
     if (cachedDelta !== 0) {
       return cachedDelta;
     }

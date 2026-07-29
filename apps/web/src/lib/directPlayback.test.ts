@@ -3,6 +3,7 @@ import {
   filterDirectPlaybackSources,
   isDirectPlaybackIncompatible,
   scoreDirectPlaybackCompatibility,
+  sortDirectPlaybackSources,
 } from "@jedflix/shared";
 
 describe("directPlayback", () => {
@@ -24,5 +25,13 @@ describe("directPlayback", () => {
       { title: "Movie.2024.2160p.REMUX.Atmos.mkv" },
     ]);
     expect(filtered).toEqual([{ title: "Movie.2024.1080p.WEBRip.x264.AAC.mp4" }]);
+  });
+
+  test("sorts cached and compatible sources ahead of uncached remux", () => {
+    const sorted = sortDirectPlaybackSources([
+      { id: "remux", title: "Movie.2024.2160p.REMUX.Atmos.mkv" },
+      { id: "mp4", title: "Movie.2024.1080p.WEBRip.x264.AAC.mp4", cached: true },
+    ]);
+    expect(sorted.map((source) => source.id)).toEqual(["mp4", "remux"]);
   });
 });
