@@ -20,6 +20,7 @@ export const {
   getPlaybackUrl,
   getExternalPlaybackUrl,
   fetchSources,
+  resolveStream,
   fetchLetterboxdFilmsByDate,
   verifyLetterboxdUsername,
 } = streamClient;

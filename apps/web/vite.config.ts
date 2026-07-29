@@ -58,6 +58,7 @@ export default defineConfig({
       "/stream-api": {
         target: "http://localhost:8080",
         changeOrigin: true,
+        timeout: 15 * 60 * 1000,
         rewrite: (requestPath) => requestPath.replace(/^\/stream-api/, ""),
       },
     },

@@ -125,7 +125,7 @@ export function SettingsPage() {
             <CardHeader>
               <CardTitle>Device type</CardTitle>
               <CardDescription className="text-zinc-400">
-                Stored preference for this device. Playback behavior can use this later.
+                Automatically filters streams for compatibility based on your device
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -191,7 +191,8 @@ export function SettingsPage() {
             <CardHeader>
               <CardTitle>Real Debrid API Key</CardTitle>
               <CardDescription className="text-zinc-400">
-                Required for direct Real Debrid streaming from your browser.
+                Real Debrid keys are never sent to our servers and are only used for streaming from
+                debrid to client.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -226,8 +227,8 @@ export function SettingsPage() {
             <CardHeader>
               <CardTitle>Video Player</CardTitle>
               <CardDescription className="text-zinc-400">
-                Disabled uses the built-in player (Stremio on desktop, native video on mobile).
-                External players open the stream in VLC or OutPlayer instead.
+                The default video player for streaming movies and shows on our platform. Either play
+                in browser or choose a program to open when clicking on a stream.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -251,10 +252,6 @@ export function SettingsPage() {
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-sm text-zinc-500">
-                Built-in playback uses direct Real Debrid links. Prefer VLC or OutPlayer for MKV /
-                Atmos releases that browsers cannot decode.
-              </p>
             </CardContent>
           </Card>
 

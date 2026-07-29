@@ -71,6 +71,11 @@ export type StreamClient = {
   getPlaybackUrl: (stream: StreamResult) => string;
   getExternalPlaybackUrl: (stream: StreamResult) => string;
   fetchSources: (request: SourcesRequest, realDebridToken?: string) => Promise<StreamSource[]>;
+  resolveStream: (
+    source: StreamSource,
+    request: ResolveRequest,
+    options?: { signal?: AbortSignal },
+  ) => Promise<StreamResult>;
   fetchLetterboxdFilmsByDate: (username: string) => Promise<LetterboxdFilmsResponse>;
   verifyLetterboxdUsername: (username: string) => Promise<LetterboxdVerifyResponse>;
 };
@@ -131,6 +136,50 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
     return payload.sources;
   }
 
+  async function resolveStream(
+    source: StreamSource,
+    request: ResolveRequest,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<StreamResult> {
+    const token = request.realDebridToken?.trim() ?? "";
+    if (!token) {
+      throw new StreamResolveError(
+        "missing_token",
+        "Real Debrid API key is required for direct streaming.",
+      );
+    }
+
+    const response = await fetch(`${apiBase}/api/v1/resolve`, {
+      method: "POST",
+      headers: headers(token),
+      signal: options.signal,
+      body: JSON.stringify({
+        type: request.type,
+        magnet: source.magnet,
+        infoHash: source.infoHash ?? request.infoHash,
+        title: source.title,
+        season: request.season,
+        episode: request.episode,
+        playbackProfile: request.playbackProfile ?? "browser",
+      }),
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as {
+        error?: string;
+        code?: string;
+      } | null;
+      const code = payload?.code;
+      const message = payload?.error ?? `Stream resolve failed (${response.status})`;
+      if (code) {
+        throw new StreamResolveError(code, message, response.status);
+      }
+      throw new Error(message);
+    }
+
+    return (await response.json()) as StreamResult;
+  }
+
   async function fetchLetterboxdFilmsByDate(username: string): Promise<LetterboxdFilmsResponse> {
     const encoded = encodeURIComponent(username.trim());
     const response = await fetch(`${apiBase}/api/v1/letterboxd/${encoded}/films/by/date`, {
@@ -169,7 +218,20 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
     getPlaybackUrl,
     getExternalPlaybackUrl,
     fetchSources,
+    resolveStream,
     fetchLetterboxdFilmsByDate,
     verifyLetterboxdUsername,
   };
+}
+
+export class StreamResolveError extends Error {
+  code: string;
+  status?: number;
+
+  constructor(code: string, message: string, status?: number) {
+    super(message);
+    this.name = "StreamResolveError";
+    this.code = code;
+    this.status = status;
+  }
 }

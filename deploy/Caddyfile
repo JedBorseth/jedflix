@@ -7,7 +7,13 @@
 
 	handle /stream-api/* {
 		uri strip_prefix /stream-api
-		reverse_proxy stream-server:8080
+		reverse_proxy stream-server:8080 {
+			# Real Debrid resolve can poll for several minutes on uncached torrents.
+			transport http {
+				read_timeout 15m
+				write_timeout 15m
+			}
+		}
 	}
 
 	handle {

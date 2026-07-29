@@ -9,4 +9,4 @@ export type {
   StreamResult,
   StreamSource,
 } from "./client";
-export { createStreamClient } from "./client";
+export { createStreamClient, StreamResolveError } from "./client";

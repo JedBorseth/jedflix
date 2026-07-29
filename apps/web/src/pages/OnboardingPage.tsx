@@ -22,12 +22,16 @@ import type { DeviceType, ExternalPlayer } from "@/lib/userSettings";
 import { cn } from "@/lib/utils";
 import "./onboarding.css";
 
+const REAL_DEBRID_API_KEY_URL = "https://real-debrid.com/apitoken";
+const WELCOME_EXIT_MS = 900;
+
 export function OnboardingPage() {
   const navigate = useNavigate();
   const { settings, saveSettings } = useUserSettings();
   const [stepIndex, setStepIndex] = useState(0);
   const [stepError, setStepError] = useState<string | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
+  const [isWelcomeExiting, setIsWelcomeExiting] = useState(false);
 
   const form = useForm({
     defaultValues: {
@@ -68,14 +72,27 @@ export function OnboardingPage() {
 
   function goBack() {
     setStepError(null);
+    setIsWelcomeExiting(false);
     setStepIndex((current) => Math.max(0, current - 1));
   }
 
   async function goNext() {
+    if (isWelcomeExiting) return;
+
     const values = form.state.values;
     const error = validateOnboardingStep(step.id, values);
     if (error) {
       setStepError(error);
+      return;
+    }
+
+    if (step.id === "welcome") {
+      setIsWelcomeExiting(true);
+      setStepError(null);
+      window.setTimeout(() => {
+        setStepIndex(1);
+        setIsWelcomeExiting(false);
+      }, WELCOME_EXIT_MS);
       return;
     }
 
@@ -108,8 +125,13 @@ export function OnboardingPage() {
   }
 
   return (
-    <div className="onboarding-shell bg-zinc-950 text-white">
-      <main className="onboarding-main">
+    <div
+      className={cn(
+        "onboarding-shell bg-zinc-950 text-white",
+        isWelcomeExiting && "onboarding-shell-exit",
+      )}
+    >
+      <main className={cn("onboarding-main", isFirst && "onboarding-main-welcome")}>
         <div className="mb-6 flex shrink-0 items-center justify-between gap-3">
           <p className="text-sm font-medium uppercase tracking-wide text-red-500">JedFlix</p>
           {!isFirst ? (
@@ -134,13 +156,23 @@ export function OnboardingPage() {
         ) : null}
 
         <div className="onboarding-body">
-          <div key={step.id} className="onboarding-scroll onboarding-step-enter">
+          <div
+            key={step.id}
+            className={cn(
+              "onboarding-scroll",
+              isFirst
+                ? isWelcomeExiting
+                  ? "onboarding-welcome-exit"
+                  : "onboarding-welcome-enter"
+                : "onboarding-step-enter",
+            )}
+          >
             {step.id === "welcome" ? (
-              <WelcomeStep />
+              <WelcomeStep exiting={isWelcomeExiting} />
             ) : (
               <>
-                <h1 className="text-3xl font-bold tracking-tight">{step.title}</h1>
-                <p className="mt-2 text-zinc-400">{step.description}</p>
+                <h1 className="text-3xl font-bold tracking-tight md:text-4xl">{step.title}</h1>
+                <p className="mt-2 text-zinc-400 md:text-lg">{step.description}</p>
                 <div className="mt-8">
                   <StepFields stepId={step.id} form={form} />
                 </div>
@@ -151,17 +183,30 @@ export function OnboardingPage() {
 
           <form.Subscribe selector={(state) => state.isSubmitting}>
             {(isSubmitting) => (
-              <div className="onboarding-footer flex items-center justify-between gap-3">
+              <div
+                className={cn(
+                  "onboarding-footer flex items-center gap-3",
+                  isFirst ? "justify-center" : "justify-between",
+                )}
+              >
+                {!isFirst ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="border-zinc-700 bg-transparent"
+                    disabled={isSubmitting || isVerifying}
+                    onClick={goBack}
+                  >
+                    Back
+                  </Button>
+                ) : null}
                 <Button
                   type="button"
-                  variant="outline"
-                  className="border-zinc-700 bg-transparent"
-                  disabled={isFirst || isSubmitting || isVerifying}
-                  onClick={goBack}
+                  size={isFirst ? "lg" : "default"}
+                  className={cn(isFirst && "onboarding-cta min-w-[12rem] px-10 text-base")}
+                  disabled={isSubmitting || isVerifying || isWelcomeExiting}
+                  onClick={() => void goNext()}
                 >
-                  Back
-                </Button>
-                <Button type="button" disabled={isSubmitting || isVerifying} onClick={() => void goNext()}>
                   {isVerifying
                     ? "Checking Letterboxd..."
                     : isSubmitting
@@ -181,10 +226,15 @@ export function OnboardingPage() {
   );
 }
 
-function WelcomeStep() {
+function WelcomeStep({ exiting }: { exiting: boolean }) {
   return (
-    <div className="flex min-h-full flex-col items-center justify-center py-4 text-center">
-      <div className="onboarding-hero relative mb-10 h-44 w-full max-w-sm" aria-hidden>
+    <div
+      className={cn(
+        "flex min-h-full flex-col items-center justify-center py-4 text-center",
+        exiting && "onboarding-welcome-content-exit",
+      )}
+    >
+      <div className="onboarding-hero relative mb-10 h-44 w-full max-w-sm md:mb-12 md:h-56 md:max-w-md" aria-hidden>
         <div className="onboarding-poster onboarding-poster-left" />
         <div className="onboarding-poster onboarding-poster-right" />
         <div className="onboarding-poster onboarding-poster-center">
@@ -194,12 +244,15 @@ function WelcomeStep() {
         <div className="onboarding-spark onboarding-spark-b" />
         <div className="onboarding-spark onboarding-spark-c" />
       </div>
-      <p className="onboarding-brand text-5xl font-black tracking-tight text-red-600 md:text-6xl">
+      <p className="onboarding-brand text-5xl font-black tracking-tight text-red-600 md:text-7xl">
         JedFlix
       </p>
-      <h1 className="mt-4 text-2xl font-bold tracking-tight md:text-3xl">Your personal cinema</h1>
-      <p className="mt-3 max-w-md text-zinc-400">
-        Set up streaming preferences in under a minute. Direct Real Debrid playback, your way.
+      <h1 className="mt-4 text-2xl font-bold tracking-tight md:text-4xl">
+        The Ultimate Streaming Platform
+      </h1>
+      <p className="mt-3 max-w-lg text-zinc-400 md:mt-4 md:max-w-xl md:text-lg">
+        Stream movies, shows, and audiobooks and download games from Real-Debrid with built-in
+        Letterboxd integration.
       </p>
     </div>
   );
@@ -217,7 +270,7 @@ function StepFields({
       return (
         <form.Field name="deviceType">
           {(field) => (
-            <div className="grid gap-3">
+            <div className="grid gap-3 sm:grid-cols-3">
               {DEVICE_TYPE_OPTIONS.map((option) => (
                 <ChoiceButton
                   key={option.value}
@@ -234,14 +287,14 @@ function StepFields({
       return (
         <form.Field name="contentTypes">
           {(field) => (
-            <div className="space-y-3">
+            <div className="grid gap-3 sm:grid-cols-3">
               {CONTENT_TYPE_OPTIONS.map((option) => {
                 const checked = field.state.value.includes(option.value);
                 return (
                   <label
                     key={option.value}
                     className={cn(
-                      "flex cursor-pointer items-center gap-3 rounded-md border px-4 py-4 text-sm transition",
+                      "flex cursor-pointer items-center gap-3 rounded-md border px-4 py-4 text-sm transition sm:flex-col sm:items-start sm:gap-2",
                       checked
                         ? "border-red-500 bg-red-500/10 text-white"
                         : "border-zinc-800 bg-zinc-900/60 text-zinc-300 hover:border-zinc-600",
@@ -269,16 +322,23 @@ function StepFields({
       return (
         <form.Field name="realDebridApiKey">
           {(field) => (
-            <Input
-              id={field.name}
-              type="password"
-              autoComplete="off"
-              autoFocus
-              value={field.state.value}
-              onChange={(event) => field.handleChange(event.target.value)}
-              placeholder="Paste your Real Debrid API key"
-              className="border-zinc-700 bg-zinc-900 text-white placeholder:text-zinc-600"
-            />
+            <div className="space-y-3">
+              <Input
+                id={field.name}
+                type="password"
+                autoComplete="off"
+                autoFocus
+                value={field.state.value}
+                onChange={(event) => field.handleChange(event.target.value)}
+                placeholder="Paste your Real Debrid API key"
+                className="border-zinc-700 bg-zinc-900 text-white placeholder:text-zinc-600"
+              />
+              <Button type="button" variant="outline" className="border-zinc-700 bg-transparent" asChild>
+                <a href={REAL_DEBRID_API_KEY_URL} target="_blank" rel="noreferrer">
+                  Get API key from Real-Debrid
+                </a>
+              </Button>
+            </div>
           )}
         </form.Field>
       );
@@ -286,7 +346,7 @@ function StepFields({
       return (
         <form.Field name="externalPlayer">
           {(field) => (
-            <div className="grid gap-3">
+            <div className="grid gap-3 sm:grid-cols-3">
               {EXTERNAL_PLAYER_OPTIONS.map((option) => (
                 <ChoiceButton
                   key={option.value}
@@ -359,7 +419,7 @@ function ChoiceButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "w-full rounded-md border px-4 py-4 text-left text-sm transition",
+        "w-full rounded-md border px-4 py-4 text-left text-sm transition sm:text-center",
         selected
           ? "border-red-500 bg-red-500/10 text-white"
           : "border-zinc-800 bg-zinc-900/60 text-zinc-300 hover:border-zinc-600",

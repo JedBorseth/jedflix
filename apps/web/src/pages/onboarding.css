@@ -65,14 +65,89 @@
   }
 }
 
-@keyframes onboarding-step-in {
+@keyframes onboarding-welcome-in {
   from {
     opacity: 0;
-    transform: translateX(18px);
+    transform: translateY(24px) scale(0.96);
   }
   to {
     opacity: 1;
-    transform: translateX(0);
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes onboarding-welcome-out {
+  0% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+    filter: blur(0);
+  }
+  45% {
+    opacity: 1;
+    transform: scale(1.12) translateY(-8px);
+    filter: blur(0);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.55) translateY(-40px);
+    filter: blur(12px);
+  }
+}
+
+@keyframes onboarding-shell-burst {
+  0% {
+    background:
+      radial-gradient(ellipse 70% 50% at 50% -10%, rgba(220, 38, 38, 0.18), transparent 60%),
+      radial-gradient(ellipse 50% 40% at 100% 100%, rgba(39, 39, 42, 0.8), transparent 55%),
+      #09090b;
+  }
+  40% {
+    background:
+      radial-gradient(ellipse 90% 70% at 50% 40%, rgba(220, 38, 38, 0.55), transparent 55%),
+      radial-gradient(ellipse 60% 50% at 50% 100%, rgba(127, 29, 29, 0.45), transparent 60%),
+      #09090b;
+  }
+  100% {
+    background:
+      radial-gradient(ellipse 70% 50% at 50% -10%, rgba(220, 38, 38, 0.22), transparent 60%),
+      radial-gradient(ellipse 50% 40% at 100% 100%, rgba(39, 39, 42, 0.8), transparent 55%),
+      #09090b;
+  }
+}
+
+@keyframes onboarding-cta-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 28px 4px rgba(220, 38, 38, 0.35);
+  }
+}
+
+@keyframes onboarding-step-in {
+  from {
+    opacity: 0;
+    transform: translateY(28px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes onboarding-hero-exit {
+  0% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.25) rotate(-2deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(2.1) rotate(4deg);
+    opacity: 0;
   }
 }
 
@@ -90,10 +165,15 @@
     #09090b;
 }
 
+.onboarding-shell-exit {
+  animation: onboarding-shell-burst 900ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 .onboarding-main {
   display: flex;
   height: 100%;
   min-height: 0;
+  width: 100%;
   max-width: 36rem;
   margin-inline: auto;
   flex-direction: column;
@@ -101,9 +181,29 @@
   padding: 1.5rem 1rem 1rem;
 }
 
+.onboarding-main-welcome {
+  max-width: 42rem;
+}
+
 @media (min-width: 768px) {
   .onboarding-main {
+    max-width: 44rem;
     padding: 2.5rem 2rem 1.5rem;
+  }
+
+  .onboarding-main-welcome {
+    max-width: 48rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .onboarding-main {
+    max-width: 48rem;
+    padding: 3rem 2.5rem 2rem;
+  }
+
+  .onboarding-main-welcome {
+    max-width: 56rem;
   }
 }
 
@@ -138,12 +238,40 @@
   }
 }
 
+.onboarding-welcome-enter {
+  animation: onboarding-welcome-in 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.onboarding-welcome-exit {
+  animation: onboarding-welcome-out 900ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  pointer-events: none;
+}
+
+.onboarding-welcome-content-exit .onboarding-hero {
+  animation: onboarding-hero-exit 900ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.onboarding-welcome-content-exit .onboarding-brand {
+  animation: none;
+  transition:
+    transform 900ms cubic-bezier(0.22, 1, 0.36, 1),
+    letter-spacing 900ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 700ms ease;
+  transform: scale(1.35);
+  letter-spacing: 0.12em;
+  opacity: 0;
+}
+
 .onboarding-step-enter {
-  animation: onboarding-step-in 280ms ease-out;
+  animation: onboarding-step-in 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .onboarding-brand {
   animation: onboarding-brand-in 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.onboarding-cta {
+  animation: onboarding-cta-glow 2.4s ease-in-out infinite;
 }
 
 .onboarding-hero {
@@ -164,6 +292,15 @@
     linear-gradient(160deg, rgba(255, 255, 255, 0.08), transparent 40%),
     linear-gradient(180deg, #27272a, #18181b 70%, #0a0a0a);
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+}
+
+@media (min-width: 768px) {
+  .onboarding-poster {
+    width: 9rem;
+    height: 12.5rem;
+    margin-left: -4.5rem;
+    margin-top: -6.25rem;
+  }
 }
 
 .onboarding-poster-left {
@@ -243,7 +380,18 @@
   .onboarding-play,
   .onboarding-spark,
   .onboarding-brand,
-  .onboarding-step-enter {
+  .onboarding-step-enter,
+  .onboarding-welcome-enter,
+  .onboarding-welcome-exit,
+  .onboarding-shell-exit,
+  .onboarding-cta {
     animation: none !important;
+  }
+
+  .onboarding-welcome-content-exit .onboarding-hero,
+  .onboarding-welcome-content-exit .onboarding-brand {
+    animation: none !important;
+    transition: none !important;
+    opacity: 0;
   }
 }

@@ -50,6 +50,7 @@ func (s *Server) Router() http.Handler {
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(s.authMiddleware)
 		r.Post("/sources", s.handleSources)
+		r.Post("/resolve", s.handleResolve)
 		r.Get("/letterboxd/{username}/verify", s.handleLetterboxdVerify)
 		r.Get("/letterboxd/{username}/films/by/date", s.handleLetterboxdFilmsByDate)
 	})
@@ -83,6 +84,67 @@ func (s *Server) handleSources(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"sources": sources})
+}
+
+func (s *Server) handleResolve(w http.ResponseWriter, r *http.Request) {
+	var req resolver.ResolveRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
+	}
+	if req.Type == "" {
+		req.Type = "movie"
+	}
+	if req.PlaybackProfile == "" {
+		req.PlaybackProfile = resolver.PlaybackBrowser
+	}
+	if token := bearerToken(r); token != "" {
+		req.RealDebridToken = token
+	}
+
+	// Allow long Real Debrid waits without the reverse proxy or client closing early.
+	timeout := s.cfg.ResolveTimeout
+	if timeout <= 0 {
+		timeout = 10 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), timeout+30*time.Second)
+	defer cancel()
+
+	result, err := s.resolver.Resolve(ctx, req)
+	if err != nil {
+		writeResolveError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func writeResolveError(w http.ResponseWriter, err error) {
+	var resolveErr *resolver.ResolveError
+	if errors.As(err, &resolveErr) {
+		status := http.StatusBadRequest
+		switch resolveErr.Code {
+		case "missing_token":
+			status = http.StatusUnauthorized
+		case "timeout":
+			status = http.StatusGatewayTimeout
+		case "infringing_file":
+			status = http.StatusUnavailableForLegalReasons
+		}
+		writeJSON(w, status, map[string]string{"error": resolveErr.Message, "code": resolveErr.Code})
+		return
+	}
+	if errors.Is(err, context.Canceled) {
+		writeJSON(w, http.StatusRequestTimeout, map[string]string{"error": "resolve cancelled", "code": "cancelled"})
+		return
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		writeJSON(w, http.StatusGatewayTimeout, map[string]string{
+			"error": "Real Debrid torrent timed out.",
+			"code":  "timeout",
+		})
+		return
+	}
+	writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 }
 
 func (s *Server) handleLetterboxdVerify(w http.ResponseWriter, r *http.Request) {
