@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils";
 import "./onboarding.css";
 
 const REAL_DEBRID_API_KEY_URL = "https://real-debrid.com/apitoken";
-const WELCOME_EXIT_MS = 780;
+const WELCOME_EXIT_MS = 700;
 
 export function OnboardingPage() {
   const navigate = useNavigate();
@@ -230,12 +230,11 @@ function WelcomeStep({ exiting }: { exiting: boolean }) {
   return (
     <div
       className={cn(
-        "flex min-h-full flex-col items-center justify-center",
+        "flex min-h-full flex-col items-center justify-center py-4 text-center",
         exiting && "onboarding-welcome-content-exit",
       )}
-      aria-label="JedFlix"
     >
-      <div className="onboarding-hero relative h-52 w-full max-w-sm md:h-64 md:max-w-md" aria-hidden>
+      <div className="onboarding-hero relative mb-10 h-44 w-full max-w-sm md:mb-12 md:h-56 md:max-w-md" aria-hidden>
         <div className="onboarding-poster onboarding-poster-left" />
         <div className="onboarding-poster onboarding-poster-right" />
         <div className="onboarding-poster onboarding-poster-center">
@@ -244,6 +243,18 @@ function WelcomeStep({ exiting }: { exiting: boolean }) {
         <div className="onboarding-spark onboarding-spark-a" />
         <div className="onboarding-spark onboarding-spark-b" />
         <div className="onboarding-spark onboarding-spark-c" />
+      </div>
+      <div className="onboarding-welcome-copy">
+        <p className="onboarding-brand text-5xl font-black tracking-tight text-red-600 md:text-7xl">
+          JedFlix
+        </p>
+        <h1 className="mt-4 text-2xl font-bold tracking-tight md:text-4xl">
+          The Ultimate Streaming Platform
+        </h1>
+        <p className="mt-3 max-w-lg text-zinc-400 md:mt-4 md:max-w-xl md:text-lg">
+          Stream movies, shows, and audiobooks and download games from Real-Debrid with built-in
+          Letterboxd integration.
+        </p>
       </div>
     </div>
   );

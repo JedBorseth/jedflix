@@ -52,6 +52,19 @@
   }
 }
 
+@keyframes onboarding-brand-in {
+  from {
+    opacity: 0;
+    letter-spacing: 0.2em;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    letter-spacing: -0.02em;
+    transform: translateY(0);
+  }
+}
+
 @keyframes onboarding-welcome-in {
   from {
     opacity: 0;
@@ -67,31 +80,31 @@
   0% {
     opacity: 1;
     transform: scale(1);
-    filter: blur(0);
   }
   100% {
     opacity: 0;
-    transform: scale(1.18);
-    filter: blur(6px);
+    transform: scale(1.06);
+  }
+}
+
+@keyframes onboarding-copy-exit {
+  to {
+    opacity: 0;
+    transform: translateY(6px);
   }
 }
 
 @keyframes onboarding-shell-burst {
-  0% {
+  0%,
+  100% {
     background:
       radial-gradient(ellipse 70% 50% at 50% -10%, rgba(220, 38, 38, 0.18), transparent 60%),
       radial-gradient(ellipse 50% 40% at 100% 100%, rgba(39, 39, 42, 0.8), transparent 55%),
       #09090b;
   }
-  55% {
+  50% {
     background:
-      radial-gradient(ellipse 85% 65% at 50% 42%, rgba(220, 38, 38, 0.42), transparent 58%),
-      radial-gradient(ellipse 55% 45% at 50% 100%, rgba(127, 29, 29, 0.35), transparent 62%),
-      #09090b;
-  }
-  100% {
-    background:
-      radial-gradient(ellipse 70% 50% at 50% -10%, rgba(220, 38, 38, 0.2), transparent 60%),
+      radial-gradient(ellipse 80% 55% at 50% 40%, rgba(220, 38, 38, 0.28), transparent 60%),
       radial-gradient(ellipse 50% 40% at 100% 100%, rgba(39, 39, 42, 0.8), transparent 55%),
       #09090b;
   }
@@ -124,7 +137,7 @@
     opacity: 1;
   }
   100% {
-    transform: scale(1.35);
+    transform: scale(1.12);
     opacity: 0;
   }
 }
@@ -144,7 +157,7 @@
 }
 
 .onboarding-shell-exit {
-  animation: onboarding-shell-burst 780ms cubic-bezier(0.33, 1, 0.68, 1);
+  animation: onboarding-shell-burst 700ms ease-out;
 }
 
 .onboarding-main {
@@ -221,20 +234,28 @@
 }
 
 .onboarding-welcome-enter {
-  animation: onboarding-welcome-in 900ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: onboarding-welcome-in 800ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .onboarding-welcome-exit {
-  animation: onboarding-welcome-out 780ms cubic-bezier(0.33, 1, 0.68, 1) both;
+  animation: onboarding-welcome-out 700ms ease-out both;
   pointer-events: none;
 }
 
 .onboarding-welcome-content-exit .onboarding-hero {
-  animation: onboarding-hero-exit 780ms cubic-bezier(0.33, 1, 0.68, 1) both;
+  animation: onboarding-hero-exit 700ms ease-out both;
+}
+
+.onboarding-welcome-content-exit .onboarding-welcome-copy {
+  animation: onboarding-copy-exit 320ms ease-out both;
 }
 
 .onboarding-step-enter {
   animation: onboarding-step-in 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.onboarding-brand {
+  animation: onboarding-brand-in 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .onboarding-cta {
@@ -349,6 +370,7 @@
   .onboarding-poster,
   .onboarding-play,
   .onboarding-spark,
+  .onboarding-brand,
   .onboarding-step-enter,
   .onboarding-welcome-enter,
   .onboarding-welcome-exit,
@@ -357,7 +379,8 @@
     animation: none !important;
   }
 
-  .onboarding-welcome-content-exit .onboarding-hero {
+  .onboarding-welcome-content-exit .onboarding-hero,
+  .onboarding-welcome-content-exit .onboarding-welcome-copy {
     animation: none !important;
     opacity: 0;
   }
