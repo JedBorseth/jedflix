@@ -1,30 +1,30 @@
 @keyframes onboarding-float-left {
   0%,
   100% {
-    transform: translate(-42%, -8%) rotate(-12deg);
+    transform: translate3d(-40%, -6%, 0) rotate(-10deg);
   }
   50% {
-    transform: translate(-46%, -14%) rotate(-8deg);
+    transform: translate3d(-44%, -12%, 0) rotate(-7deg);
   }
 }
 
 @keyframes onboarding-float-right {
   0%,
   100% {
-    transform: translate(42%, -4%) rotate(10deg);
+    transform: translate3d(40%, -2%, 0) rotate(9deg);
   }
   50% {
-    transform: translate(46%, -12%) rotate(14deg);
+    transform: translate3d(44%, -10%, 0) rotate(12deg);
   }
 }
 
 @keyframes onboarding-float-center {
   0%,
   100% {
-    transform: translateY(0) scale(1);
+    transform: translate3d(0, 0, 0) scale(1);
   }
   50% {
-    transform: translateY(-10px) scale(1.03);
+    transform: translate3d(0, -8px, 0) scale(1.02);
   }
 }
 
@@ -32,65 +32,47 @@
   0%,
   100% {
     transform: scale(1);
-    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.45);
+    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.4);
   }
   50% {
-    transform: scale(1.08);
-    box-shadow: 0 0 0 14px rgba(220, 38, 38, 0);
+    transform: scale(1.06);
+    box-shadow: 0 0 0 12px rgba(220, 38, 38, 0);
   }
 }
 
 @keyframes onboarding-spark {
   0%,
   100% {
-    opacity: 0.25;
-    transform: scale(0.8);
+    opacity: 0.2;
+    transform: scale(0.85);
   }
   50% {
-    opacity: 1;
-    transform: scale(1.15);
-  }
-}
-
-@keyframes onboarding-brand-in {
-  from {
-    opacity: 0;
-    letter-spacing: 0.35em;
-    transform: translateY(12px);
-  }
-  to {
-    opacity: 1;
-    letter-spacing: -0.02em;
-    transform: translateY(0);
+    opacity: 0.9;
+    transform: scale(1.1);
   }
 }
 
 @keyframes onboarding-welcome-in {
   from {
     opacity: 0;
-    transform: translateY(24px) scale(0.96);
+    transform: translate3d(0, 16px, 0) scale(0.98);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translate3d(0, 0, 0) scale(1);
   }
 }
 
 @keyframes onboarding-welcome-out {
   0% {
     opacity: 1;
-    transform: scale(1) translateY(0);
-    filter: blur(0);
-  }
-  45% {
-    opacity: 1;
-    transform: scale(1.12) translateY(-8px);
+    transform: scale(1);
     filter: blur(0);
   }
   100% {
     opacity: 0;
-    transform: scale(1.55) translateY(-40px);
-    filter: blur(12px);
+    transform: scale(1.18);
+    filter: blur(6px);
   }
 }
 
@@ -101,15 +83,15 @@
       radial-gradient(ellipse 50% 40% at 100% 100%, rgba(39, 39, 42, 0.8), transparent 55%),
       #09090b;
   }
-  40% {
+  55% {
     background:
-      radial-gradient(ellipse 90% 70% at 50% 40%, rgba(220, 38, 38, 0.55), transparent 55%),
-      radial-gradient(ellipse 60% 50% at 50% 100%, rgba(127, 29, 29, 0.45), transparent 60%),
+      radial-gradient(ellipse 85% 65% at 50% 42%, rgba(220, 38, 38, 0.42), transparent 58%),
+      radial-gradient(ellipse 55% 45% at 50% 100%, rgba(127, 29, 29, 0.35), transparent 62%),
       #09090b;
   }
   100% {
     background:
-      radial-gradient(ellipse 70% 50% at 50% -10%, rgba(220, 38, 38, 0.22), transparent 60%),
+      radial-gradient(ellipse 70% 50% at 50% -10%, rgba(220, 38, 38, 0.2), transparent 60%),
       radial-gradient(ellipse 50% 40% at 100% 100%, rgba(39, 39, 42, 0.8), transparent 55%),
       #09090b;
   }
@@ -118,35 +100,31 @@
 @keyframes onboarding-cta-glow {
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.35);
+    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.28);
   }
   50% {
-    box-shadow: 0 0 28px 4px rgba(220, 38, 38, 0.35);
+    box-shadow: 0 0 24px 2px rgba(220, 38, 38, 0.3);
   }
 }
 
 @keyframes onboarding-step-in {
   from {
     opacity: 0;
-    transform: translateY(28px) scale(0.97);
+    transform: translate3d(0, 18px, 0);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translate3d(0, 0, 0);
   }
 }
 
 @keyframes onboarding-hero-exit {
   0% {
-    transform: scale(1) rotate(0deg);
-    opacity: 1;
-  }
-  50% {
-    transform: scale(1.25) rotate(-2deg);
+    transform: scale(1);
     opacity: 1;
   }
   100% {
-    transform: scale(2.1) rotate(4deg);
+    transform: scale(1.35);
     opacity: 0;
   }
 }
@@ -166,7 +144,7 @@
 }
 
 .onboarding-shell-exit {
-  animation: onboarding-shell-burst 900ms cubic-bezier(0.22, 1, 0.36, 1);
+  animation: onboarding-shell-burst 780ms cubic-bezier(0.33, 1, 0.68, 1);
 }
 
 .onboarding-main {
@@ -231,6 +209,10 @@
   padding-top: 1rem;
 }
 
+.onboarding-footer.border-0 {
+  border-top: 0;
+}
+
 @supports not (height: 100dvh) {
   .onboarding-shell {
     height: 100vh;
@@ -239,43 +221,29 @@
 }
 
 .onboarding-welcome-enter {
-  animation: onboarding-welcome-in 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: onboarding-welcome-in 900ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .onboarding-welcome-exit {
-  animation: onboarding-welcome-out 900ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: onboarding-welcome-out 780ms cubic-bezier(0.33, 1, 0.68, 1) both;
   pointer-events: none;
 }
 
 .onboarding-welcome-content-exit .onboarding-hero {
-  animation: onboarding-hero-exit 900ms cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-.onboarding-welcome-content-exit .onboarding-brand {
-  animation: none;
-  transition:
-    transform 900ms cubic-bezier(0.22, 1, 0.36, 1),
-    letter-spacing 900ms cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 700ms ease;
-  transform: scale(1.35);
-  letter-spacing: 0.12em;
-  opacity: 0;
+  animation: onboarding-hero-exit 780ms cubic-bezier(0.33, 1, 0.68, 1) both;
 }
 
 .onboarding-step-enter {
-  animation: onboarding-step-in 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-.onboarding-brand {
-  animation: onboarding-brand-in 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: onboarding-step-in 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .onboarding-cta {
-  animation: onboarding-cta-glow 2.4s ease-in-out infinite;
+  animation: onboarding-cta-glow 2.8s ease-in-out infinite;
 }
 
 .onboarding-hero {
-  perspective: 800px;
+  perspective: 900px;
+  transform-style: preserve-3d;
 }
 
 .onboarding-poster {
@@ -292,6 +260,8 @@
     linear-gradient(160deg, rgba(255, 255, 255, 0.08), transparent 40%),
     linear-gradient(180deg, #27272a, #18181b 70%, #0a0a0a);
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+  will-change: transform;
+  backface-visibility: hidden;
 }
 
 @media (min-width: 768px) {
@@ -304,14 +274,14 @@
 }
 
 .onboarding-poster-left {
-  animation: onboarding-float-left 4.8s ease-in-out infinite;
+  animation: onboarding-float-left 6.5s ease-in-out infinite;
   background:
     linear-gradient(160deg, rgba(248, 113, 113, 0.25), transparent 45%),
     linear-gradient(180deg, #3f3f46, #18181b);
 }
 
 .onboarding-poster-right {
-  animation: onboarding-float-right 5.2s ease-in-out infinite;
+  animation: onboarding-float-right 7s ease-in-out infinite;
   background:
     linear-gradient(200deg, rgba(251, 146, 60, 0.22), transparent 45%),
     linear-gradient(180deg, #3f3f46, #18181b);
@@ -321,7 +291,7 @@
   z-index: 2;
   display: grid;
   place-items: center;
-  animation: onboarding-float-center 3.6s ease-in-out infinite;
+  animation: onboarding-float-center 5.2s ease-in-out infinite;
   background:
     linear-gradient(165deg, rgba(220, 38, 38, 0.35), transparent 50%),
     linear-gradient(180deg, #450a0a, #18181b 65%, #09090b);
@@ -334,7 +304,7 @@
   border-radius: 9999px;
   background: #dc2626;
   position: relative;
-  animation: onboarding-play-pulse 2.2s ease-out infinite;
+  animation: onboarding-play-pulse 2.8s ease-in-out infinite;
 }
 
 .onboarding-play::after {
@@ -354,7 +324,7 @@
   height: 0.4rem;
   border-radius: 9999px;
   background: #fca5a5;
-  animation: onboarding-spark 2.4s ease-in-out infinite;
+  animation: onboarding-spark 3.2s ease-in-out infinite;
 }
 
 .onboarding-spark-a {
@@ -379,7 +349,6 @@
   .onboarding-poster,
   .onboarding-play,
   .onboarding-spark,
-  .onboarding-brand,
   .onboarding-step-enter,
   .onboarding-welcome-enter,
   .onboarding-welcome-exit,
@@ -388,10 +357,8 @@
     animation: none !important;
   }
 
-  .onboarding-welcome-content-exit .onboarding-hero,
-  .onboarding-welcome-content-exit .onboarding-brand {
+  .onboarding-welcome-content-exit .onboarding-hero {
     animation: none !important;
-    transition: none !important;
     opacity: 0;
   }
 }

@@ -3,11 +3,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation } from "convex/react";
 import { api } from "@convex/_generated/api";
-import { useScreenOrientationLock } from "@/hooks/useScreenOrientationLock";
 import { fetchSources, type StreamSource } from "@/lib/streamApi";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { IOS_PLAYBACK_ERROR_HINT, isIosDevice, prepareBrowserSources } from "@/lib/iosPlayback";
 import type { MediaType } from "@/lib/types";
+import { ExternalPlayerMenu } from "../shared/ExternalPlayerMenu";
 import { PlayerErrorOverlay } from "../shared/PlayerErrorOverlay";
 import { isFallbackError } from "../shared/playbackErrors";
 import { StreamSourcePicker } from "../stremio/StreamSourcePicker";
@@ -50,7 +50,6 @@ export function NativeVideoPlayer({
   const [fallbackProgress, setFallbackProgress] = useState<string | null>(null);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [clipboardCopied, setClipboardCopied] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
   const [iosCodecWarning, setIosCodecWarning] = useState<string | null>(null);
 
   const upsertProgress = useMutation(api.watchHistory.upsertProgress);
@@ -113,7 +112,7 @@ export function NativeVideoPlayer({
       selectedSource
         ? {
             ...baseRequest,
-                      magnet: selectedSource.magnet,
+            magnet: selectedSource.magnet,
             infoHash: selectedSource.infoHash,
             realDebridToken: realDebridApiKey.trim() || undefined,
           }
@@ -159,8 +158,6 @@ export function NativeVideoPlayer({
     };
   }, []);
 
-  useScreenOrientationLock(isPlaying);
-
   const handleSelectSource = useCallback(
     (source: StreamSource) => {
       if (sourcesLoading || resolving) {
@@ -203,7 +200,6 @@ export function NativeVideoPlayer({
   }, [resolveState.errorCode, resolveState.status, selectedSource, sources]);
 
   const handlePlaybackError = useCallback(() => {
-    setIsPlaying(false);
     if (!selectedSource) {
       setPlaybackError(
         isIosDevice()
@@ -235,20 +231,12 @@ export function NativeVideoPlayer({
 
   return (
     <div className="player-container">
-      <div className="player-video-container relative">
-        {iosCodecWarning ? (
-          <div className="absolute left-0 right-0 top-0 z-20 bg-amber-500/90 px-4 py-2 text-center text-sm text-black">
-            {iosCodecWarning}
-          </div>
-        ) : null}
+      <div className="player-video-container">
         <video
           ref={videoRef}
-          className="h-full w-full bg-black object-contain"
           controls
           playsInline
-          onPlay={() => setIsPlaying(true)}
-          onPause={() => setIsPlaying(false)}
-          onEnded={() => setIsPlaying(false)}
+          preload="metadata"
           onLoadedMetadata={() => {
             const video = videoRef.current;
             if (!video || initialProgressAppliedRef.current || initialProgressSeconds <= 0) {
@@ -267,6 +255,12 @@ export function NativeVideoPlayer({
           onError={handlePlaybackError}
         />
       </div>
+
+      {iosCodecWarning ? (
+        <div className="absolute left-0 right-0 top-0 z-20 bg-amber-500/90 px-4 py-2 text-center text-sm text-black">
+          {iosCodecWarning}
+        </div>
+      ) : null}
 
       {showSourcePicker ? (
         <StreamSourcePicker
@@ -333,8 +327,8 @@ export function NativeVideoPlayer({
             <Link to={backPath} className="player-icon-button" aria-label="Back">
               ←
             </Link>
-            <div>
-              <div className="player-title">{title}</div>
+            <div className="min-w-0">
+              <div className="player-title truncate">{title}</div>
               {mediaType === "tv" && season && episode ? (
                 <div className="text-xs text-zinc-400">
                   Season {season} · Episode {episode}
@@ -343,20 +337,13 @@ export function NativeVideoPlayer({
             </div>
           </div>
           <div className="player-top-bar-right">
-            {!showSourcePicker ? (
-              <button
-                type="button"
-                className="player-mode-badge"
-                onClick={() => setShowSourcePicker(true)}
-              >
-                Change stream
-              </button>
-            ) : null}
-            <span className="player-mode-badge">direct</span>
+            <ExternalPlayerMenu
+              playbackUrl={absolutePlaybackUrl}
+              disabled={failed || buffering || showSourcePicker}
+            />
           </div>
         </div>
       </div>
     </div>
   );
 }
-

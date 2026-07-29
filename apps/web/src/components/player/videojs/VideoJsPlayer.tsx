@@ -8,6 +8,7 @@ import { fetchSources, type StreamSource } from "@/lib/streamApi";
 import { prepareBrowserSources } from "@/lib/iosPlayback";
 import type { MediaType } from "@/lib/types";
 import { PlayerErrorOverlay } from "../shared/PlayerErrorOverlay";
+import { ExternalPlayerMenu } from "../shared/ExternalPlayerMenu";
 import { isFallbackError } from "../shared/playbackErrors";
 import { ControlBar } from "../stremio/ControlBar";
 import { toDisplaySeconds } from "../stremio/time";
@@ -387,16 +388,10 @@ export function VideoJsPlayer({
             </div>
           </div>
           <div className="player-top-bar-right">
-            {!showSourcePicker ? (
-              <button
-                type="button"
-                className="player-mode-badge"
-                onClick={() => setShowSourcePicker(true)}
-              >
-                Change stream
-              </button>
-            ) : null}
-            <span className="player-mode-badge">direct</span>
+            <ExternalPlayerMenu
+              playbackUrl={resolveState.playbackUrl ?? null}
+              disabled={failed || buffering || showSourcePicker}
+            />
           </div>
         </div>
 
