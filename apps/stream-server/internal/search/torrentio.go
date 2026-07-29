@@ -36,6 +36,7 @@ type torrentioStream struct {
 	Title       string `json:"title"`
 	URL         string `json:"url"`
 	InfoHash    string `json:"infoHash"`
+	FileIdx     *int   `json:"fileIdx"`
 	Description string `json:"description"`
 }
 
@@ -117,6 +118,7 @@ func normalizeTorrentioStream(stream torrentioStream) Release {
 		Title:        label,
 		Magnet:       magnet,
 		InfoHash:     infoHash,
+		FileIdx:      stream.FileIdx,
 		SizeBytes:    sizeBytes,
 		SizeKnown:    sizeKnown,
 		Seeders:      seeders,

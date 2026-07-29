@@ -24,6 +24,7 @@ import { fetchTorrentioSources, type MobileStreamSource } from "@/lib/torrentio"
 import { tmdb } from "@/lib/tmdb";
 
 const LOCAL_RD_KEY = "jedflix.mobile.realDebridApiKey";
+const MAX_AUTO_FALLBACKS = 2;
 
 type PlaybackState = {
   url: string;
@@ -56,12 +57,14 @@ export default function WatchScreen() {
   );
 
   const [imdbId, setImdbId] = useState<string | null>(null);
+  const [mediaTitle, setMediaTitle] = useState<string>("");
   const [sources, setSources] = useState<MobileStreamSource[]>([]);
   const [loadingSources, setLoadingSources] = useState(true);
   const [resolving, setResolving] = useState(false);
   const [resolveProgress, setResolveProgress] = useState<string | null>(null);
   const [playback, setPlayback] = useState<PlaybackState | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [skipCompatFilters, setSkipCompatFilters] = useState(false);
   const [rdToken, setRdToken] = useState<string | undefined>();
 
   useEffect(() => {
@@ -77,6 +80,7 @@ export default function WatchScreen() {
       setLoadingSources(true);
       setError(null);
       setImdbId(null);
+      setMediaTitle("");
 
       if (mediaType === "tv") {
         setError("TV playback requires season and episode selection (coming soon).");
@@ -102,12 +106,17 @@ export default function WatchScreen() {
         if (cancelled) return;
 
         setImdbId(externalIds.imdbId);
-        const found = await fetchTorrentioSources({
-          type: mediaType,
-          imdbId: externalIds.imdbId,
-        });
+        setMediaTitle(media.title);
+        const found = await fetchTorrentioSources(
+          {
+            type: mediaType,
+            imdbId: externalIds.imdbId,
+          },
+          { skipCompatFilter: skipCompatFilters },
+        );
         if (cancelled) return;
 
+        // InstantAvailability is disabled on Real Debrid — keep call as no-op for API shape.
         const hashes = found.map((source) => source.infoHash).filter((hash): hash is string => !!hash);
         const cached = await checkInstantAvailability(rdToken, hashes);
         const withCache = found.map((source) => ({
@@ -129,7 +138,7 @@ export default function WatchScreen() {
     return () => {
       cancelled = true;
     };
-  }, [mediaType, mediaId, rdToken]);
+  }, [mediaType, mediaId, rdToken, skipCompatFilters]);
 
   const resolveAndPlay = useCallback(
     async (startIndex: number) => {
@@ -146,8 +155,9 @@ export default function WatchScreen() {
 
       const candidates = sources.slice(startIndex);
       let lastError: unknown = null;
+      const maxAttempts = Math.min(candidates.length, MAX_AUTO_FALLBACKS + 1);
 
-      for (let attempt = 0; attempt < candidates.length; attempt++) {
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
         const candidate = candidates[attempt];
         if (!candidate) continue;
         const sourceIndex = startIndex + attempt;
@@ -159,7 +169,12 @@ export default function WatchScreen() {
         try {
           const stream = await resolveRealDebridStream(
             candidate,
-            { type: mediaType, imdbId, realDebridToken: rdToken },
+            {
+              type: mediaType,
+              imdbId,
+              mediaTitle,
+              realDebridToken: rdToken,
+            },
             rdToken,
             {
               fileIdx: candidate.fileIdx,
@@ -176,7 +191,7 @@ export default function WatchScreen() {
           return;
         } catch (playError) {
           lastError = playError;
-          if (!isRecoverableStreamError(playError) || attempt === candidates.length - 1) {
+          if (!isRecoverableStreamError(playError) || attempt === maxAttempts - 1) {
             break;
           }
         }
@@ -186,7 +201,7 @@ export default function WatchScreen() {
       setResolving(false);
       setResolveProgress(null);
     },
-    [imdbId, mediaType, rdToken, sources],
+    [imdbId, mediaTitle, mediaType, rdToken, sources],
   );
 
   const handlePlaybackError = useCallback(
@@ -209,6 +224,11 @@ export default function WatchScreen() {
     [playback, resolveAndPlay, sources.length],
   );
 
+  const showRelaxCompat =
+    !skipCompatFilters &&
+    !loadingSources &&
+    (sources.length === 0 || /browser-compatible|mkv\/remux|compatib/i.test(error ?? ""));
+
   const header = useMemo(
     () => (
       <View style={styles.header}>
@@ -216,16 +236,25 @@ export default function WatchScreen() {
           <Text style={styles.backButtonText}>← Back</Text>
         </Pressable>
         <Text style={styles.headerTitle}>Choose a stream</Text>
-        <Text style={styles.headerMeta}>Direct Real Debrid · Native player</Text>
+        <Text style={styles.headerMeta}>
+          {skipCompatFilters
+            ? "Compatibility filters off · Direct Real Debrid"
+            : "Direct Real Debrid · Native player"}
+        </Text>
         {isIosDevice() ? <Text style={styles.hint}>{IOS_PLAYBACK_HINT}</Text> : null}
         {loadingSources ? <ActivityIndicator color="#e50914" /> : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
+        {showRelaxCompat ? (
+          <Pressable style={styles.relaxButton} onPress={() => setSkipCompatFilters(true)}>
+            <Text style={styles.relaxButtonText}>Remove compatibility filters</Text>
+          </Pressable>
+        ) : null}
         {resolving ? (
           <Text style={styles.resolving}>{resolveProgress ?? "Resolving stream..."}</Text>
         ) : null}
       </View>
     ),
-    [loadingSources, error, resolving, resolveProgress],
+    [loadingSources, error, resolving, resolveProgress, showRelaxCompat, skipCompatFilters],
   );
 
   if (playback) {
@@ -279,6 +308,15 @@ const styles = StyleSheet.create({
   headerMeta: { color: "#a1a1aa" },
   hint: { color: "#a1a1aa", fontSize: 12, lineHeight: 18 },
   error: { color: "#fca5a5" },
+  relaxButton: {
+    alignSelf: "flex-start",
+    borderColor: "#52525b",
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  relaxButtonText: { color: "#fff", fontSize: 13, fontWeight: "600" },
   resolving: { color: "#fde047" },
   sourceRow: {
     backgroundColor: "#18181b",

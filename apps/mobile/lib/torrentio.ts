@@ -49,9 +49,14 @@ function parseSeeders(text: string): number | undefined {
   return Number(match[1] ?? match[2]);
 }
 
-function normalizeStream(stream: TorrentioStream, index: number): MobileStreamSource | null {
+function normalizeStream(
+  stream: TorrentioStream,
+  index: number,
+  options: { skipCompatFilter?: boolean } = {},
+): MobileStreamSource | null {
   const label = stream.title?.trim() || stream.name?.trim() || "Unknown release";
-  if (isRDBlockedFilename(label) || isDirectPlaybackIncompatible(label)) return null;
+  if (isRDBlockedFilename(label)) return null;
+  if (!options.skipCompatFilter && isDirectPlaybackIncompatible(label)) return null;
 
   const description = stream.description?.trim() ?? "";
   const combined = `${label} ${description}`;
@@ -64,9 +69,9 @@ function normalizeStream(stream: TorrentioStream, index: number): MobileStreamSo
     magnet = buildMagnetLink(infoHash);
   }
 
-  const fileIdx = typeof stream.fileIdx === "number" ? stream.fileIdx : 0;
+  const fileIdx = typeof stream.fileIdx === "number" ? stream.fileIdx : undefined;
   const candidate: MobileStreamSource = {
-    id: `${infoHash}:${fileIdx}`,
+    id: `${infoHash}:${fileIdx ?? "all"}:${index}`,
     title: label,
     magnet,
     infoHash,
@@ -98,7 +103,10 @@ function dedupeSources(sources: MobileStreamSource[]): MobileStreamSource[] {
   return assignUniqueIds(Array.from(bestByKey.values()));
 }
 
-export async function fetchTorrentioSources(request: TorrentioRequest): Promise<MobileStreamSource[]> {
+export async function fetchTorrentioSources(
+  request: TorrentioRequest,
+  options: { skipCompatFilter?: boolean } = {},
+): Promise<MobileStreamSource[]> {
   const imdbId = normalizeImdbId(request.imdbId);
   const endpoint =
     request.type === "tv"
@@ -120,12 +128,16 @@ export async function fetchTorrentioSources(request: TorrentioRequest): Promise<
   const payload = (await response.json()) as TorrentioResponse;
   const sources = dedupeSources(
     (payload.streams ?? [])
-      .map((stream, index) => normalizeStream(stream, index))
+      .map((stream, index) => normalizeStream(stream, index, options))
       .filter((source): source is MobileStreamSource => source !== null),
   );
 
   if (sources.length === 0) {
-    throw new Error("No streams found for this title");
+    throw new Error(
+      options.skipCompatFilter
+        ? "No streams found for this title"
+        : "No browser-compatible streams found (MKV/Remux/Atmos/DTS filtered)",
+    );
   }
 
   return sources.sort((a, b) => (b.seeders ?? 0) - (a.seeders ?? 0));

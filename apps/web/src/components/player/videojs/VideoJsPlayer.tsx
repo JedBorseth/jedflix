@@ -9,7 +9,7 @@ import { prepareBrowserSources } from "@/lib/iosPlayback";
 import type { MediaType } from "@/lib/types";
 import { PlayerErrorOverlay } from "../shared/PlayerErrorOverlay";
 import { ExternalPlayerMenu } from "../shared/ExternalPlayerMenu";
-import { isFallbackError } from "../shared/playbackErrors";
+import { isFallbackError, MAX_AUTO_FALLBACKS } from "../shared/playbackErrors";
 import { ControlBar } from "../stremio/ControlBar";
 import { toDisplaySeconds } from "../stremio/time";
 import { StreamSourcePicker } from "../stremio/StreamSourcePicker";
@@ -48,11 +48,13 @@ export function VideoJsPlayer({
   const [sources, setSources] = useState<StreamSource[]>([]);
   const [sourcesLoading, setSourcesLoading] = useState(true);
   const [sourcesError, setSourcesError] = useState<string | null>(null);
+  const [skipCompatFilters, setSkipCompatFilters] = useState(false);
   const [selectedSource, setSelectedSource] = useState<StreamSource | null>(null);
   const [showSourcePicker, setShowSourcePicker] = useState(true);
   const [fallbackProgress, setFallbackProgress] = useState<string | null>(null);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const loadedUrlRef = useRef<string | null>(null);
+  const fallbackAttemptsRef = useRef(0);
   const upsertProgress = useMutation(api.watchHistory.upsertProgress);
   const saveProgressRef = useRef<DebouncedSaveProgress | null>(null);
   if (saveProgressRef.current === null) {
@@ -75,8 +77,9 @@ export function VideoJsPlayer({
       imdbId,
       season,
       episode,
+      mediaTitle: title,
     }),
-    [episode, imdbId, mediaType, season],
+    [episode, imdbId, mediaType, season, title],
   );
 
   const loadSources = useCallback(async () => {
@@ -85,21 +88,25 @@ export function VideoJsPlayer({
     setSelectedSource(null);
     setFallbackProgress(null);
     setPlaybackError(null);
+    fallbackAttemptsRef.current = 0;
     loadedUrlRef.current = null;
     setShowSourcePicker(true);
     try {
       const found = await fetchSources(
-        { ...baseRequest, playbackProfile: "browser" },
+        {
+          ...baseRequest,
+          playbackProfile: skipCompatFilters ? "external" : "browser",
+        },
         realDebridApiKey.trim() || undefined,
       );
-      setSources(prepareBrowserSources(found));
+      setSources(prepareBrowserSources(found, { skipCompatFilter: skipCompatFilters }));
     } catch (error) {
       setSources([]);
       setSourcesError(error instanceof Error ? error.message : "Failed to load streams");
     } finally {
       setSourcesLoading(false);
     }
-  }, [baseRequest, realDebridApiKey]);
+  }, [baseRequest, realDebridApiKey, skipCompatFilters]);
 
   useEffect(() => {
     void loadSources();
@@ -110,8 +117,9 @@ export function VideoJsPlayer({
       selectedSource
         ? {
             ...baseRequest,
-                      magnet: selectedSource.magnet,
+            magnet: selectedSource.magnet,
             infoHash: selectedSource.infoHash,
+            fileIdx: selectedSource.fileIdx,
             realDebridToken: realDebridApiKey.trim() || undefined,
           }
         : null,
@@ -152,9 +160,17 @@ export function VideoJsPlayer({
         return;
       }
 
+      if (fallbackAttemptsRef.current >= MAX_AUTO_FALLBACKS) {
+        setPlaybackError(
+          `${message} Stopped after ${MAX_AUTO_FALLBACKS + 1} attempts to avoid Real Debrid rate limits.`,
+        );
+        return;
+      }
+
       const currentIndex = sources.findIndex((source) => source.id === selectedSource.id);
       const nextSource = sources[currentIndex + 1];
       if (nextSource) {
+        fallbackAttemptsRef.current += 1;
         setFallbackProgress(`Trying stream ${currentIndex + 2} of ${sources.length}`);
         loadedUrlRef.current = null;
         setPlaybackError(null);
@@ -182,7 +198,20 @@ export function VideoJsPlayer({
   }, [events, setPaused, tryNextSource]);
 
   useEffect(() => {
-    if (resolveState.status !== "failed" || !selectedSource || !isFallbackError(resolveState.errorCode)) {
+    if (resolveState.status !== "failed" || !selectedSource) {
+      return;
+    }
+    if (resolveState.errorCode === "rate_limited") {
+      setPlaybackError(resolveState.error ?? "Real Debrid rate limit reached.");
+      return;
+    }
+    if (!isFallbackError(resolveState.errorCode)) {
+      return;
+    }
+    if (fallbackAttemptsRef.current >= MAX_AUTO_FALLBACKS) {
+      setPlaybackError(
+        `${resolveState.error ?? "Stream resolve failed."} Stopped after ${MAX_AUTO_FALLBACKS + 1} attempts to avoid Real Debrid rate limits.`,
+      );
       return;
     }
 
@@ -195,10 +224,11 @@ export function VideoJsPlayer({
       return;
     }
 
+    fallbackAttemptsRef.current += 1;
     setFallbackProgress(`Trying stream ${currentIndex + 2} of ${sources.length}`);
     loadedUrlRef.current = null;
     setSelectedSource(nextSource);
-  }, [resolveState.errorCode, resolveState.status, selectedSource, sources]);
+  }, [resolveState.error, resolveState.errorCode, resolveState.status, selectedSource, sources]);
 
   useEffect(() => {
     const time = state.time;
@@ -260,6 +290,7 @@ export function VideoJsPlayer({
       if (selectedSource?.id === source.id) {
         return;
       }
+      fallbackAttemptsRef.current = 0;
       setFallbackProgress(null);
       setPlaybackError(null);
       setSelectedSource(source);
@@ -273,6 +304,7 @@ export function VideoJsPlayer({
     setSelectedSource(null);
     setFallbackProgress(null);
     setPlaybackError(null);
+    fallbackAttemptsRef.current = 0;
     loadedUrlRef.current = null;
     setShowSourcePicker(true);
   }, []);
@@ -344,9 +376,13 @@ export function VideoJsPlayer({
           error={sourcesError ?? undefined}
           disabled={sourcesLoading || resolving}
           selectedId={selectedSource?.id}
+          compatFiltersRelaxed={skipCompatFilters}
           onSelect={handleSelectSource}
           onRetry={() => {
             void loadSources();
+          }}
+          onRelaxCompatFilters={() => {
+            setSkipCompatFilters(true);
           }}
         />
       ) : null}
@@ -411,3 +447,4 @@ export function VideoJsPlayer({
     </div>
   );
 }
+

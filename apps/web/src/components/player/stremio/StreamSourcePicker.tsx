@@ -2,6 +2,7 @@
 // Adapted for JedFlix
 
 import type { StreamSource } from "@/lib/streamApi";
+import { isCompatFilterError } from "../shared/playbackErrors";
 
 type StreamSourcePickerProps = {
   sources: StreamSource[];
@@ -9,8 +10,10 @@ type StreamSourcePickerProps = {
   error?: string;
   disabled?: boolean;
   selectedId?: string;
+  compatFiltersRelaxed?: boolean;
   onSelect: (source: StreamSource) => void;
   onRetry: () => void;
+  onRelaxCompatFilters?: () => void;
 };
 
 function formatSize(sizeGb?: number): string {
@@ -26,17 +29,26 @@ export function StreamSourcePicker({
   error,
   disabled = false,
   selectedId,
+  compatFiltersRelaxed = false,
   onSelect,
   onRetry,
+  onRelaxCompatFilters,
 }: StreamSourcePickerProps) {
+  const showRelaxOption =
+    Boolean(onRelaxCompatFilters) &&
+    !compatFiltersRelaxed &&
+    !loading &&
+    (sources.length === 0 || isCompatFilterError(error));
+
   return (
     <div className="player-source-picker">
       <div className="player-source-picker-panel">
         <div className="player-source-picker-header">
           <h2 className="text-lg font-semibold text-white">Choose a stream</h2>
           <p className="text-sm text-zinc-400">
-            Direct streams only. MKV, Remux, Atmos, TrueHD, and DTS releases are filtered because
-            browsers and iOS often cannot play them. Prefer MP4 / H.264 / AAC when available.
+            {compatFiltersRelaxed
+              ? "Compatibility filters are off. MKV, Remux, Atmos, TrueHD, and DTS releases may not play in the browser — prefer an external player for those."
+              : "Direct streams only. MKV, Remux, Atmos, TrueHD, and DTS releases are filtered because browsers and iOS often cannot play them. Prefer MP4 / H.264 / AAC when available."}
           </p>
         </div>
 
@@ -50,13 +62,43 @@ export function StreamSourcePicker({
         {error ? (
           <div className="player-source-picker-error">
             <p>{error}</p>
-            <button type="button" className="rounded-md bg-white px-4 py-2 text-black" onClick={onRetry}>
-              Retry search
-            </button>
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <button type="button" className="rounded-md bg-white px-4 py-2 text-black" onClick={onRetry}>
+                Retry search
+              </button>
+              {showRelaxOption ? (
+                <button
+                  type="button"
+                  className="rounded-md border border-zinc-500 px-4 py-2 text-white"
+                  onClick={onRelaxCompatFilters}
+                >
+                  Show all streams
+                </button>
+              ) : null}
+            </div>
           </div>
         ) : null}
 
-        {!loading && !error ? (
+        {!loading && !error && sources.length === 0 ? (
+          <div className="player-source-picker-error">
+            <p>No streams matched the current filters.</p>
+            {showRelaxOption ? (
+              <button
+                type="button"
+                className="rounded-md border border-zinc-500 px-4 py-2 text-white"
+                onClick={onRelaxCompatFilters}
+              >
+                Remove compatibility filters
+              </button>
+            ) : (
+              <button type="button" className="rounded-md bg-white px-4 py-2 text-black" onClick={onRetry}>
+                Retry search
+              </button>
+            )}
+          </div>
+        ) : null}
+
+        {!loading && !error && sources.length > 0 ? (
           <ul className="player-source-list">
             {sources.map((source) => (
               <li key={source.id}>

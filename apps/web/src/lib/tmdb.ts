@@ -25,6 +25,7 @@ export {
   getMediaDetailPath,
   getPersonPath,
   getWatchPath,
+  HOME_ROW_LIMIT,
   mediaRows,
 } from "@jedflix/tmdb";
 

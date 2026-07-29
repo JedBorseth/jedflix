@@ -12,7 +12,7 @@ import { sortDirectPlaybackSources } from "@/lib/iosPlayback";
 import type { ExternalPlayer } from "@/lib/userSettings";
 import type { MediaType } from "@/lib/types";
 import { PlayerErrorOverlay } from "../shared/PlayerErrorOverlay";
-import { isFallbackError } from "../shared/playbackErrors";
+import { isFallbackError, MAX_AUTO_FALLBACKS } from "../shared/playbackErrors";
 import { StreamSourcePicker } from "../stremio/StreamSourcePicker";
 import { useStreamResolve } from "../stremio/useStreamResolve";
 import "../stremio/player.css";
@@ -39,6 +39,7 @@ export function ExternalPlayerHandoff({
   externalPlayer,
 }: ExternalPlayerHandoffProps) {
   const openedUrlRef = useRef<string | null>(null);
+  const fallbackAttemptsRef = useRef(0);
   const [sources, setSources] = useState<StreamSource[]>([]);
   const [sourcesLoading, setSourcesLoading] = useState(true);
   const [sourcesError, setSourcesError] = useState<string | null>(null);
@@ -56,8 +57,9 @@ export function ExternalPlayerHandoff({
       imdbId,
       season,
       episode,
+      mediaTitle: title,
     }),
-    [episode, imdbId, mediaType, season],
+    [episode, imdbId, mediaType, season, title],
   );
 
   const loadSources = useCallback(async () => {
@@ -67,6 +69,7 @@ export function ExternalPlayerHandoff({
     setFallbackProgress(null);
     setOpenFailed(false);
     setClipboardCopied(false);
+    fallbackAttemptsRef.current = 0;
     openedUrlRef.current = null;
     setShowSourcePicker(true);
     try {
@@ -92,8 +95,9 @@ export function ExternalPlayerHandoff({
       selectedSource
         ? {
             ...baseRequest,
-                      magnet: selectedSource.magnet,
+            magnet: selectedSource.magnet,
             infoHash: selectedSource.infoHash,
+            fileIdx: selectedSource.fileIdx,
             realDebridToken: realDebridApiKey.trim() || undefined,
           }
         : null,
@@ -146,6 +150,7 @@ export function ExternalPlayerHandoff({
       if (selectedSource?.id === source.id) {
         return;
       }
+      fallbackAttemptsRef.current = 0;
       setFallbackProgress(null);
       setOpenFailed(false);
       setClipboardCopied(false);
@@ -157,7 +162,13 @@ export function ExternalPlayerHandoff({
   );
 
   useEffect(() => {
-    if (resolveState.status !== "failed" || !selectedSource || !isFallbackError(resolveState.errorCode)) {
+    if (resolveState.status !== "failed" || !selectedSource) {
+      return;
+    }
+    if (resolveState.errorCode === "rate_limited" || !isFallbackError(resolveState.errorCode)) {
+      return;
+    }
+    if (fallbackAttemptsRef.current >= MAX_AUTO_FALLBACKS) {
       return;
     }
 
@@ -170,6 +181,7 @@ export function ExternalPlayerHandoff({
       return;
     }
 
+    fallbackAttemptsRef.current += 1;
     setFallbackProgress(`Trying stream ${currentIndex + 2} of ${sources.length}`);
     openedUrlRef.current = null;
     setSelectedSource(nextSource);
@@ -238,6 +250,7 @@ export function ExternalPlayerHandoff({
           error={sourcesError ?? undefined}
           disabled={sourcesLoading || resolving}
           selectedId={selectedSource?.id}
+          compatFiltersRelaxed
           onSelect={handleSelectSource}
           onRetry={() => {
             void loadSources();
@@ -264,6 +277,7 @@ export function ExternalPlayerHandoff({
           onRetryStreams={() => {
             setSelectedSource(null);
             setFallbackProgress(null);
+            fallbackAttemptsRef.current = 0;
             openedUrlRef.current = null;
             setShowSourcePicker(true);
           }}

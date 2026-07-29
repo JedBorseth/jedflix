@@ -21,8 +21,12 @@ export function isIosDevice(): boolean {
     (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 }
 
-export function prepareBrowserSources(sources: StreamSource[]): StreamSource[] {
-  return sortDirectPlaybackSources(filterDirectPlaybackSources(sources));
+export function prepareBrowserSources(
+  sources: StreamSource[],
+  options: { skipCompatFilter?: boolean } = {},
+): StreamSource[] {
+  const prepared = options.skipCompatFilter ? sources : filterDirectPlaybackSources(sources);
+  return sortDirectPlaybackSources(prepared);
 }
 
 export const IOS_PLAYBACK_ERROR_HINT =

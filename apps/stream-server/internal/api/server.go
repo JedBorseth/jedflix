@@ -129,6 +129,8 @@ func writeResolveError(w http.ResponseWriter, err error) {
 			status = http.StatusGatewayTimeout
 		case "infringing_file":
 			status = http.StatusUnavailableForLegalReasons
+		case "rate_limited":
+			status = http.StatusTooManyRequests
 		}
 		writeJSON(w, status, map[string]string{"error": resolveErr.Message, "code": resolveErr.Code})
 		return

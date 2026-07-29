@@ -1,11 +1,20 @@
+/** Cap automatic source retries to avoid Real Debrid rate limits (250 req/min). */
+export const MAX_AUTO_FALLBACKS = 2;
+
 export function isFallbackError(errorCode?: string): boolean {
   return (
     errorCode === "infringing_file" ||
     errorCode === "timeout" ||
     errorCode === "no_video_file" ||
+    errorCode === "title_mismatch" ||
     errorCode === "size_limit" ||
     errorCode === "no_links"
   );
+}
+
+export function isCompatFilterError(message?: string | null): boolean {
+  if (!message) return false;
+  return /browser-compatible|mkv\/remux|compatib/i.test(message);
 }
 
 /** HTMLMediaElement / Video.js MediaError codes */

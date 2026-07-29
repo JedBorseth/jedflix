@@ -12,8 +12,10 @@ export type RealDebridErrorCode =
   | "missing_token"
   | "timeout"
   | "no_video_file"
+  | "title_mismatch"
   | "size_limit"
   | "no_links"
+  | "rate_limited"
   | "cancelled"
   | "invalid_request";
 
@@ -80,8 +82,10 @@ function normalizeErrorCode(code: string): RealDebridErrorCode {
     case "missing_token":
     case "timeout":
     case "no_video_file":
+    case "title_mismatch":
     case "size_limit":
     case "no_links":
+    case "rate_limited":
     case "cancelled":
     case "invalid_request":
       return code;

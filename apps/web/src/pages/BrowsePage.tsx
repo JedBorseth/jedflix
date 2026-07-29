@@ -7,7 +7,7 @@ import { WatchHistoryRow } from "@/components/browse/WatchHistoryRow";
 import { Navbar } from "@/components/layout/Navbar";
 import { HeroBannerSkeleton } from "@/components/ui/skeleton";
 import type { MediaItem, MediaType } from "@/lib/types";
-import { discoverMedia, getTrendingMedia, mediaRows } from "@/lib/tmdb";
+import { discoverMedia, getTrendingMedia, HOME_ROW_LIMIT, mediaRows } from "@/lib/tmdb";
 
 type BrowsePageProps = {
   mediaType?: MediaType | "all";
@@ -46,10 +46,19 @@ export function BrowsePage({ mediaType = "all" }: BrowsePageProps) {
 
   const rows =
     mediaType === "tv"
-      ? mediaRows.tv
+      ? mediaRows.tv.map((row) => ({ ...row, type: "tv" as const }))
       : mediaType === "movie"
-        ? mediaRows.movie
-        : [...mediaRows.movie.slice(0, 3), ...mediaRows.tv.slice(0, 3)];
+        ? mediaRows.movie.map((row) => ({ ...row, type: "movie" as const }))
+        : [
+            ...mediaRows.movie.slice(0, HOME_ROW_LIMIT).map((row) => ({
+              ...row,
+              type: "movie" as const,
+            })),
+            ...mediaRows.tv.slice(0, HOME_ROW_LIMIT).map((row) => ({
+              ...row,
+              type: "tv" as const,
+            })),
+          ];
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
@@ -79,9 +88,9 @@ export function BrowsePage({ mediaType = "all" }: BrowsePageProps) {
         ) : null}
         {rows.map((row) => (
           <MovieRow
-            key={`${row.title}-${mediaType}`}
+            key={`${row.type}-${row.title}`}
             title={row.title}
-            mediaType={row.title.includes("Shows") || mediaType === "tv" ? "tv" : "movie"}
+            mediaType={row.type}
             genreId={row.genreId}
           />
         ))}

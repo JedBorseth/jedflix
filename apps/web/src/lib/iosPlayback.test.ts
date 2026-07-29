@@ -34,4 +34,23 @@ describe("iosPlayback", () => {
     const prepared = prepareBrowserSources(sources);
     expect(prepared.map((source) => source.id)).toEqual(["mp4"]);
   });
+
+  test("prepareBrowserSources can skip compatibility filter", () => {
+    const sources: StreamSource[] = [
+      {
+        id: "remux",
+        title: "Movie.2024.2160p.UHD.BluRay.REMUX.HEVC.DTS-HD.MA.5.1.mkv",
+        magnet: "magnet:1",
+      },
+      {
+        id: "mp4",
+        title: "Movie.2024.1080p.WEBRip.x264.AAC.mp4",
+        magnet: "magnet:2",
+        cached: true,
+      },
+    ];
+
+    const prepared = prepareBrowserSources(sources, { skipCompatFilter: true });
+    expect(prepared.map((source) => source.id)).toEqual(["mp4", "remux"]);
+  });
 });

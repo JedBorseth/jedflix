@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -34,6 +33,8 @@ type ResolveRequest struct {
 	Magnet          string          `json:"magnet"`
 	InfoHash        string          `json:"infoHash,omitempty"`
 	Title           string          `json:"title,omitempty"`
+	MediaTitle      string          `json:"mediaTitle,omitempty"`
+	FileIdx         *int            `json:"fileIdx,omitempty"`
 	Season          *int            `json:"season,omitempty"`
 	Episode         *int            `json:"episode,omitempty"`
 	PlaybackProfile PlaybackProfile `json:"playbackProfile,omitempty"`
@@ -45,6 +46,7 @@ type Source struct {
 	Title    string   `json:"title"`
 	Magnet   string   `json:"magnet"`
 	InfoHash string   `json:"infoHash,omitempty"`
+	FileIdx  *int     `json:"fileIdx,omitempty"`
 	SizeGB   *float64 `json:"sizeGb,omitempty"`
 	Seeders  *int     `json:"seeders,omitempty"`
 	Cached   bool     `json:"cached"`
@@ -104,25 +106,19 @@ func (s *Service) ListSources(req Request) ([]Source, error) {
 	filtered := search.FilterReleases(releases, opts)
 	if len(filtered) == 0 {
 		if opts.RequireDirectPlaybackCompat {
-			return nil, fmt.Errorf("no browser-compatible streams found (MKV/Remux/Atmos/DTS filtered)")
+			relaxed := opts
+			relaxed.RequireDirectPlaybackCompat = false
+			if len(search.FilterReleases(releases, relaxed)) > 0 {
+				return nil, fmt.Errorf("no browser-compatible streams found (MKV/Remux/Atmos/DTS filtered)")
+			}
 		}
 		return nil, fmt.Errorf("no streams passed filters")
 	}
 
-	hashes := make([]string, 0, len(filtered))
-	for _, release := range filtered {
-		if release.InfoHash != "" {
-			hashes = append(hashes, release.InfoHash)
-		}
-	}
-	rd := s.rdClient(req)
-	instant, err := rd.InstantAvailability(ctx, hashes)
-	if err != nil {
-		log.Printf("warning: real-debrid instantAvailability failed: %v", err)
-		instant = map[string]bool{}
-	}
-	ranked := search.ScorePick(filtered, instant, s.cfg.PreferInstant)
-	return toSources(ranked, instant), nil
+	// InstantAvailability was permanently disabled by Real Debrid — skip it to avoid
+	// wasted API calls that count toward the 250 req/min rate limit.
+	ranked := search.ScorePick(filtered, map[string]bool{}, false)
+	return toSources(ranked), nil
 }
 
 func (s *Service) search(ctx context.Context, req Request) ([]search.Release, error) {
@@ -166,30 +162,14 @@ func (s *Service) Resolve(ctx context.Context, req ResolveRequest) (*StreamResul
 		}
 	}()
 
-	if infoHash := strings.TrimSpace(req.InfoHash); infoHash != "" {
-		existing, err := rd.FindByInfoHash(resolveCtx, infoHash)
-		if err != nil {
-			return nil, mapRDError(err)
-		}
-		if existing != nil {
-			switch existing.Status {
-			case "downloaded":
-				torrentID = existing.ID
-				cleanupTorrent = true
-			case "error", "magnet_error", "virus", "dead":
-				_ = rd.DeleteTorrent(resolveCtx, existing.ID)
-			}
-		}
+	// Skip FindByInfoHash / ListTorrents — torrents are deleted after each resolve,
+	// so a full account torrent listing on every play only burns rate limit budget.
+	id, err := rd.AddMagnet(resolveCtx, req.Magnet)
+	if err != nil {
+		return nil, mapRDError(err)
 	}
-
-	if torrentID == "" {
-		id, err := rd.AddMagnet(resolveCtx, req.Magnet)
-		if err != nil {
-			return nil, mapRDError(err)
-		}
-		torrentID = id
-		cleanupTorrent = true
-	}
+	torrentID = id
+	cleanupTorrent = true
 
 	info, err := rd.GetTorrentInfo(resolveCtx, torrentID)
 	if err != nil {
@@ -201,10 +181,13 @@ func (s *Service) Resolve(ctx context.Context, req ResolveRequest) (*StreamResul
 	if req.Type == "tv" && req.Season != nil && req.Episode != nil {
 		file, ok = realdebrid.PickEpisodeFile(info.Files, *req.Season, *req.Episode)
 	} else {
-		file, ok = realdebrid.PickLargestVideoFile(info.Files)
+		file, ok = realdebrid.PickMovieFile(info.Files, req.MediaTitle, req.FileIdx)
 	}
 	if !ok {
-		return nil, &ResolveError{Code: "no_video_file", Message: "No video file found in torrent."}
+		return nil, &ResolveError{
+			Code:    "title_mismatch",
+			Message: "Could not find a matching video file in this torrent. Try another stream.",
+		}
 	}
 	if maxBytes > 0 && file.Bytes > maxBytes {
 		return nil, &ResolveError{Code: "size_limit", Message: "Selected file exceeds size limit."}
@@ -239,17 +222,15 @@ func (s *Service) Resolve(ctx context.Context, req ResolveRequest) (*StreamResul
 	}, nil
 }
 
-func (s *Service) rdClient(req Request) *realdebrid.Client {
-	token := strings.TrimSpace(req.RealDebridToken)
-	if token == "" {
-		return s.rd
-	}
-	return realdebrid.NewClientWithToken(s.cfg, token)
-}
-
 func mapRDError(err error) error {
 	if err == nil {
 		return nil
+	}
+	if realdebrid.IsRateLimitError(err) {
+		return &ResolveError{
+			Code:    "rate_limited",
+			Message: "Real Debrid rate limit reached. Wait a minute before trying another stream.",
+		}
 	}
 	if realdebrid.IsInfringingError(err) {
 		return &ResolveError{Code: "infringing_file", Message: err.Error()}
@@ -265,7 +246,7 @@ func mapRDError(err error) error {
 	return err
 }
 
-func toSources(releases []search.Release, instant map[string]bool) []Source {
+func toSources(releases []search.Release) []Source {
 	sources := make([]Source, 0, len(releases))
 	for index, release := range releases {
 		source := Source{
@@ -273,7 +254,12 @@ func toSources(releases []search.Release, instant map[string]bool) []Source {
 			Title:    release.Title,
 			Magnet:   release.Magnet,
 			InfoHash: release.InfoHash,
-			Cached:   release.InfoHash != "" && instant[strings.ToLower(release.InfoHash)],
+			Cached:   false,
+		}
+		if release.FileIdx != nil {
+			fileIdx := *release.FileIdx
+			source.FileIdx = &fileIdx
+			source.ID = fmt.Sprintf("src_%d_%s_%d", index, release.InfoHash, fileIdx)
 		}
 		if release.SizeKnown {
 			sizeGB := float64(release.SizeBytes) / (1024 * 1024 * 1024)

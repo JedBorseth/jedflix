@@ -8,20 +8,23 @@ export type SourcesRequest = {
   playbackProfile?: PlaybackProfile;
 };
 
-export type ResolveRequest = SourcesRequest & {
-  magnet?: string;
-  infoHash?: string;
-  realDebridToken?: string;
-};
-
 export type StreamSource = {
   id: string;
   title: string;
   magnet: string;
   infoHash?: string;
+  fileIdx?: number;
   sizeGb?: number;
   seeders?: number;
   cached?: boolean;
+};
+
+export type ResolveRequest = SourcesRequest & {
+  magnet?: string;
+  infoHash?: string;
+  mediaTitle?: string;
+  fileIdx?: number;
+  realDebridToken?: string;
 };
 
 export type StreamResult = {
@@ -158,6 +161,8 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
         magnet: source.magnet,
         infoHash: source.infoHash ?? request.infoHash,
         title: source.title,
+        mediaTitle: request.mediaTitle,
+        fileIdx: source.fileIdx ?? request.fileIdx,
         season: request.season,
         episode: request.episode,
         playbackProfile: request.playbackProfile ?? "browser",

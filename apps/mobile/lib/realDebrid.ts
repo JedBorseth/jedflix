@@ -3,7 +3,7 @@ import type { ResolveRequest, StreamResult, StreamSource } from "@jedflix/stream
 import { normalizeMagnetForSource } from "@/lib/magnet";
 
 const API_BASE = "https://api.real-debrid.com/rest/1.0";
-const POLL_INTERVAL_MS = 2000;
+const POLL_INTERVAL_MS = 4000;
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_MAX_VIDEO_BYTES = 50 * 1024 * 1024 * 1024;
 
@@ -13,8 +13,10 @@ export type RealDebridErrorCode =
   | "missing_token"
   | "timeout"
   | "no_video_file"
+  | "title_mismatch"
   | "size_limit"
   | "no_links"
+  | "rate_limited"
   | "api_error";
 
 export class RealDebridError extends Error {
@@ -82,48 +84,25 @@ export function formatRealDebridError(error: unknown): string {
 
 export function isRecoverableStreamError(error: unknown): boolean {
   if (!(error instanceof RealDebridError)) return true;
+  if (error.code === "rate_limited" || error.code === "missing_token") return false;
   return [
     "infringing_file",
     "invalid_magnet",
     "timeout",
     "no_video_file",
+    "title_mismatch",
     "size_limit",
     "no_links",
     "api_error",
   ].includes(error.code);
 }
 
+/** InstantAvailability was permanently disabled by Real Debrid — keep a no-op for callers. */
 export async function checkInstantAvailability(
-  token: string,
-  infoHashes: string[],
+  _token: string,
+  _infoHashes: string[],
 ): Promise<Record<string, boolean>> {
-  const trimmedToken = token.trim();
-  if (!trimmedToken || infoHashes.length === 0) {
-    return {};
-  }
-
-  const params = new URLSearchParams();
-  for (const hash of infoHashes) {
-    params.append("hash", hash.toLowerCase());
-  }
-
-  const response = await fetch(`${API_BASE}/torrents/instantAvailability?${params.toString()}`, {
-    headers: {
-      Accept: "application/json",
-      Authorization: `Bearer ${trimmedToken}`,
-    },
-  });
-
-  if (!response.ok) {
-    return {};
-  }
-
-  const payload = (await response.json()) as Record<string, unknown>;
-  const result: Record<string, boolean> = {};
-  for (const hash of Object.keys(payload)) {
-    result[hash.toLowerCase()] = true;
-  }
-  return result;
+  return {};
 }
 
 export async function resolveRealDebridStream(
@@ -158,33 +137,22 @@ export async function resolveRealDebridStream(
   let cleanupTorrent = false;
 
   try {
-    options.onProgress?.("Checking Real Debrid cache");
-    if (source.infoHash) {
-      const existing = await client.findByInfoHash(source.infoHash);
-      if (existing) {
-        if (existing.status === "downloaded") {
-          torrentId = existing.id;
-          cleanupTorrent = true;
-        } else if (isTerminalStatus(existing.status)) {
-          await client.deleteTorrent(existing.id).catch(() => undefined);
-        }
-      }
-    }
-
-    if (!torrentId) {
-      options.onProgress?.("Adding magnet to Real Debrid");
-      torrentId = await client.addMagnet(magnet);
-      cleanupTorrent = true;
-    }
+    // Skip findByInfoHash (lists all torrents) — torrents are deleted after resolve.
+    options.onProgress?.("Adding magnet to Real Debrid");
+    torrentId = await client.addMagnet(magnet);
+    cleanupTorrent = true;
 
     options.onProgress?.("Selecting video file");
     let info = await client.getTorrentInfo(torrentId);
     const file =
       request.type === "tv" && request.season !== undefined && request.episode !== undefined
         ? pickEpisodeFile(info.files, request.season, request.episode)
-        : pickTorrentFile(info.files, options.fileIdx);
+        : pickMovieFile(info.files, request.mediaTitle, options.fileIdx ?? source.fileIdx);
     if (!file) {
-      throw new RealDebridError("no_video_file", "No playable video found in this torrent.");
+      throw new RealDebridError(
+        "title_mismatch",
+        "Could not find a matching video file in this torrent. Try another stream.",
+      );
     }
     if (file.bytes > (options.maxVideoBytes ?? DEFAULT_MAX_VIDEO_BYTES)) {
       throw new RealDebridError("size_limit", "This file is too large. Try a smaller release.");
@@ -368,6 +336,20 @@ function realDebridApiError(path: string, status: number, body: string): RealDeb
     );
   }
 
+  if (
+    status === 429 ||
+    errorCode === 34 ||
+    errorText.includes("too_many_requests") ||
+    body.includes('"error_code":34') ||
+    body.includes('"error_code": 34')
+  ) {
+    return new RealDebridError(
+      "rate_limited",
+      "Real Debrid rate limit reached. Wait a minute before trying another stream.",
+      status,
+    );
+  }
+
   if (status === 503 || errorText.includes("disabled") || errorText.includes("unavailable")) {
     return new RealDebridError(
       "api_error",
@@ -384,14 +366,71 @@ function realDebridApiError(path: string, status: number, body: string): RealDeb
   );
 }
 
-function pickTorrentFile(files: TorrentFile[], fileIdx?: number): TorrentFile | null {
+const TITLE_STOP_WORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "of",
+  "the",
+  "to",
+  "in",
+  "on",
+  "for",
+  "with",
+  "part",
+  "pt",
+]);
+
+function pickMovieFile(
+  files: TorrentFile[],
+  mediaTitle?: string,
+  fileIdx?: number,
+): TorrentFile | null {
   if (fileIdx !== undefined && fileIdx >= 0 && fileIdx < files.length) {
     const indexed = files[fileIdx];
     if (indexed && isVideoFile(indexed.path)) {
       return indexed;
     }
   }
-  return pickLargestVideoFile(files);
+
+  const videos = files.filter((file) => isVideoFile(file.path));
+  if (videos.length === 0) return null;
+  if (videos.length === 1) return videos[0] ?? null;
+
+  const tokens = significantTitleTokens(mediaTitle ?? "");
+  if (tokens.length === 0) {
+    return null;
+  }
+
+  const matched = videos.filter((file) => titleMatchesPath(file.path, tokens));
+  return pickBestVideoFile(matched);
+}
+
+function significantTitleTokens(title: string): string[] {
+  const normalized = title
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, " ");
+  const tokens: string[] = [];
+  const seen = new Set<string>();
+  for (const part of normalized.split(/\s+/)) {
+    if (part.length < 2 || TITLE_STOP_WORDS.has(part) || seen.has(part)) continue;
+    seen.add(part);
+    tokens.push(part);
+  }
+  return tokens;
+}
+
+function titleMatchesPath(path: string, tokens: string[]): boolean {
+  if (tokens.length === 0) return false;
+  const base = (path.split("/").pop() ?? path).toLowerCase();
+  const haystack = base.replace(/[^a-z0-9]+/g, " ");
+  const matched = tokens.filter((token) => haystack.includes(token)).length;
+  let required = tokens.length;
+  if (required > 2) {
+    required = Math.max(2, Math.ceil(tokens.length / 2));
+  }
+  return matched >= required;
 }
 
 function pickLargestVideoFile(files: TorrentFile[]): TorrentFile | null {

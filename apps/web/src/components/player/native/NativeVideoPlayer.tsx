@@ -9,7 +9,7 @@ import { IOS_PLAYBACK_ERROR_HINT, isIosDevice, prepareBrowserSources } from "@/l
 import type { MediaType } from "@/lib/types";
 import { ExternalPlayerMenu } from "../shared/ExternalPlayerMenu";
 import { PlayerErrorOverlay } from "../shared/PlayerErrorOverlay";
-import { isFallbackError } from "../shared/playbackErrors";
+import { isFallbackError, MAX_AUTO_FALLBACKS } from "../shared/playbackErrors";
 import { StreamSourcePicker } from "../stremio/StreamSourcePicker";
 import { useStreamResolve } from "../stremio/useStreamResolve";
 import "../stremio/player.css";
@@ -42,9 +42,11 @@ export function NativeVideoPlayer({
   const videoRef = useRef<HTMLVideoElement>(null);
   const loadedUrlRef = useRef<string | null>(null);
   const initialProgressAppliedRef = useRef(false);
+  const fallbackAttemptsRef = useRef(0);
   const [sources, setSources] = useState<StreamSource[]>([]);
   const [sourcesLoading, setSourcesLoading] = useState(true);
   const [sourcesError, setSourcesError] = useState<string | null>(null);
+  const [skipCompatFilters, setSkipCompatFilters] = useState(false);
   const [selectedSource, setSelectedSource] = useState<StreamSource | null>(null);
   const [showSourcePicker, setShowSourcePicker] = useState(true);
   const [fallbackProgress, setFallbackProgress] = useState<string | null>(null);
@@ -74,8 +76,9 @@ export function NativeVideoPlayer({
       imdbId,
       season,
       episode,
+      mediaTitle: title,
     }),
-    [episode, imdbId, mediaType, season],
+    [episode, imdbId, mediaType, season, title],
   );
 
   const loadSources = useCallback(async () => {
@@ -86,22 +89,26 @@ export function NativeVideoPlayer({
     setPlaybackError(null);
     setClipboardCopied(false);
     setIosCodecWarning(null);
+    fallbackAttemptsRef.current = 0;
     loadedUrlRef.current = null;
     initialProgressAppliedRef.current = false;
     setShowSourcePicker(true);
     try {
       const found = await fetchSources(
-        { ...baseRequest, playbackProfile: "browser" },
+        {
+          ...baseRequest,
+          playbackProfile: skipCompatFilters ? "external" : "browser",
+        },
         realDebridApiKey.trim() || undefined,
       );
-      setSources(prepareBrowserSources(found));
+      setSources(prepareBrowserSources(found, { skipCompatFilter: skipCompatFilters }));
     } catch (error) {
       setSources([]);
       setSourcesError(error instanceof Error ? error.message : "Failed to load streams");
     } finally {
       setSourcesLoading(false);
     }
-  }, [baseRequest, realDebridApiKey]);
+  }, [baseRequest, realDebridApiKey, skipCompatFilters]);
 
   useEffect(() => {
     void loadSources();
@@ -114,6 +121,7 @@ export function NativeVideoPlayer({
             ...baseRequest,
             magnet: selectedSource.magnet,
             infoHash: selectedSource.infoHash,
+            fileIdx: selectedSource.fileIdx,
             realDebridToken: realDebridApiKey.trim() || undefined,
           }
         : null,
@@ -166,6 +174,7 @@ export function NativeVideoPlayer({
       if (selectedSource?.id === source.id) {
         return;
       }
+      fallbackAttemptsRef.current = 0;
       setFallbackProgress(null);
       setPlaybackError(null);
       setClipboardCopied(false);
@@ -181,7 +190,20 @@ export function NativeVideoPlayer({
   );
 
   useEffect(() => {
-    if (resolveState.status !== "failed" || !selectedSource || !isFallbackError(resolveState.errorCode)) {
+    if (resolveState.status !== "failed" || !selectedSource) {
+      return;
+    }
+    if (resolveState.errorCode === "rate_limited") {
+      setPlaybackError(resolveState.error ?? "Real Debrid rate limit reached.");
+      return;
+    }
+    if (!isFallbackError(resolveState.errorCode)) {
+      return;
+    }
+    if (fallbackAttemptsRef.current >= MAX_AUTO_FALLBACKS) {
+      setPlaybackError(
+        `${resolveState.error ?? "Stream resolve failed."} Stopped after ${MAX_AUTO_FALLBACKS + 1} attempts to avoid Real Debrid rate limits.`,
+      );
       return;
     }
 
@@ -194,10 +216,11 @@ export function NativeVideoPlayer({
       return;
     }
 
+    fallbackAttemptsRef.current += 1;
     setFallbackProgress(`Trying stream ${currentIndex + 2} of ${sources.length}`);
     loadedUrlRef.current = null;
     setSelectedSource(nextSource);
-  }, [resolveState.errorCode, resolveState.status, selectedSource, sources]);
+  }, [resolveState.error, resolveState.errorCode, resolveState.status, selectedSource, sources]);
 
   const handlePlaybackError = useCallback(() => {
     if (!selectedSource) {
@@ -209,9 +232,20 @@ export function NativeVideoPlayer({
       return;
     }
 
+    if (fallbackAttemptsRef.current >= MAX_AUTO_FALLBACKS) {
+      const message = isIosDevice()
+        ? IOS_PLAYBACK_ERROR_HINT
+        : "This stream could not be played on your device. Try another compatible source or an external player.";
+      setPlaybackError(
+        `${message} Stopped after ${MAX_AUTO_FALLBACKS + 1} attempts to avoid Real Debrid rate limits.`,
+      );
+      return;
+    }
+
     const currentIndex = sources.findIndex((source) => source.id === selectedSource.id);
     const nextSource = sources[currentIndex + 1];
     if (nextSource) {
+      fallbackAttemptsRef.current += 1;
       setFallbackProgress(`Trying stream ${currentIndex + 2} of ${sources.length}`);
       loadedUrlRef.current = null;
       setSelectedSource(nextSource);
@@ -269,9 +303,13 @@ export function NativeVideoPlayer({
           error={sourcesError ?? undefined}
           disabled={sourcesLoading || resolving}
           selectedId={selectedSource?.id}
+          compatFiltersRelaxed={skipCompatFilters}
           onSelect={handleSelectSource}
           onRetry={() => {
             void loadSources();
+          }}
+          onRelaxCompatFilters={() => {
+            setSkipCompatFilters(true);
           }}
         />
       ) : null}
@@ -296,6 +334,7 @@ export function NativeVideoPlayer({
             setFallbackProgress(null);
             setPlaybackError(null);
             setClipboardCopied(false);
+            fallbackAttemptsRef.current = 0;
             loadedUrlRef.current = null;
             setShowSourcePicker(true);
           }}

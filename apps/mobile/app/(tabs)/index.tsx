@@ -62,10 +62,16 @@ export default function BrowseScreen() {
             items: await tmdb.discoverMedia("movie", { genreId: row.genreId }),
           })),
         );
+        const tvRows = await Promise.all(
+          mediaRows.tv.map(async (row) => ({
+            title: row.title,
+            items: await tmdb.discoverMedia("tv", { genreId: row.genreId }),
+          })),
+        );
 
         if (!cancelled) {
           setHero(trending[0] ?? null);
-          setRows(movieRows);
+          setRows([...movieRows, ...tvRows]);
           setError(null);
         }
       } catch (loadError) {

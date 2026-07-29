@@ -149,18 +149,37 @@ export const mediaRows = {
   movie: [
     { title: "Popular Movies", genreId: undefined },
     { title: "Action Movies", genreId: 28 },
+    { title: "Adventure Movies", genreId: 12 },
     { title: "Comedies", genreId: 35 },
+    { title: "Drama Movies", genreId: 18 },
     { title: "Science Fiction", genreId: 878 },
+    { title: "Fantasy Movies", genreId: 14 },
     { title: "Thrillers", genreId: 53 },
+    { title: "Horror Movies", genreId: 27 },
+    { title: "Crime Movies", genreId: 80 },
+    { title: "Romance Movies", genreId: 10749 },
+    { title: "Animation", genreId: 16 },
+    { title: "Family Movies", genreId: 10751 },
+    { title: "Documentaries", genreId: 99 },
   ],
   tv: [
     { title: "Popular Shows", genreId: undefined },
     { title: "Drama Shows", genreId: 18 },
     { title: "Comedy Shows", genreId: 35 },
-    { title: "Sci-Fi & Fantasy", genreId: 10765 },
+    { title: "Action & Adventure Shows", genreId: 10759 },
+    { title: "Sci-Fi & Fantasy Shows", genreId: 10765 },
     { title: "Mystery Shows", genreId: 9648 },
+    { title: "Crime Shows", genreId: 80 },
+    { title: "Animation Shows", genreId: 16 },
+    { title: "Reality Shows", genreId: 10764 },
+    { title: "Kids Shows", genreId: 10762 },
+    { title: "Family Shows", genreId: 10751 },
+    { title: "Documentary Shows", genreId: 99 },
   ],
 } as const;
+
+/** How many movie/TV genre rows to surface on the mixed home browse page. */
+export const HOME_ROW_LIMIT = 5;
 
 export async function getTrendingMedia(): Promise<MediaItem[]> {
   const data = await tmdbFetch<TmdbListResponse<TmdbListItem>>("/trending/all/week");

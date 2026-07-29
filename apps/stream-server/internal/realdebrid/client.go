@@ -117,23 +117,6 @@ func (c *Client) ListTorrents(ctx context.Context) ([]TorrentListItem, error) {
 	return torrents, nil
 }
 
-func (c *Client) FindByInfoHash(ctx context.Context, infoHash string) (*TorrentListItem, error) {
-	infoHash = strings.ToLower(strings.TrimSpace(infoHash))
-	if infoHash == "" {
-		return nil, nil
-	}
-	torrents, err := c.ListTorrents(ctx)
-	if err != nil {
-		return nil, err
-	}
-	for _, torrent := range torrents {
-		if strings.ToLower(strings.TrimSpace(torrent.Hash)) == infoHash {
-			return &torrent, nil
-		}
-	}
-	return nil, nil
-}
-
 func (c *Client) DeleteTorrent(ctx context.Context, torrentID string) error {
 	return c.delete(ctx, "/torrents/delete/"+torrentID)
 }
@@ -163,46 +146,9 @@ func (c *Client) WaitReady(ctx context.Context, torrentID string, timeout time.D
 			return nil, fmt.Errorf("real-debrid torrent failed: %s", info.Status)
 		}
 		info = nil
-		time.Sleep(2 * time.Second)
+		// Poll slower to stay under RD's 250 req/min limit across fallbacks.
+		time.Sleep(4 * time.Second)
 	}
-}
-
-func (c *Client) InstantAvailability(ctx context.Context, infoHashes []string) (map[string]bool, error) {
-	result := make(map[string]bool, len(infoHashes))
-	if len(infoHashes) == 0 {
-		return result, nil
-	}
-
-	form := url.Values{}
-	for _, hash := range infoHashes {
-		form.Add("hash", strings.ToLower(hash))
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiBase+"/torrents/instantAvailability?"+form.Encode(), nil)
-	if err != nil {
-		return nil, err
-	}
-	c.setHeaders(req)
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return result, fmt.Errorf("instantAvailability returned %d: %s", resp.StatusCode, string(body))
-	}
-
-	var payload map[string]json.RawMessage
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return nil, err
-	}
-	for hash := range payload {
-		result[strings.ToLower(hash)] = true
-	}
-	return result, nil
 }
 
 func (c *Client) UnrestrictLink(ctx context.Context, link string) (*UnrestrictResponse, error) {
@@ -219,7 +165,53 @@ func PickLargestVideoFile(files []TorrentFile) (TorrentFile, bool) {
 	return pickBestVideoFile(files, nil)
 }
 
-var episodePattern = regexp.MustCompile(`(?i)[Ss](\d{1,2})[Ee](\d{1,2})`)
+var (
+	episodePattern = regexp.MustCompile(`(?i)[Ss](\d{1,2})[Ee](\d{1,2})`)
+	nonTokenChars  = regexp.MustCompile(`[^a-z0-9]+`)
+	titleStopWords = map[string]struct{}{
+		"a": {}, "an": {}, "and": {}, "of": {}, "the": {}, "to": {}, "in": {},
+		"on": {}, "for": {}, "with": {}, "part": {}, "pt": {},
+	}
+)
+
+// PickMovieFile selects a video from a torrent for a movie.
+// Preference order: explicit fileIdx → title match among videos → sole video file.
+// Multi-file packs without a title match return false (avoids playing the wrong film).
+func PickMovieFile(files []TorrentFile, mediaTitle string, fileIdx *int) (TorrentFile, bool) {
+	if fileIdx != nil && *fileIdx >= 0 && *fileIdx < len(files) {
+		candidate := files[*fileIdx]
+		if isVideoFile(candidate.Path) {
+			return candidate, true
+		}
+	}
+
+	videos := make([]TorrentFile, 0, len(files))
+	for _, file := range files {
+		if isVideoFile(file.Path) {
+			videos = append(videos, file)
+		}
+	}
+	if len(videos) == 0 {
+		return TorrentFile{}, false
+	}
+	if len(videos) == 1 {
+		return videos[0], true
+	}
+
+	tokens := significantTitleTokens(mediaTitle)
+	if len(tokens) == 0 {
+		// No title to disambiguate a pack — refuse rather than guess by size.
+		return TorrentFile{}, false
+	}
+
+	matched := make([]TorrentFile, 0)
+	for _, file := range videos {
+		if titleMatchesPath(file.Path, tokens) {
+			matched = append(matched, file)
+		}
+	}
+	return pickBestVideoFile(matched, nil)
+}
 
 func PickEpisodeFile(files []TorrentFile, season, episode int) (TorrentFile, bool) {
 	matched := make([]TorrentFile, 0)
@@ -232,6 +224,50 @@ func PickEpisodeFile(files []TorrentFile, season, episode int) (TorrentFile, boo
 		return file, true
 	}
 	return PickLargestVideoFile(files)
+}
+
+func significantTitleTokens(title string) []string {
+	normalized := nonTokenChars.ReplaceAllString(strings.ToLower(strings.TrimSpace(title)), " ")
+	parts := strings.Fields(normalized)
+	tokens := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for _, part := range parts {
+		if len(part) < 2 {
+			continue
+		}
+		if _, stop := titleStopWords[part]; stop {
+			continue
+		}
+		if _, ok := seen[part]; ok {
+			continue
+		}
+		seen[part] = struct{}{}
+		tokens = append(tokens, part)
+	}
+	return tokens
+}
+
+func titleMatchesPath(path string, tokens []string) bool {
+	if len(tokens) == 0 {
+		return false
+	}
+	base := strings.ToLower(filepath.Base(path))
+	haystack := nonTokenChars.ReplaceAllString(base, " ")
+	matched := 0
+	for _, token := range tokens {
+		if strings.Contains(haystack, token) {
+			matched++
+		}
+	}
+	// Short titles (1–2 significant tokens) must match all; longer titles need majority.
+	required := len(tokens)
+	if required > 2 {
+		required = (len(tokens) + 1) / 2
+		if required < 2 {
+			required = 2
+		}
+	}
+	return matched >= required
 }
 
 func pickBestVideoFile(files []TorrentFile, predicate func(TorrentFile) bool) (TorrentFile, bool) {
@@ -364,6 +400,18 @@ func IsInfringingError(err error) bool {
 		strings.Contains(body, "infringing_file") ||
 		strings.Contains(body, `"error_code":35`) ||
 		strings.Contains(body, `"error_code": 35`)
+}
+
+func IsRateLimitError(err error) bool {
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	body := strings.ToLower(apiErr.Body)
+	return apiErr.StatusCode == http.StatusTooManyRequests ||
+		strings.Contains(body, "too_many_requests") ||
+		strings.Contains(body, `"error_code":34`) ||
+		strings.Contains(body, `"error_code": 34`)
 }
 
 func (c *Client) setHeaders(req *http.Request) {
