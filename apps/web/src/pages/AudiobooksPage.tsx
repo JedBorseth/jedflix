@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { BookHeroBanner } from "@/components/browse/BookHeroBanner";
 import { BookCard } from "@/components/browse/BookCard";
 import { Navbar } from "@/components/layout/Navbar";
 import { HeroBannerSkeleton, PosterRowSkeleton } from "@/components/ui/skeleton";
 import type { AudiobookBrowseResponse, BookItem } from "@/lib/openlibrary";
 import { getAudiobookBrowse, getWorkDetails, pickRandomBook } from "@/lib/openlibrary";
+import { catalogQueryKeys } from "@/lib/queryClient";
 
 type CatalogRow = {
   title: string;
@@ -12,58 +13,45 @@ type CatalogRow = {
   books: BookItem[];
 };
 
+type AudiobookBrowsePageData = {
+  rows: CatalogRow[];
+  heroBook: BookItem | undefined;
+};
+
+async function loadAudiobookBrowsePage(): Promise<AudiobookBrowsePageData> {
+  const browse: AudiobookBrowseResponse = await getAudiobookBrowse();
+  const catalogRows: CatalogRow[] = [
+    { title: "Trending", subject: "trending", books: browse.trending },
+    ...browse.rows,
+  ].filter((row) => row.books.length > 0);
+
+  const candidate =
+    pickRandomBook(browse.trending) ?? pickRandomBook(browse.rows[0]?.books ?? []);
+  if (!candidate) {
+    return { rows: catalogRows, heroBook: undefined };
+  }
+
+  try {
+    const details = await getWorkDetails(candidate.id);
+    return { rows: catalogRows, heroBook: details };
+  } catch {
+    return { rows: catalogRows, heroBook: candidate };
+  }
+}
+
 export function AudiobooksPage() {
-  const [heroBook, setHeroBook] = useState<BookItem>();
-  const [rows, setRows] = useState<CatalogRow[]>();
-  const [error, setError] = useState<string | null>(null);
+  const browseQuery = useQuery({
+    queryKey: catalogQueryKeys.openLibrary.browse(),
+    queryFn: loadAudiobookBrowsePage,
+  });
 
-  useEffect(() => {
-    let cancelled = false;
-    setHeroBook(undefined);
-    setRows(undefined);
-    setError(null);
-
-    getAudiobookBrowse()
-      .then(async (browse: AudiobookBrowseResponse) => {
-        if (cancelled) {
-          return;
-        }
-
-        const catalogRows: CatalogRow[] = [
-          { title: "Trending", subject: "trending", books: browse.trending },
-          ...browse.rows,
-        ].filter((row) => row.books.length > 0);
-        setRows(catalogRows);
-
-        const candidate = pickRandomBook(browse.trending) ?? pickRandomBook(browse.rows[0]?.books ?? []);
-        if (!candidate) {
-          return;
-        }
-
-        try {
-          const details = await getWorkDetails(candidate.id);
-          if (!cancelled) {
-            setHeroBook(details);
-          }
-        } catch {
-          if (!cancelled) {
-            setHeroBook(candidate);
-          }
-        }
-      })
-      .catch((cause: unknown) => {
-        if (!cancelled) {
-          setError(
-            cause instanceof Error ? cause.message : "Unable to load Open Library titles",
-          );
-          setRows([]);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const heroBook = browseQuery.data?.heroBook;
+  const rows = browseQuery.data?.rows;
+  const error = browseQuery.error
+    ? browseQuery.error instanceof Error
+      ? browseQuery.error.message
+      : "Unable to load Open Library titles"
+    : null;
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">

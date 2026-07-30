@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import type { TvEpisode, TvSeasonSummary } from "@/lib/tmdb";
+import { catalogQueryKeys } from "@/lib/queryClient";
 import { getTvSeasonEpisodes, getTvSeasons } from "@/lib/tmdb";
 
 type EpisodePickerProps = {
@@ -9,69 +10,37 @@ type EpisodePickerProps = {
 };
 
 export function EpisodePicker({ showId }: EpisodePickerProps) {
-  const [seasons, setSeasons] = useState<TvSeasonSummary[]>();
   const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
-  const [episodes, setEpisodes] = useState<TvEpisode[]>();
-  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    setSeasons(undefined);
-    setError(null);
+  const seasonsQuery = useQuery({
+    queryKey: catalogQueryKeys.tmdb.seasons(showId),
+    queryFn: () => getTvSeasons(showId),
+  });
 
-    getTvSeasons(showId)
-      .then((items) => {
-        if (!cancelled) {
-          setSeasons(items);
-          setSelectedSeason(items[0]?.seasonNumber ?? null);
-        }
-      })
-      .catch((cause: unknown) => {
-        if (!cancelled) {
-          setError(cause instanceof Error ? cause.message : "Unable to load seasons");
-          setSeasons([]);
-        }
-      });
+  const seasons = seasonsQuery.data;
+  const activeSeason =
+    selectedSeason ?? seasons?.[0]?.seasonNumber ?? null;
 
-    return () => {
-      cancelled = true;
-    };
-  }, [showId]);
+  const episodesQuery = useQuery({
+    queryKey:
+      activeSeason === null
+        ? catalogQueryKeys.tmdb.episodes(showId, -1)
+        : catalogQueryKeys.tmdb.episodes(showId, activeSeason),
+    queryFn: () => getTvSeasonEpisodes(showId, activeSeason!),
+    enabled: activeSeason !== null,
+  });
 
-  useEffect(() => {
-    if (selectedSeason === null) {
-      setEpisodes([]);
-      return;
-    }
-
-    let cancelled = false;
-    setEpisodes(undefined);
-    setError(null);
-
-    getTvSeasonEpisodes(showId, selectedSeason)
-      .then((items) => {
-        if (!cancelled) {
-          setEpisodes(items);
-        }
-      })
-      .catch((cause: unknown) => {
-        if (!cancelled) {
-          setError(cause instanceof Error ? cause.message : "Unable to load episodes");
-          setEpisodes([]);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedSeason, showId]);
+  const episodes = episodesQuery.data;
+  const error = seasonsQuery.error ?? episodesQuery.error;
+  const errorMessage =
+    error instanceof Error ? error.message : error ? "Unable to load episodes" : null;
 
   if (seasons === undefined) {
     return <p className="text-sm text-zinc-400">Loading seasons...</p>;
   }
 
   if (seasons.length === 0) {
-    return <p className="text-sm text-zinc-400">{error ?? "No seasons available."}</p>;
+    return <p className="text-sm text-zinc-400">{errorMessage ?? "No seasons available."}</p>;
   }
 
   return (
@@ -83,9 +52,9 @@ export function EpisodePicker({ showId }: EpisodePickerProps) {
             key={season.seasonNumber}
             type="button"
             size="sm"
-            variant={selectedSeason === season.seasonNumber ? "default" : "outline"}
+            variant={activeSeason === season.seasonNumber ? "default" : "outline"}
             className={
-              selectedSeason === season.seasonNumber
+              activeSeason === season.seasonNumber
                 ? "bg-red-600 hover:bg-red-700"
                 : "border-zinc-600 bg-black/40 text-white"
             }
@@ -103,7 +72,7 @@ export function EpisodePicker({ showId }: EpisodePickerProps) {
           {episodes.map((episode) => (
             <Link
               key={episode.episodeNumber}
-              to={`/watch/tv/${showId}/${selectedSeason}/${episode.episodeNumber}`}
+              to={`/watch/tv/${showId}/${activeSeason}/${episode.episodeNumber}`}
               className="flex gap-3 rounded-md border border-zinc-800 bg-zinc-950/70 p-3 transition hover:border-zinc-600 hover:bg-zinc-900"
             >
               {episode.stillUrl ? (

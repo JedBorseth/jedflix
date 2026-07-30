@@ -1,12 +1,13 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
 import { BookCard } from "@/components/browse/BookCard";
 import { AppLink } from "@/components/layout/AppLink";
 import { Navbar } from "@/components/layout/Navbar";
 import { Button } from "@/components/ui/button";
 import { DetailPageSkeleton } from "@/components/ui/skeleton";
-import type { AuthorDetails } from "@/lib/openlibrary";
 import { getAuthorDetails, normalizeAuthorId } from "@/lib/openlibrary";
+import { catalogQueryKeys } from "@/lib/queryClient";
 
 const BIO_PREVIEW_LENGTH = 320;
 
@@ -47,36 +48,25 @@ function AuthorBiography({ biography }: { biography: string }) {
 export function AuthorPage() {
   const { authorId } = useParams<{ authorId: string }>();
   const normalizedId = normalizeAuthorId(authorId ?? null);
-  const [author, setAuthor] = useState<AuthorDetails | null>();
-  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!normalizedId) {
-      setAuthor(null);
-      return;
-    }
+  const authorQuery = useQuery({
+    queryKey: catalogQueryKeys.openLibrary.author(normalizedId ?? ""),
+    queryFn: () => getAuthorDetails(normalizedId!),
+    enabled: Boolean(normalizedId),
+  });
 
-    let cancelled = false;
-    setAuthor(undefined);
-    setError(null);
-
-    getAuthorDetails(normalizedId)
-      .then((details) => {
-        if (!cancelled) {
-          setAuthor(details);
-        }
-      })
-      .catch((cause: unknown) => {
-        if (!cancelled) {
-          setError(cause instanceof Error ? cause.message : "Unable to load author");
-          setAuthor(null);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [normalizedId]);
+  const author = normalizedId
+    ? authorQuery.isError
+      ? null
+      : authorQuery.data
+    : null;
+  const error = authorQuery.error
+    ? authorQuery.error instanceof Error
+      ? authorQuery.error.message
+      : "Unable to load author"
+    : !normalizedId
+      ? "Author not found."
+      : null;
 
   if (author === undefined) {
     return (

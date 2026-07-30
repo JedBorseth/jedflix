@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Authenticated } from "convex/react";
 import { HeroBanner } from "@/components/browse/HeroBanner";
 import { LetterboxdRow } from "@/components/browse/LetterboxdRow";
@@ -6,64 +6,33 @@ import { MovieRow } from "@/components/browse/MovieRow";
 import { WatchHistoryRow } from "@/components/browse/WatchHistoryRow";
 import { Navbar } from "@/components/layout/Navbar";
 import { HeroBannerSkeleton } from "@/components/ui/skeleton";
-import type { MediaItem, MediaType } from "@/lib/types";
-import {
-  discoverMedia,
-  getTrendingMedia,
-  HOME_ROW_LIMIT,
-  mediaRows,
-  peekDiscoverMedia,
-  peekTrendingMedia,
-} from "@/lib/tmdb";
+import { catalogQueryKeys } from "@/lib/queryClient";
+import type { MediaType } from "@/lib/types";
+import { discoverMedia, getTrendingMedia, HOME_ROW_LIMIT, mediaRows } from "@/lib/tmdb";
 
 type BrowsePageProps = {
   mediaType?: MediaType | "all";
 };
 
-function peekHeroMovie(mediaType: MediaType | "all"): MediaItem | undefined {
-  const items =
-    mediaType === "all" ? peekTrendingMedia() : peekDiscoverMedia(mediaType);
-  return items?.[0];
-}
-
 export function BrowsePage({ mediaType = "all" }: BrowsePageProps) {
-  const [heroMovie, setHeroMovie] = useState<MediaItem | undefined>(() =>
-    peekHeroMovie(mediaType),
-  );
-  const [error, setError] = useState<string | null>(null);
   const pageTitle =
     mediaType === "movie" ? "Movies" : mediaType === "tv" ? "Shows" : "Home";
 
-  useEffect(() => {
-    let cancelled = false;
-    const cached = peekHeroMovie(mediaType);
-    if (cached) {
-      setHeroMovie(cached);
-      setError(null);
-    } else {
-      setHeroMovie(undefined);
-      setError(null);
-    }
+  const heroQuery = useQuery({
+    queryKey:
+      mediaType === "all"
+        ? catalogQueryKeys.tmdb.trending()
+        : catalogQueryKeys.tmdb.discover(mediaType),
+    queryFn: () =>
+      mediaType === "all" ? getTrendingMedia() : discoverMedia(mediaType),
+  });
 
-    const request =
-      mediaType === "all" ? getTrendingMedia() : discoverMedia(mediaType);
-
-    request
-      .then((items) => {
-        if (!cancelled) {
-          setHeroMovie(items[0]);
-        }
-      })
-      .catch((cause: unknown) => {
-        if (!cancelled) {
-          setError(cause instanceof Error ? cause.message : "Unable to load TMDB titles");
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [mediaType]);
+  const heroMovie = heroQuery.data?.[0];
+  const error = heroQuery.error
+    ? heroQuery.error instanceof Error
+      ? heroQuery.error.message
+      : "Unable to load TMDB titles"
+    : null;
 
   const rows =
     mediaType === "tv"

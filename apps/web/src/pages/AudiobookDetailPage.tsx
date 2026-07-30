@@ -1,17 +1,18 @@
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useLocation, useParams } from "react-router-dom";
 import { BookCard } from "@/components/browse/BookCard";
 import { AppLink } from "@/components/layout/AppLink";
 import { Navbar } from "@/components/layout/Navbar";
 import { Button } from "@/components/ui/button";
 import { DetailPageSkeleton } from "@/components/ui/skeleton";
-import type { BookDetails, BookItem } from "@/lib/openlibrary";
+import type { BookItem } from "@/lib/openlibrary";
 import {
   getAuthorPath,
   getWorkDetails,
   normalizeWorkId,
   searchBooks,
 } from "@/lib/openlibrary";
+import { catalogQueryKeys } from "@/lib/queryClient";
 
 type LocationState = {
   preview?: BookItem;
@@ -27,63 +28,40 @@ export function AudiobookDetailPage() {
       ? (location.state as LocationState).preview
       : undefined;
 
-  const [book, setBook] = useState<BookDetails | null>();
-  const [related, setRelated] = useState<BookItem[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const bookQuery = useQuery({
+    queryKey: catalogQueryKeys.openLibrary.work(normalizedId ?? ""),
+    queryFn: () => getWorkDetails(normalizedId!),
+    enabled: Boolean(normalizedId),
+  });
+
+  const book = normalizedId
+    ? bookQuery.isError
+      ? null
+      : bookQuery.data
+    : null;
+  const error = bookQuery.error
+    ? bookQuery.error instanceof Error
+      ? bookQuery.error.message
+      : "Unable to load book"
+    : !normalizedId
+      ? "Book not found."
+      : null;
   const displayBook = book ?? preview ?? null;
 
-  useEffect(() => {
-    if (!normalizedId) {
-      setBook(null);
-      return;
-    }
+  const author = book?.authors[0];
+  const relatedQuery = useQuery({
+    queryKey: catalogQueryKeys.openLibrary.relatedByAuthor(
+      author ?? "",
+      normalizedId ?? "",
+    ),
+    queryFn: async () => {
+      const items = await searchBooks(author!);
+      return items.filter((item) => item.id !== normalizedId).slice(0, 10);
+    },
+    enabled: Boolean(author && normalizedId),
+  });
 
-    let cancelled = false;
-    setBook(undefined);
-    setError(null);
-
-    getWorkDetails(normalizedId)
-      .then((details) => {
-        if (!cancelled) {
-          setBook(details);
-        }
-      })
-      .catch((cause: unknown) => {
-        if (!cancelled) {
-          setError(cause instanceof Error ? cause.message : "Unable to load book");
-          setBook(null);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [normalizedId]);
-
-  useEffect(() => {
-    const author = book?.authors[0];
-    if (!author || !normalizedId) {
-      setRelated([]);
-      return;
-    }
-
-    let cancelled = false;
-    searchBooks(author)
-      .then((items) => {
-        if (!cancelled) {
-          setRelated(items.filter((item) => item.id !== normalizedId).slice(0, 10));
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setRelated([]);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [book?.authors, normalizedId]);
+  const related = relatedQuery.data ?? [];
 
   if (book === undefined && !preview) {
     return (

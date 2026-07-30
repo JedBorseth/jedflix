@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { CastCard } from "./CastCard";
 import { PosterRowSkeleton } from "@/components/ui/skeleton";
-import type { CastMember, MediaType } from "@/lib/types";
+import { catalogQueryKeys } from "@/lib/queryClient";
+import type { MediaType } from "@/lib/types";
 import { getMediaCredits } from "@/lib/tmdb";
 
 type CastRowProps = {
@@ -10,31 +11,12 @@ type CastRowProps = {
 };
 
 export function CastRow({ mediaType, mediaId }: CastRowProps) {
-  const [cast, setCast] = useState<CastMember[]>();
-  const [error, setError] = useState<string | null>(null);
+  const castQuery = useQuery({
+    queryKey: catalogQueryKeys.tmdb.credits(mediaType, mediaId),
+    queryFn: () => getMediaCredits(mediaType, mediaId),
+  });
 
-  useEffect(() => {
-    let cancelled = false;
-    setCast(undefined);
-    setError(null);
-
-    getMediaCredits(mediaType, mediaId)
-      .then((members) => {
-        if (!cancelled) {
-          setCast(members);
-        }
-      })
-      .catch((cause: unknown) => {
-        if (!cancelled) {
-          setError(cause instanceof Error ? cause.message : "Unable to load cast");
-          setCast([]);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [mediaId, mediaType]);
+  const cast = castQuery.data;
 
   if (cast === undefined) {
     return (
@@ -45,7 +27,7 @@ export function CastRow({ mediaType, mediaId }: CastRowProps) {
     );
   }
 
-  if (error || cast.length === 0) {
+  if (castQuery.isError || cast.length === 0) {
     return null;
   }
 

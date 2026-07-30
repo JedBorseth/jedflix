@@ -86,11 +86,21 @@ const getSimilarMedia = mock(
   (_mediaType: "movie" | "tv", _mediaId: number) => Promise.resolve<MediaItem[]>([]),
 );
 
+const getMediaCredits = mock((_mediaType: "movie" | "tv", _mediaId: number) =>
+  Promise.resolve([]),
+);
+const getWatchPath = mock(
+  (mediaType: "movie" | "tv", mediaId: number) => `/watch/${mediaType}/${mediaId}`,
+);
+
 mock.module("@/lib/tmdb", () => ({
   getMediaDetails,
   getSimilarMedia,
+  getMediaCredits,
+  getWatchPath,
 }));
 
+import { withQueryClient } from "@/test/queryTestUtils";
 import { MovieDetailPage } from "./MovieDetailPage";
 
 afterEach(() => {
@@ -148,7 +158,7 @@ function renderDetailPage(options?: {
     },
   );
 
-  const view = render(<RouterProvider router={router} />);
+  const view = render(withQueryClient(<RouterProvider router={router} />));
   return { router, ...view };
 }
 
@@ -190,7 +200,7 @@ test("clicking More Like This keeps a single poster-expand name during rerender"
   expect(similarPoster?.style.viewTransitionName).toBe(POSTER_VIEW_TRANSITION_NAME);
 
   await act(async () => {
-    rerender(<RouterProvider router={router} />);
+    rerender(withQueryClient(<RouterProvider router={router} />));
   });
 
   expect(countPosterTransitionNames()).toBe(1);
@@ -238,7 +248,7 @@ test("second similar-title navigation keeps one poster-expand name after route c
     },
   );
 
-  render(<RouterProvider router={router} />);
+  render(withQueryClient(<RouterProvider router={router} />));
 
   await waitFor(() => {
     expect(screen.getByRole("link", { name: /Toy Story 3/i })).toBeInTheDocument();

@@ -1,47 +1,43 @@
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
 import { Link } from "react-router-dom";
-import { useQuery } from "convex/react";
+import { useQuery as useConvexQuery } from "convex/react";
+import { useQuery } from "@tanstack/react-query";
 import { api } from "@convex/_generated/api";
 import { Navbar } from "@/components/layout/Navbar";
 import { MovieCard } from "@/components/browse/MovieCard";
 import { PosterGridSkeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Authenticated, Unauthenticated } from "convex/react";
-import type { MediaItem } from "@/lib/types";
+import { catalogQueryKeys } from "@/lib/queryClient";
 import { getMediaDetailsByIds } from "@/lib/tmdb";
 
 export function MyListPage() {
-  const savedList = useQuery(api.myList.getForUser);
-  const [movies, setMovies] = useState<MediaItem[]>();
-  const [error, setError] = useState<string | null>(null);
+  const savedList = useConvexQuery(api.myList.getForUser);
 
-  useEffect(() => {
-    if (!savedList) {
-      setMovies(undefined);
-      return;
-    }
+  const savedIds = useMemo(
+    () =>
+      (savedList ?? []).map((entry) => ({
+        mediaType: entry.mediaType,
+        movieId: entry.movieId,
+      })),
+    [savedList],
+  );
 
-    let cancelled = false;
-    setMovies(undefined);
-    setError(null);
+  const moviesQuery = useQuery({
+    queryKey: catalogQueryKeys.tmdb.detailsByIds(savedIds),
+    queryFn: () => getMediaDetailsByIds(savedIds),
+    enabled: savedList !== undefined && savedIds.length > 0,
+  });
 
-    getMediaDetailsByIds(savedList)
-      .then((items) => {
-        if (!cancelled) {
-          setMovies(items);
-        }
-      })
-      .catch((cause: unknown) => {
-        if (!cancelled) {
-          setError(cause instanceof Error ? cause.message : "Unable to load your titles");
-          setMovies([]);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [savedList]);
+  const movies =
+    savedList !== undefined && savedList.length === 0
+      ? []
+      : moviesQuery.data;
+  const error = moviesQuery.error
+    ? moviesQuery.error instanceof Error
+      ? moviesQuery.error.message
+      : "Unable to load your titles"
+    : null;
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">

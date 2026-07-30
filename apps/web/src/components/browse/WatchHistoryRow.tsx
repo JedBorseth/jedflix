@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "convex/react";
+import { useMemo } from "react";
+import { useQuery as useConvexQuery } from "convex/react";
+import { useQuery } from "@tanstack/react-query";
 import { api } from "@convex/_generated/api";
 import { MovieCard } from "@/components/browse/MovieCard";
 import { ContinueWatchingCard } from "@/components/browse/ContinueWatchingCard";
 import { PosterRowSkeleton } from "@/components/ui/skeleton";
+import { catalogQueryKeys } from "@/lib/queryClient";
 import { getMediaDetailsByIds } from "@/lib/tmdb";
-import type { MediaItem } from "@/lib/types";
 import { getWatchHistoryItemKey } from "@/lib/watchHistoryKeys";
 import {
   buildContinueWatchingItems,
@@ -20,37 +21,29 @@ type WatchHistoryRowProps = {
 };
 
 export function WatchHistoryRow({ title, mode }: WatchHistoryRowProps) {
-  const history = useQuery(api.watchHistory.getForUser);
-  const [mediaItems, setMediaItems] = useState<MediaItem[]>();
-  const [error, setError] = useState<string | null>(null);
+  const history = useConvexQuery(api.watchHistory.getForUser);
 
-  useEffect(() => {
-    if (!history || history.length === 0) {
-      setMediaItems([]);
-      return;
+  const historyIds = useMemo(
+    () =>
+      (history ?? []).map((entry) => ({
+        mediaType: entry.mediaType,
+        movieId: entry.movieId,
+      })),
+    [history],
+  );
+
+  const mediaQuery = useQuery({
+    queryKey: catalogQueryKeys.tmdb.detailsByIds(historyIds),
+    queryFn: () => getMediaDetailsByIds(historyIds),
+    enabled: history !== undefined && historyIds.length > 0,
+  });
+
+  const mediaItems = useMemo(() => {
+    if (history !== undefined && historyIds.length === 0) {
+      return [];
     }
-
-    let cancelled = false;
-    setMediaItems(undefined);
-    setError(null);
-
-    getMediaDetailsByIds(history)
-      .then((items) => {
-        if (!cancelled) {
-          setMediaItems(items);
-        }
-      })
-      .catch((cause: unknown) => {
-        if (!cancelled) {
-          setError(cause instanceof Error ? cause.message : "Unable to load titles");
-          setMediaItems([]);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [history]);
+    return mediaQuery.data;
+  }, [history, historyIds.length, mediaQuery.data]);
 
   const historyRecords: WatchHistoryRecord[] = useMemo(
     () =>
@@ -89,7 +82,7 @@ export function WatchHistoryRow({ title, mode }: WatchHistoryRowProps) {
     );
   }
 
-  if (error || items.length === 0) {
+  if (mediaQuery.isError || items.length === 0) {
     return null;
   }
 

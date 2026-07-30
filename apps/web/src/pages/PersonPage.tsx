@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
 import { FilmographyRow } from "@/components/browse/FilmographyRow";
 import { KnownForRow } from "@/components/browse/KnownForRow";
@@ -6,7 +7,7 @@ import { AppLink } from "@/components/layout/AppLink";
 import { Navbar } from "@/components/layout/Navbar";
 import { Button } from "@/components/ui/button";
 import { DetailPageSkeleton } from "@/components/ui/skeleton";
-import type { PersonDetails } from "@/lib/types";
+import { catalogQueryKeys } from "@/lib/queryClient";
 import { getPersonDetails } from "@/lib/tmdb";
 
 const BIO_PREVIEW_LENGTH = 320;
@@ -48,36 +49,25 @@ function PersonBiography({ biography }: { biography: string }) {
 export function PersonPage() {
   const { personId } = useParams<{ personId: string }>();
   const parsedPersonId = Number(personId);
-  const [person, setPerson] = useState<PersonDetails | null>();
-  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!Number.isFinite(parsedPersonId)) {
-      setPerson(null);
-      return;
-    }
+  const personQuery = useQuery({
+    queryKey: catalogQueryKeys.tmdb.person(parsedPersonId),
+    queryFn: () => getPersonDetails(parsedPersonId),
+    enabled: Number.isFinite(parsedPersonId),
+  });
 
-    let cancelled = false;
-    setPerson(undefined);
-    setError(null);
-
-    getPersonDetails(parsedPersonId)
-      .then((details) => {
-        if (!cancelled) {
-          setPerson(details);
-        }
-      })
-      .catch((cause: unknown) => {
-        if (!cancelled) {
-          setError(cause instanceof Error ? cause.message : "Unable to load person");
-          setPerson(null);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [parsedPersonId]);
+  const person = Number.isFinite(parsedPersonId)
+    ? personQuery.isError
+      ? null
+      : personQuery.data
+    : null;
+  const error = personQuery.error
+    ? personQuery.error instanceof Error
+      ? personQuery.error.message
+      : "Unable to load person"
+    : !Number.isFinite(parsedPersonId)
+      ? "Person not found."
+      : null;
 
   if (person === undefined) {
     return (

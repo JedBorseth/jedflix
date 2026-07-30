@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { AuthorCard } from "@/components/browse/AuthorCard";
 import { BookCard } from "@/components/browse/BookCard";
@@ -6,83 +6,56 @@ import { MovieCard } from "@/components/browse/MovieCard";
 import { PersonCard } from "@/components/browse/PersonCard";
 import { Navbar } from "@/components/layout/Navbar";
 import { PosterGridSkeleton } from "@/components/ui/skeleton";
-import type { AuthorSummary, BookItem } from "@/lib/openlibrary";
 import { searchBooksAll } from "@/lib/openlibrary";
-import type { MediaItem, PersonSummary } from "@/lib/types";
+import { catalogQueryKeys } from "@/lib/queryClient";
 import { searchAll } from "@/lib/tmdb";
 
 export function SearchPage() {
   const [searchParams] = useSearchParams();
   const query = searchParams.get("q")?.trim() ?? "";
   const isBooksSearch = searchParams.get("type") === "books";
-  const [mediaResults, setMediaResults] = useState<MediaItem[]>();
-  const [peopleResults, setPeopleResults] = useState<PersonSummary[]>();
-  const [bookResults, setBookResults] = useState<BookItem[]>();
-  const [authorResults, setAuthorResults] = useState<AuthorSummary[]>();
-  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!query) {
-      setMediaResults([]);
-      setPeopleResults([]);
-      setBookResults([]);
-      setAuthorResults([]);
-      return;
-    }
+  const booksQuery = useQuery({
+    queryKey: catalogQueryKeys.openLibrary.search(query),
+    queryFn: () => searchBooksAll(query),
+    enabled: Boolean(query) && isBooksSearch,
+  });
 
-    let cancelled = false;
-    setError(null);
+  const mediaQuery = useQuery({
+    queryKey: catalogQueryKeys.tmdb.search(query),
+    queryFn: () => searchAll(query),
+    enabled: Boolean(query) && !isBooksSearch,
+  });
 
-    if (isBooksSearch) {
-      setMediaResults([]);
-      setPeopleResults([]);
-      setBookResults(undefined);
-      setAuthorResults(undefined);
+  const activeQuery = isBooksSearch ? booksQuery : mediaQuery;
+  const error = activeQuery.error
+    ? activeQuery.error instanceof Error
+      ? activeQuery.error.message
+      : "Unable to search"
+    : null;
 
-      searchBooksAll(query)
-        .then(({ books, authors }) => {
-          if (!cancelled) {
-            setBookResults(books);
-            setAuthorResults(authors);
-          }
-        })
-        .catch((cause: unknown) => {
-          if (!cancelled) {
-            setError(cause instanceof Error ? cause.message : "Unable to search");
-            setBookResults([]);
-            setAuthorResults([]);
-          }
-        });
-    } else {
-      setBookResults([]);
-      setAuthorResults([]);
-      setMediaResults(undefined);
-      setPeopleResults(undefined);
+  const bookResults = !query
+    ? []
+    : isBooksSearch
+      ? booksQuery.data?.books
+      : [];
+  const authorResults = !query
+    ? []
+    : isBooksSearch
+      ? booksQuery.data?.authors
+      : [];
+  const mediaResults = !query
+    ? []
+    : !isBooksSearch
+      ? mediaQuery.data?.media
+      : [];
+  const peopleResults = !query
+    ? []
+    : !isBooksSearch
+      ? mediaQuery.data?.people
+      : [];
 
-      searchAll(query)
-        .then(({ media, people }) => {
-          if (!cancelled) {
-            setMediaResults(media);
-            setPeopleResults(people);
-          }
-        })
-        .catch((cause: unknown) => {
-          if (!cancelled) {
-            setError(cause instanceof Error ? cause.message : "Unable to search");
-            setMediaResults([]);
-            setPeopleResults([]);
-          }
-        });
-    }
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isBooksSearch, query]);
-
-  const isLoading = isBooksSearch
-    ? bookResults === undefined || authorResults === undefined
-    : mediaResults === undefined || peopleResults === undefined;
+  const isLoading = Boolean(query) && activeQuery.data === undefined && !activeQuery.isError;
   const hasResults = isBooksSearch
     ? (bookResults?.length ?? 0) > 0 || (authorResults?.length ?? 0) > 0
     : (mediaResults?.length ?? 0) > 0 || (peopleResults?.length ?? 0) > 0;

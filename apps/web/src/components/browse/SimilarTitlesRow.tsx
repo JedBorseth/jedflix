@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { MovieCard } from "./MovieCard";
 import { PosterRowSkeleton } from "@/components/ui/skeleton";
-import type { MediaItem, MediaType } from "@/lib/types";
+import { catalogQueryKeys } from "@/lib/queryClient";
+import type { MediaType } from "@/lib/types";
 import { getSimilarMedia } from "@/lib/tmdb";
 
 type SimilarTitlesRowProps = {
@@ -10,32 +11,13 @@ type SimilarTitlesRowProps = {
 };
 
 export function SimilarTitlesRow({ mediaType, mediaId }: SimilarTitlesRowProps) {
-  const [titles, setTitles] = useState<MediaItem[]>();
-  const [error, setError] = useState<string | null>(null);
   const rowTitle = mediaType === "movie" ? "More Like This" : "Similar Shows";
+  const titlesQuery = useQuery({
+    queryKey: catalogQueryKeys.tmdb.similar(mediaType, mediaId),
+    queryFn: () => getSimilarMedia(mediaType, mediaId),
+  });
 
-  useEffect(() => {
-    let cancelled = false;
-    setTitles(undefined);
-    setError(null);
-
-    getSimilarMedia(mediaType, mediaId)
-      .then((items) => {
-        if (!cancelled) {
-          setTitles(items);
-        }
-      })
-      .catch((cause: unknown) => {
-        if (!cancelled) {
-          setError(cause instanceof Error ? cause.message : "Unable to load suggestions");
-          setTitles([]);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [mediaId, mediaType]);
+  const titles = titlesQuery.data;
 
   if (titles === undefined) {
     return (
@@ -46,11 +28,7 @@ export function SimilarTitlesRow({ mediaType, mediaId }: SimilarTitlesRowProps) 
     );
   }
 
-  if (error) {
-    return null;
-  }
-
-  if (titles.length === 0) {
+  if (titlesQuery.isError || titles.length === 0) {
     return null;
   }
 

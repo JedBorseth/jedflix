@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { MovieCard } from "./MovieCard";
 import { PosterRowSkeleton } from "@/components/ui/skeleton";
-import type { MediaItem, MediaType } from "@/lib/types";
-import { discoverMedia, peekDiscoverMedia } from "@/lib/tmdb";
+import { catalogQueryKeys } from "@/lib/queryClient";
+import type { MediaType } from "@/lib/types";
+import { discoverMedia } from "@/lib/tmdb";
 
 type MovieRowProps = {
   title: string;
@@ -11,39 +12,17 @@ type MovieRowProps = {
 };
 
 export function MovieRow({ title, mediaType, genreId }: MovieRowProps) {
-  const [movies, setMovies] = useState<MediaItem[] | undefined>(() =>
-    peekDiscoverMedia(mediaType, { genreId }),
-  );
-  const [error, setError] = useState<string | null>(null);
+  const moviesQuery = useQuery({
+    queryKey: catalogQueryKeys.tmdb.discover(mediaType, genreId),
+    queryFn: () => discoverMedia(mediaType, { genreId }),
+  });
 
-  useEffect(() => {
-    let cancelled = false;
-    const cached = peekDiscoverMedia(mediaType, { genreId });
-    if (cached) {
-      setMovies(cached);
-      setError(null);
-    } else {
-      setMovies(undefined);
-      setError(null);
-    }
-
-    discoverMedia(mediaType, { genreId })
-      .then((items) => {
-        if (!cancelled) {
-          setMovies(items);
-        }
-      })
-      .catch((cause: unknown) => {
-        if (!cancelled) {
-          setError(cause instanceof Error ? cause.message : "Unable to load titles");
-          setMovies([]);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [genreId, mediaType]);
+  const movies = moviesQuery.data;
+  const error = moviesQuery.error
+    ? moviesQuery.error instanceof Error
+      ? moviesQuery.error.message
+      : "Unable to load titles"
+    : null;
 
   if (movies === undefined) {
     return (

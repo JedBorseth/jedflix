@@ -1,11 +1,13 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useLocation, useParams } from "react-router-dom";
 import { AppLink } from "@/components/layout/AppLink";
 import { MediaPlayButton } from "@/components/browse/MediaPlayButton";
 import { Navbar } from "@/components/layout/Navbar";
 import { Button } from "@/components/ui/button";
-import type { MediaItem, MediaType } from "@/lib/types";
+import type { MediaType } from "@/lib/types";
 import { formatDuration } from "@/lib/types";
+import { catalogQueryKeys } from "@/lib/queryClient";
 import { getMediaDetails, getWatchPath } from "@/lib/tmdb";
 import {
   applyDetailPosterTransition,
@@ -36,8 +38,26 @@ export function MovieDetailPage({ mediaType }: MovieDetailPageProps) {
 
   const posterRef = useRef<HTMLImageElement>(null);
   const hasRegisteredTransitionTarget = useRef(false);
-  const [movie, setMovie] = useState<MediaItem | null>();
-  const [error, setError] = useState<string | null>(null);
+
+  const detailsQuery = useQuery({
+    queryKey: catalogQueryKeys.tmdb.details(mediaType, parsedMediaId),
+    queryFn: () => getMediaDetails(mediaType, parsedMediaId),
+    enabled: Number.isFinite(parsedMediaId),
+  });
+
+  const movie = Number.isFinite(parsedMediaId)
+    ? detailsQuery.isError
+      ? null
+      : detailsQuery.data
+    : null;
+  const error = detailsQuery.error
+    ? detailsQuery.error instanceof Error
+      ? detailsQuery.error.message
+      : "Unable to load title"
+    : !Number.isFinite(parsedMediaId)
+      ? "Title not found."
+      : null;
+
   const routeMovie =
     movie && movie.id === parsedMediaId && movie.mediaType === mediaType
       ? movie
@@ -56,7 +76,7 @@ export function MovieDetailPage({ mediaType }: MovieDetailPageProps) {
       posterRef.current,
       shouldApplyDetailPosterTransitionName(
         Boolean(preview),
-        movie,
+        movie ?? undefined,
         mediaType,
         parsedMediaId,
       ),
@@ -64,34 +84,6 @@ export function MovieDetailPage({ mediaType }: MovieDetailPageProps) {
       parsedMediaId,
     );
   }, [preview, movie, mediaType, parsedMediaId, displayMovie?.posterUrl]);
-
-  useEffect(() => {
-    if (!Number.isFinite(parsedMediaId)) {
-      setMovie(null);
-      return;
-    }
-
-    let cancelled = false;
-    setMovie(undefined);
-    setError(null);
-
-    getMediaDetails(mediaType, parsedMediaId)
-      .then((item) => {
-        if (!cancelled) {
-          setMovie(item);
-        }
-      })
-      .catch((cause: unknown) => {
-        if (!cancelled) {
-          setError(cause instanceof Error ? cause.message : "Unable to load title");
-          setMovie(null);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [mediaType, parsedMediaId]);
 
   if (movie === undefined && !preview) {
     return (
