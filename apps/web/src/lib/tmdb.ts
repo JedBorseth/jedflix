@@ -17,6 +17,9 @@ export const {
   getExternalIds,
   getTvSeasons,
   getTvSeasonEpisodes,
+  peekTrendingMedia,
+  peekDiscoverMedia,
+  clearTmdbSessionCache,
 } = client;
 
 export {

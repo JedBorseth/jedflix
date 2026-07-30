@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { MovieCard } from "./MovieCard";
 import { PosterRowSkeleton } from "@/components/ui/skeleton";
 import type { MediaItem, MediaType } from "@/lib/types";
-import { discoverMedia } from "@/lib/tmdb";
+import { discoverMedia, peekDiscoverMedia } from "@/lib/tmdb";
 
 type MovieRowProps = {
   title: string;
@@ -11,13 +11,21 @@ type MovieRowProps = {
 };
 
 export function MovieRow({ title, mediaType, genreId }: MovieRowProps) {
-  const [movies, setMovies] = useState<MediaItem[]>();
+  const [movies, setMovies] = useState<MediaItem[] | undefined>(() =>
+    peekDiscoverMedia(mediaType, { genreId }),
+  );
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    setMovies(undefined);
-    setError(null);
+    const cached = peekDiscoverMedia(mediaType, { genreId });
+    if (cached) {
+      setMovies(cached);
+      setError(null);
+    } else {
+      setMovies(undefined);
+      setError(null);
+    }
 
     discoverMedia(mediaType, { genreId })
       .then((items) => {

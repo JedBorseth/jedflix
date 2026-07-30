@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import {
+  clearTmdbSessionCache,
   discoverMedia,
   getMediaCredits,
   getMediaDetailPath,
@@ -7,6 +8,9 @@ import {
   getPersonDetails,
   getPersonPath,
   getSimilarMedia,
+  getTrendingMedia,
+  peekDiscoverMedia,
+  peekTrendingMedia,
   searchAll,
   searchMedia,
 } from "./tmdb";
@@ -27,10 +31,12 @@ describe("tmdb", () => {
 
   beforeEach(() => {
     originalFetch = globalThis.fetch;
+    clearTmdbSessionCache();
   });
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+    clearTmdbSessionCache();
   });
 
   test("getMediaDetailPath routes movies and shows separately", () => {
@@ -455,5 +461,79 @@ describe("tmdb", () => {
     globalThis.fetch = mockFetch({ status_message: "Invalid API key" }, 401);
 
     await expect(searchMedia("anything")).rejects.toThrow("TMDB request failed: 401");
+  });
+
+  test("session cache reuses TMDB responses within the same session", async () => {
+    const fetchMock = mockFetch({
+      results: [
+        {
+          id: 1,
+          media_type: "movie",
+          title: "Cached Movie",
+          overview: "Overview",
+          poster_path: "/poster.jpg",
+          backdrop_path: "/backdrop.jpg",
+          release_date: "2024-01-01",
+          vote_average: 8,
+        },
+      ],
+    });
+    globalThis.fetch = fetchMock;
+
+    const first = await getTrendingMedia();
+    const second = await getTrendingMedia();
+
+    expect(first).toHaveLength(1);
+    expect(second).toEqual(first);
+    expect(fetchMock.mock.calls).toHaveLength(1);
+    expect(peekTrendingMedia()?.[0]?.title).toBe("Cached Movie");
+  });
+
+  test("session cache peeks discover results without refetching", async () => {
+    const fetchMock = mockFetch({
+      results: [
+        {
+          id: 28,
+          title: "Action Hit",
+          overview: "Overview",
+          poster_path: "/a.jpg",
+          backdrop_path: "/b.jpg",
+          release_date: "2023-06-01",
+          vote_average: 7.1,
+        },
+      ],
+    });
+    globalThis.fetch = fetchMock;
+
+    await discoverMedia("movie", { genreId: 28 });
+    expect(peekDiscoverMedia("movie", { genreId: 28 })?.[0]?.title).toBe("Action Hit");
+
+    await discoverMedia("movie", { genreId: 28 });
+    expect(fetchMock.mock.calls).toHaveLength(1);
+  });
+
+  test("failed TMDB requests are not cached", async () => {
+    const failing = mockFetch({ status_message: "boom" }, 500);
+    globalThis.fetch = failing;
+
+    await expect(discoverMedia("movie")).rejects.toThrow("TMDB request failed: 500");
+    expect(peekDiscoverMedia("movie")).toBeUndefined();
+
+    globalThis.fetch = mockFetch({
+      results: [
+        {
+          id: 2,
+          title: "Recovered",
+          overview: "Overview",
+          poster_path: "/p.jpg",
+          backdrop_path: "/d.jpg",
+          release_date: "2022-01-01",
+          vote_average: 6,
+        },
+      ],
+    });
+
+    const recovered = await discoverMedia("movie");
+    expect(recovered[0]?.title).toBe("Recovered");
   });
 });

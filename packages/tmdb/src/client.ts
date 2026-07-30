@@ -102,6 +102,14 @@ type TmdbShowDetails = TmdbListItem & {
 
 type FetchOptions = Record<string, string | number | boolean | undefined>;
 
+type TmdbSessionCacheEntry = {
+  promise: Promise<unknown>;
+  value?: unknown;
+};
+
+/** In-memory TMDB JSON cache for the current browser/app session (page lifetime). */
+const tmdbSessionCache = new Map<string, TmdbSessionCacheEntry>();
+
 export type TmdbClientConfig = {
   apiKey: string;
 };
@@ -119,12 +127,32 @@ export type TmdbClient = {
   getExternalIds: typeof getExternalIds;
   getTvSeasons: typeof getTvSeasons;
   getTvSeasonEpisodes: typeof getTvSeasonEpisodes;
+  peekTrendingMedia: typeof peekTrendingMedia;
+  peekDiscoverMedia: typeof peekDiscoverMedia;
+  clearTmdbSessionCache: typeof clearTmdbSessionCache;
 };
 
 let configuredApiKey = "";
 
 export function configureTmdb(config: TmdbClientConfig) {
   configuredApiKey = config.apiKey;
+}
+
+/** Clears the in-memory TMDB session cache (useful in tests). */
+export function clearTmdbSessionCache() {
+  tmdbSessionCache.clear();
+}
+
+/**
+ * Returns a previously resolved TMDB JSON payload for this session, if any.
+ * Used by browse UI to hydrate without a loading flash after route remounts.
+ */
+export function peekTmdbSessionCache<T>(
+  path: string,
+  options: FetchOptions = {},
+): T | undefined {
+  const entry = tmdbSessionCache.get(tmdbCacheKey(path, options));
+  return entry && "value" in entry ? (entry.value as T) : undefined;
 }
 
 export function createTmdbClient(config: TmdbClientConfig): TmdbClient {
@@ -142,6 +170,9 @@ export function createTmdbClient(config: TmdbClientConfig): TmdbClient {
     getExternalIds,
     getTvSeasons,
     getTvSeasonEpisodes,
+    peekTrendingMedia,
+    peekDiscoverMedia,
+    clearTmdbSessionCache,
   };
 }
 
@@ -181,11 +212,48 @@ export const mediaRows = {
 /** How many movie/TV genre rows to surface on the mixed home browse page. */
 export const HOME_ROW_LIMIT = 5;
 
-export async function getTrendingMedia(): Promise<MediaItem[]> {
-  const data = await tmdbFetch<TmdbListResponse<TmdbListItem>>("/trending/all/week");
+function normalizeListResponse(
+  data: TmdbListResponse<TmdbListItem>,
+  fallbackMediaType?: MediaType,
+): MediaItem[] {
   return data.results
-    .map((item) => normalizeMediaItem(item))
+    .map((item) => normalizeMediaItem(item, fallbackMediaType))
     .filter((item): item is MediaItem => item !== null);
+}
+
+const TRENDING_PATH = "/trending/all/week";
+
+function discoverFetchOptions(genreId?: number): FetchOptions {
+  return {
+    include_adult: false,
+    language: "en-US",
+    page: 1,
+    sort_by: "popularity.desc",
+    with_genres: genreId,
+  };
+}
+
+/** Sync read of cached trending titles for this session (no network). */
+export function peekTrendingMedia(): MediaItem[] | undefined {
+  const data = peekTmdbSessionCache<TmdbListResponse<TmdbListItem>>(TRENDING_PATH);
+  return data ? normalizeListResponse(data) : undefined;
+}
+
+/** Sync read of cached discover titles for this session (no network). */
+export function peekDiscoverMedia(
+  mediaType: MediaType,
+  options: { genreId?: number } = {},
+): MediaItem[] | undefined {
+  const data = peekTmdbSessionCache<TmdbListResponse<TmdbListItem>>(
+    `/discover/${mediaType}`,
+    discoverFetchOptions(options.genreId),
+  );
+  return data ? normalizeListResponse(data, mediaType) : undefined;
+}
+
+export async function getTrendingMedia(): Promise<MediaItem[]> {
+  const data = await tmdbFetch<TmdbListResponse<TmdbListItem>>(TRENDING_PATH);
+  return normalizeListResponse(data);
 }
 
 export async function discoverMedia(
@@ -198,18 +266,10 @@ export async function discoverMedia(
 
   const data = await tmdbFetch<TmdbListResponse<TmdbListItem>>(
     `/discover/${mediaType}`,
-    {
-      include_adult: false,
-      language: "en-US",
-      page: 1,
-      sort_by: "popularity.desc",
-      with_genres: options.genreId,
-    },
+    discoverFetchOptions(options.genreId),
   );
 
-  return data.results
-    .map((item) => normalizeMediaItem(item, mediaType))
-    .filter((item): item is MediaItem => item !== null);
+  return normalizeListResponse(data, mediaType);
 }
 
 export async function searchMedia(
@@ -443,6 +503,12 @@ async function tmdbFetch<T>(path: string, options: FetchOptions = {}): Promise<T
     throw new Error("Missing TMDB API key");
   }
 
+  const cacheKey = tmdbCacheKey(path, options);
+  const cached = tmdbSessionCache.get(cacheKey);
+  if (cached) {
+    return cached.promise as Promise<T>;
+  }
+
   const url = new URL(`${TMDB_API_BASE}${path}`);
   url.searchParams.set("api_key", configuredApiKey);
 
@@ -452,12 +518,41 @@ async function tmdbFetch<T>(path: string, options: FetchOptions = {}): Promise<T
     }
   }
 
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`TMDB request failed: ${response.status}`);
-  }
+  const entry: TmdbSessionCacheEntry = {
+    promise: Promise.resolve(undefined as unknown as T),
+  };
 
-  return (await response.json()) as T;
+  const promise = (async (): Promise<T> => {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`TMDB request failed: ${response.status}`);
+    }
+
+    const data = (await response.json()) as T;
+    const current = tmdbSessionCache.get(cacheKey);
+    if (current === entry) {
+      entry.value = data;
+    }
+    return data;
+  })();
+
+  entry.promise = promise;
+  tmdbSessionCache.set(cacheKey, entry);
+  promise.catch(() => {
+    if (tmdbSessionCache.get(cacheKey) === entry) {
+      tmdbSessionCache.delete(cacheKey);
+    }
+  });
+
+  return promise;
+}
+
+function tmdbCacheKey(path: string, options: FetchOptions): string {
+  const parts = Object.entries(options)
+    .filter(([, value]) => value !== undefined)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => `${key}=${String(value)}`);
+  return parts.length > 0 ? `${path}?${parts.join("&")}` : path;
 }
 
 function normalizeMediaItem(

@@ -7,22 +7,43 @@ import { WatchHistoryRow } from "@/components/browse/WatchHistoryRow";
 import { Navbar } from "@/components/layout/Navbar";
 import { HeroBannerSkeleton } from "@/components/ui/skeleton";
 import type { MediaItem, MediaType } from "@/lib/types";
-import { discoverMedia, getTrendingMedia, HOME_ROW_LIMIT, mediaRows } from "@/lib/tmdb";
+import {
+  discoverMedia,
+  getTrendingMedia,
+  HOME_ROW_LIMIT,
+  mediaRows,
+  peekDiscoverMedia,
+  peekTrendingMedia,
+} from "@/lib/tmdb";
 
 type BrowsePageProps = {
   mediaType?: MediaType | "all";
 };
 
+function peekHeroMovie(mediaType: MediaType | "all"): MediaItem | undefined {
+  const items =
+    mediaType === "all" ? peekTrendingMedia() : peekDiscoverMedia(mediaType);
+  return items?.[0];
+}
+
 export function BrowsePage({ mediaType = "all" }: BrowsePageProps) {
-  const [heroMovie, setHeroMovie] = useState<MediaItem>();
+  const [heroMovie, setHeroMovie] = useState<MediaItem | undefined>(() =>
+    peekHeroMovie(mediaType),
+  );
   const [error, setError] = useState<string | null>(null);
   const pageTitle =
     mediaType === "movie" ? "Movies" : mediaType === "tv" ? "Shows" : "Home";
 
   useEffect(() => {
     let cancelled = false;
-    setHeroMovie(undefined);
-    setError(null);
+    const cached = peekHeroMovie(mediaType);
+    if (cached) {
+      setHeroMovie(cached);
+      setError(null);
+    } else {
+      setHeroMovie(undefined);
+      setError(null);
+    }
 
     const request =
       mediaType === "all" ? getTrendingMedia() : discoverMedia(mediaType);

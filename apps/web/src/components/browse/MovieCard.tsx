@@ -29,6 +29,8 @@ export function MovieCard({ movie }: MovieCardProps) {
           ref={posterRef}
           src={movie.posterUrl}
           alt={movie.title}
+          loading="lazy"
+          decoding="async"
           className="aspect-[2/3] w-full object-cover [contain:layout]"
         />
       </div>
