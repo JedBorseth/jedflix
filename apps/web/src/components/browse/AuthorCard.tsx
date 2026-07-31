@@ -1,4 +1,5 @@
 import { AppLink } from "@/components/layout/AppLink";
+import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
 import type { AuthorSummary } from "@/lib/openlibrary";
 import { getAuthorPath } from "@/lib/openlibrary";
 
@@ -14,8 +15,9 @@ export function AuthorCard({ author }: AuthorCardProps) {
       data-testid="author-card"
     >
       <div className="overflow-hidden rounded-md transition duration-300 group-hover:scale-105 group-hover:shadow-xl group-hover:shadow-black/50">
-        <img
+        <ProgressiveCoverImage
           src={author.photoUrl}
+          fullSrc={author.photoFullUrl}
           alt={author.name}
           className="aspect-[2/3] w-full object-cover"
           loading="lazy"

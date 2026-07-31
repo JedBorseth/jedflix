@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, useParams } from "react-router-dom";
 import { BookCard } from "@/components/browse/BookCard";
+import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
 import { AppLink } from "@/components/layout/AppLink";
 import { Navbar } from "@/components/layout/Navbar";
 import { Button } from "@/components/ui/button";
@@ -97,16 +98,18 @@ export function AudiobookDetailPage() {
     <div className="min-h-screen bg-zinc-950 text-white">
       <Navbar searchMode="books" />
       <section className="relative min-h-[60vh]">
-        <img
+        <ProgressiveCoverImage
           src={displayBook.coverUrl}
+          fullSrc={displayBook.coverFullUrl}
           alt=""
           className="absolute inset-0 h-full w-full object-cover blur-2xl"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/85 to-black/50" />
 
         <div className="pt-navbar relative z-10 mx-auto flex max-w-6xl flex-col gap-8 px-4 pb-16 md:flex-row md:items-start md:px-12">
-          <img
+          <ProgressiveCoverImage
             src={displayBook.coverUrl}
+            fullSrc={displayBook.coverFullUrl}
             alt={displayBook.title}
             className="mx-auto aspect-[2/3] h-auto w-56 shrink-0 self-start rounded-md object-cover shadow-2xl md:mx-0 md:w-64"
           />

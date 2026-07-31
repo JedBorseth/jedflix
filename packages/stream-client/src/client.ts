@@ -69,6 +69,8 @@ export type OpenLibraryBook = {
   title: string;
   description: string;
   coverUrl: string;
+  /** Full-resolution Open Library cover; upgrade from coverUrl when loaded. */
+  coverFullUrl?: string;
   authors: string[];
   authorKeys: string[];
   year: number | null;
@@ -80,6 +82,8 @@ export type OpenLibraryAuthorSummary = {
   id: string;
   name: string;
   photoUrl: string;
+  /** Full-resolution Open Library photo; upgrade from photoUrl when loaded. */
+  photoFullUrl?: string;
   topWork?: string;
   workCount?: number;
 };

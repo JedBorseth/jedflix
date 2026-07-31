@@ -86,8 +86,14 @@ func TestCoverAndAuthorProxyURLs(t *testing.T) {
 	if got := client.coverURL(12345); got != "/stream-api/api/v1/openlibrary/covers/b/id/12345.jpg" {
 		t.Fatalf("coverURL = %q", got)
 	}
+	if got := client.coverFullURL(12345); got != "https://covers.openlibrary.org/b/id/12345-L.jpg" {
+		t.Fatalf("coverFullURL = %q", got)
+	}
 	if got := client.authorPhotoURL("OL23919A", 99); got != "/stream-api/api/v1/openlibrary/covers/a/id/99.jpg" {
 		t.Fatalf("authorPhotoURL with id = %q", got)
+	}
+	if got := client.authorPhotoFullURL("OL23919A", 99); got != "https://covers.openlibrary.org/a/id/99-M.jpg" {
+		t.Fatalf("authorPhotoFullURL = %q", got)
 	}
 	if got := client.authorPhotoURL("OL23919A", 0); got != "/stream-api/api/v1/openlibrary/covers/a/olid/OL23919A.jpg" {
 		t.Fatalf("authorPhotoURL with olid = %q", got)

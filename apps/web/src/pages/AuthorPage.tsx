@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
 import { BookCard } from "@/components/browse/BookCard";
+import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
 import { AppLink } from "@/components/layout/AppLink";
 import { Navbar } from "@/components/layout/Navbar";
 import { Button } from "@/components/ui/button";
@@ -96,8 +97,9 @@ export function AuthorPage() {
       <Navbar searchMode="books" />
       <main className="pt-navbar mx-auto max-w-6xl px-4 pb-24 md:px-12 md:pb-16">
         <div className="mb-10 flex flex-col gap-8 md:flex-row">
-          <img
+          <ProgressiveCoverImage
             src={author.photoUrl}
+            fullSrc={author.photoFullUrl}
             alt={author.name}
             className="mx-auto w-48 shrink-0 rounded-md shadow-2xl md:mx-0 md:w-56"
           />

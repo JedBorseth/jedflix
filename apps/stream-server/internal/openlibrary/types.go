@@ -9,23 +9,25 @@ var (
 )
 
 type Book struct {
-	ID          string   `json:"id"`
-	Title       string   `json:"title"`
-	Description string   `json:"description"`
-	CoverURL    string   `json:"coverUrl"`
-	Authors     []string `json:"authors"`
-	AuthorKeys  []string `json:"authorKeys"`
-	Year        *int     `json:"year"`
-	PageCount   *int     `json:"pageCount"`
-	Subjects    []string `json:"subjects"`
+	ID           string   `json:"id"`
+	Title        string   `json:"title"`
+	Description  string   `json:"description"`
+	CoverURL     string   `json:"coverUrl"`
+	CoverFullURL string   `json:"coverFullUrl,omitempty"`
+	Authors      []string `json:"authors"`
+	AuthorKeys   []string `json:"authorKeys"`
+	Year         *int     `json:"year"`
+	PageCount    *int     `json:"pageCount"`
+	Subjects     []string `json:"subjects"`
 }
 
 type AuthorSummary struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	PhotoURL  string `json:"photoUrl"`
-	TopWork   string `json:"topWork,omitempty"`
-	WorkCount *int   `json:"workCount,omitempty"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	PhotoURL     string `json:"photoUrl"`
+	PhotoFullURL string `json:"photoFullUrl,omitempty"`
+	TopWork      string `json:"topWork,omitempty"`
+	WorkCount    *int   `json:"workCount,omitempty"`
 }
 
 type AuthorDetails struct {

@@ -388,11 +388,12 @@ func (c *Client) searchAuthors(ctx context.Context, query string, limit int) ([]
 			continue
 		}
 		authors = append(authors, AuthorSummary{
-			ID:        id,
-			Name:      name,
-			PhotoURL:  c.authorPhotoURL(id, 0),
-			TopWork:   strings.TrimSpace(doc.TopWork),
-			WorkCount: doc.WorkCount,
+			ID:           id,
+			Name:         name,
+			PhotoURL:     c.authorPhotoURL(id, 0),
+			PhotoFullURL: c.authorPhotoFullURL(id, 0),
+			TopWork:      strings.TrimSpace(doc.TopWork),
+			WorkCount:    doc.WorkCount,
 		})
 	}
 	return authors, nil
@@ -472,15 +473,16 @@ func (c *Client) fetchWorkDetails(ctx context.Context, workID string) (*Book, er
 	}
 
 	return &Book{
-		ID:          workID,
-		Title:       title,
-		Description: description,
-		CoverURL:    c.coverURL(coverID),
-		Authors:     authors,
-		AuthorKeys:  authorKeys,
-		Year:        year,
-		PageCount:   pageCountFromSearch(searchDoc),
-		Subjects:    subjects,
+		ID:           workID,
+		Title:        title,
+		Description:  description,
+		CoverURL:     c.coverURL(coverID),
+		CoverFullURL: c.coverFullURL(coverID),
+		Authors:      authors,
+		AuthorKeys:   authorKeys,
+		Year:         year,
+		PageCount:    pageCountFromSearch(searchDoc),
+		Subjects:     subjects,
 	}, nil
 }
 
@@ -512,10 +514,11 @@ func (c *Client) fetchAuthorDetails(ctx context.Context, authorID string) (*Auth
 	workCount := len(works)
 	return &AuthorDetails{
 		AuthorSummary: AuthorSummary{
-			ID:        authorID,
-			Name:      name,
-			PhotoURL:  c.authorPhotoURL(authorID, photoID),
-			WorkCount: &workCount,
+			ID:           authorID,
+			Name:         name,
+			PhotoURL:     c.authorPhotoURL(authorID, photoID),
+			PhotoFullURL: c.authorPhotoFullURL(authorID, photoID),
+			WorkCount:    &workCount,
 		},
 		Biography: biography,
 		BirthDate: strings.TrimSpace(author.BirthDate),
@@ -704,14 +707,15 @@ func (c *Client) normalizeSubjectWorks(works []subjectWork) []Book {
 			subjects = subjects[:8]
 		}
 		books = append(books, Book{
-			ID:          id,
-			Title:       title,
-			Description: description,
-			CoverURL:    c.coverURL(coverID),
-			Authors:     authors,
-			AuthorKeys:  authorKeys,
-			Year:        work.FirstPublishYear,
-			Subjects:    subjects,
+			ID:           id,
+			Title:        title,
+			Description:  description,
+			CoverURL:     c.coverURL(coverID),
+			CoverFullURL: c.coverFullURL(coverID),
+			Authors:      authors,
+			AuthorKeys:   authorKeys,
+			Year:         work.FirstPublishYear,
+			Subjects:     subjects,
 		})
 	}
 	return books
@@ -741,15 +745,16 @@ func (c *Client) normalizeSearchDocs(docs []searchDoc) []Book {
 			subjects = subjects[:8]
 		}
 		books = append(books, Book{
-			ID:          id,
-			Title:       title,
-			Description: strings.Join(authors, ", "),
-			CoverURL:    c.coverURL(coverID),
-			Authors:     authors,
-			AuthorKeys:  authorKeys,
-			Year:        doc.FirstPublishYear,
-			PageCount:   doc.NumberOfPagesMedian,
-			Subjects:    subjects,
+			ID:           id,
+			Title:        title,
+			Description:  strings.Join(authors, ", "),
+			CoverURL:     c.coverURL(coverID),
+			CoverFullURL: c.coverFullURL(coverID),
+			Authors:      authors,
+			AuthorKeys:   authorKeys,
+			Year:         doc.FirstPublishYear,
+			PageCount:    doc.NumberOfPagesMedian,
+			Subjects:     subjects,
 		})
 	}
 	return books
@@ -785,6 +790,13 @@ func (c *Client) coverURL(coverID int) string {
 	return fmt.Sprintf("%s/b/id/%d.jpg", c.coverPublicBase, coverID)
 }
 
+func (c *Client) coverFullURL(coverID int) string {
+	if coverID <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s/b/id/%d-L.jpg", c.coversBase, coverID)
+}
+
 func (c *Client) authorPhotoURL(authorID string, photoID int) string {
 	if photoID > 0 {
 		return fmt.Sprintf("%s/a/id/%d.jpg", c.coverPublicBase, photoID)
@@ -793,6 +805,16 @@ func (c *Client) authorPhotoURL(authorID string, photoID int) string {
 		return fallbackAuthor
 	}
 	return fmt.Sprintf("%s/a/olid/%s.jpg", c.coverPublicBase, authorID)
+}
+
+func (c *Client) authorPhotoFullURL(authorID string, photoID int) string {
+	if photoID > 0 {
+		return fmt.Sprintf("%s/a/id/%d-M.jpg", c.coversBase, photoID)
+	}
+	if authorID == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s/a/olid/%s-M.jpg", c.coversBase, authorID)
 }
 
 func extractText(value openLibraryText) string {

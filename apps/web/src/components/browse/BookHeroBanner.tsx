@@ -1,4 +1,5 @@
 import { AppLink } from "@/components/layout/AppLink";
+import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
 import { Button } from "@/components/ui/button";
 import type { BookItem } from "@/lib/openlibrary";
 import { getBookDetailPath } from "@/lib/openlibrary";
@@ -12,8 +13,9 @@ export function BookHeroBanner({ book }: BookHeroBannerProps) {
 
   return (
     <section className="relative h-[70vh] min-h-[420px] w-full overflow-hidden">
-      <img
+      <ProgressiveCoverImage
         src={book.coverUrl}
+        fullSrc={book.coverFullUrl}
         alt=""
         className="absolute inset-0 h-full w-full scale-110 object-cover blur-xl"
       />
@@ -21,8 +23,9 @@ export function BookHeroBanner({ book }: BookHeroBannerProps) {
       <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-transparent to-black/40" />
 
       <div className="pt-navbar relative z-10 flex h-full max-w-5xl items-end gap-8 px-4 pb-16 md:px-12">
-        <img
+        <ProgressiveCoverImage
           src={book.coverUrl}
+          fullSrc={book.coverFullUrl}
           alt={book.title}
           className="hidden aspect-[2/3] h-auto w-44 shrink-0 self-end rounded-md object-cover shadow-2xl md:block"
         />
