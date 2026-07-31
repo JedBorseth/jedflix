@@ -26,8 +26,10 @@ type Config struct {
 	ResolveTimeout         time.Duration
 	LetterboxdBaseURL      string
 	LetterboxdCacheTTL     time.Duration
-	OpenLibraryBaseURL     string
-	OpenLibraryCacheTTL    time.Duration
+	OpenLibraryBaseURL         string
+	OpenLibraryCacheTTL        time.Duration
+	OpenLibraryCoverPublicBase string
+	OpenLibraryCoversBaseURL   string
 }
 
 func Load() Config {
@@ -48,8 +50,10 @@ func Load() Config {
 		ResolveTimeout:         time.Duration(envInt("RESOLVE_TIMEOUT_SECONDS", 600)) * time.Second,
 		LetterboxdBaseURL:      strings.TrimRight(envOr("LETTERBOXD_BASE_URL", "https://letterboxd.com"), "/"),
 		LetterboxdCacheTTL:     envDuration("LETTERBOXD_CACHE_TTL", time.Hour),
-		OpenLibraryBaseURL:     strings.TrimRight(envOr("OPEN_LIBRARY_BASE_URL", "https://openlibrary.org"), "/"),
-		OpenLibraryCacheTTL:    envDuration("OPEN_LIBRARY_CACHE_TTL", 12*time.Hour),
+		OpenLibraryBaseURL:         strings.TrimRight(envOr("OPEN_LIBRARY_BASE_URL", "https://openlibrary.org"), "/"),
+		OpenLibraryCacheTTL:        envDuration("OPEN_LIBRARY_CACHE_TTL", 12*time.Hour),
+		OpenLibraryCoverPublicBase: strings.TrimRight(envOr("OPEN_LIBRARY_COVER_PUBLIC_BASE", "/stream-api/api/v1/openlibrary/covers"), "/"),
+		OpenLibraryCoversBaseURL:   strings.TrimRight(envOr("OPEN_LIBRARY_COVERS_BASE_URL", "https://covers.openlibrary.org"), "/"),
 	}
 	return cfg
 }

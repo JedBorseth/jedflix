@@ -9,5 +9,8 @@ services:
       MAX_VIDEO_SIZE_GB: "50"
       MIN_SEEDERS: "3"
       PREFER_INSTANT: "true"
+      OPEN_LIBRARY_BASE_URL: ${OPEN_LIBRARY_BASE_URL:-https://openlibrary.org}
+      OPEN_LIBRARY_CACHE_TTL: ${OPEN_LIBRARY_CACHE_TTL:-12h}
+      OPEN_LIBRARY_COVER_PUBLIC_BASE: ${OPEN_LIBRARY_COVER_PUBLIC_BASE:-/stream-api/api/v1/openlibrary/covers}
       CORS_ORIGINS: http://localhost:5173
       STREAM_SERVER_API_KEY: ${STREAM_SERVER_API_KEY:-}

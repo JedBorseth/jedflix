@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -55,6 +56,14 @@ func (s *Server) Router() http.Handler {
 	}))
 
 	r.Get("/health", s.handleHealth)
+
+	// Cover/photo proxy is public so <img> tags work without an API key.
+	// Upstream Open Library covers are already public; production still sits
+	// behind Caddy. Cached images follow the same TTL/eviction as book data.
+	r.Get("/api/v1/openlibrary/covers/b/id/{id}.jpg", s.handleOpenLibraryCover)
+	r.Get("/api/v1/openlibrary/covers/a/id/{id}.jpg", s.handleOpenLibraryAuthorPhotoID)
+	r.Get("/api/v1/openlibrary/covers/a/olid/{id}.jpg", s.handleOpenLibraryAuthorPhotoOLID)
+
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(s.authMiddleware)
 		r.Post("/sources", s.handleSources)
@@ -249,6 +258,63 @@ func (s *Server) handleOpenLibraryAuthor(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleOpenLibraryCover(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(chi.URLParam(r, "id"))
+	if err != nil || id <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid cover id"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	defer cancel()
+
+	data, contentType, fetchErr := s.openLibrary.GetCoverImage(ctx, id)
+	if fetchErr != nil {
+		writeOpenLibraryError(w, fetchErr)
+		return
+	}
+	writeImage(w, contentType, data)
+}
+
+func (s *Server) handleOpenLibraryAuthorPhotoID(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(chi.URLParam(r, "id"))
+	if err != nil || id <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid photo id"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	defer cancel()
+
+	data, contentType, fetchErr := s.openLibrary.GetAuthorPhotoByID(ctx, id)
+	if fetchErr != nil {
+		writeOpenLibraryError(w, fetchErr)
+		return
+	}
+	writeImage(w, contentType, data)
+}
+
+func (s *Server) handleOpenLibraryAuthorPhotoOLID(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	defer cancel()
+
+	data, contentType, fetchErr := s.openLibrary.GetAuthorPhotoByOLID(ctx, id)
+	if fetchErr != nil {
+		writeOpenLibraryError(w, fetchErr)
+		return
+	}
+	writeImage(w, contentType, data)
+}
+
+func writeImage(w http.ResponseWriter, contentType string, data []byte) {
+	if contentType == "" {
+		contentType = "image/jpeg"
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "public, max-age=43200") // 12h, matches OPEN_LIBRARY_CACHE_TTL default
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
 }
 
 func writeOpenLibraryError(w http.ResponseWriter, err error) {

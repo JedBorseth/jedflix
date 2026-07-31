@@ -17,16 +17,17 @@ import (
 )
 
 const (
-	defaultBaseURL     = "https://openlibrary.org"
-	defaultCoversBase  = "https://covers.openlibrary.org"
-	fallbackCover      = "https://placehold.co/500x750/18181b/a1a1aa?text=No+Cover"
-	fallbackAuthor     = "https://placehold.co/300x450/18181b/a1a1aa?text=No+Photo"
-	defaultUserAgent   = "JedFlix/1.0 (https://github.com/JedBorseth/jedflix)"
-	defaultLimit       = 24
-	minRequestGap      = 350 * time.Millisecond
-	searchFields       = "key,title,author_name,author_key,first_publish_year,cover_i,subject,number_of_pages_median"
-	maxDetailCacheSize = 500
-	maxAuthorCacheSize = 200
+	defaultBaseURL         = "https://openlibrary.org"
+	defaultCoversBase      = "https://covers.openlibrary.org"
+	defaultCoverPublicBase = "/stream-api/api/v1/openlibrary/covers"
+	fallbackCover          = "https://placehold.co/500x750/18181b/a1a1aa?text=No+Cover"
+	fallbackAuthor         = "https://placehold.co/300x450/18181b/a1a1aa?text=No+Photo"
+	defaultUserAgent       = "JedFlix/1.0 (https://github.com/JedBorseth/jedflix)"
+	defaultLimit           = 24
+	minRequestGap          = 350 * time.Millisecond
+	searchFields           = "key,title,author_name,author_key,first_publish_year,cover_i,subject,number_of_pages_median"
+	maxDetailCacheSize     = 500
+	maxAuthorCacheSize     = 200
 )
 
 var (
@@ -35,22 +36,24 @@ var (
 )
 
 type Client struct {
-	baseURL    string
-	coversBase string
-	userAgent  string
-	http       *http.Client
-	refreshTTL time.Duration
-	subjects   []SubjectRowConfig
+	baseURL         string
+	coversBase      string
+	coverPublicBase string
+	userAgent       string
+	http            *http.Client
+	refreshTTL      time.Duration
+	subjects        []SubjectRowConfig
 
-	mu           sync.Mutex
-	lastRequest  time.Time
-	catalogMu    sync.RWMutex
-	catalog      *BrowseResponse
-	refreshing   bool
-	refreshErr   error
-	detailCache  sync.Map // workID -> cachedBook
-	authorCache  sync.Map // authorID -> cachedAuthor
-	now          func() time.Time
+	mu            sync.Mutex
+	lastRequest   time.Time
+	catalogMu     sync.RWMutex
+	catalog       *BrowseResponse
+	refreshing    bool
+	refreshErr    error
+	detailCache   sync.Map // workID -> cachedBook
+	authorCache   sync.Map // authorID -> cachedAuthor
+	imageCache    sync.Map // imageKey -> cachedImage
+	now           func() time.Time
 }
 
 type cachedBook struct {
@@ -76,14 +79,24 @@ func NewClient(cfg config.Config) *Client {
 		ttl = 12 * time.Hour
 	}
 
+	coverPublicBase := strings.TrimRight(cfg.OpenLibraryCoverPublicBase, "/")
+	if coverPublicBase == "" {
+		coverPublicBase = defaultCoverPublicBase
+	}
+	coversBase := strings.TrimRight(cfg.OpenLibraryCoversBaseURL, "/")
+	if coversBase == "" {
+		coversBase = defaultCoversBase
+	}
+
 	return &Client{
-		baseURL:    baseURL,
-		coversBase: defaultCoversBase,
-		userAgent:  defaultUserAgent,
-		http:       httpClient,
-		refreshTTL: ttl,
-		subjects:   DefaultSubjectRows,
-		now:        time.Now,
+		baseURL:         baseURL,
+		coversBase:      coversBase,
+		coverPublicBase: coverPublicBase,
+		userAgent:       defaultUserAgent,
+		http:            httpClient,
+		refreshTTL:      ttl,
+		subjects:        DefaultSubjectRows,
+		now:             time.Now,
 	}
 }
 
@@ -154,6 +167,12 @@ func (c *Client) Refresh(ctx context.Context) error {
 	c.catalog = catalog
 	c.refreshErr = nil
 	c.catalogMu.Unlock()
+
+	warmBooks := append([]Book(nil), trending...)
+	for _, row := range rows {
+		warmBooks = append(warmBooks, row.Books...)
+	}
+	c.WarmImagesAsync(ctx, warmBooks, nil)
 	return nil
 }
 
@@ -198,6 +217,7 @@ func (c *Client) Search(ctx context.Context, query string) (*SearchResponse, err
 	if err != nil {
 		return nil, err
 	}
+	c.WarmImagesAsync(ctx, books, authors)
 	return &SearchResponse{Books: books, Authors: authors}, nil
 }
 
@@ -248,11 +268,13 @@ func (c *Client) GetAuthor(ctx context.Context, authorID string) (*AuthorDetails
 func (c *Client) storeBookDetail(id string, book Book) {
 	c.detailCache.Store(id, cachedBook{book: book, cachedAt: c.now()})
 	c.evictExpired(&c.detailCache, c.refreshTTL, maxDetailCacheSize)
+	c.WarmImagesAsync(context.Background(), []Book{book}, nil)
 }
 
 func (c *Client) storeAuthorDetail(id string, author AuthorDetails) {
 	c.authorCache.Store(id, cachedAuthor{author: author, cachedAt: c.now()})
 	c.evictExpired(&c.authorCache, c.refreshTTL, maxAuthorCacheSize)
+	c.WarmImagesAsync(context.Background(), author.Works, []AuthorSummary{author.AuthorSummary})
 }
 
 func (c *Client) evictExpired(cache *sync.Map, ttl time.Duration, maxSize int) {
@@ -317,7 +339,7 @@ func (c *Client) fetchTrending(ctx context.Context, limit int) ([]Book, error) {
 	}, &payload); err != nil {
 		return nil, err
 	}
-	return normalizeSearchDocs(payload.Works), nil
+	return c.normalizeSearchDocs(payload.Works), nil
 }
 
 func (c *Client) fetchSubject(ctx context.Context, subject string, limit int) ([]Book, error) {
@@ -330,7 +352,7 @@ func (c *Client) fetchSubject(ctx context.Context, subject string, limit int) ([
 	}, &payload); err != nil {
 		return nil, err
 	}
-	return normalizeSubjectWorks(payload.Works), nil
+	return c.normalizeSubjectWorks(payload.Works), nil
 }
 
 func (c *Client) searchBooks(ctx context.Context, query string, limit int) ([]Book, error) {
@@ -344,7 +366,7 @@ func (c *Client) searchBooks(ctx context.Context, query string, limit int) ([]Bo
 	}, &payload); err != nil {
 		return nil, err
 	}
-	return normalizeSearchDocs(payload.Docs), nil
+	return c.normalizeSearchDocs(payload.Docs), nil
 }
 
 func (c *Client) searchAuthors(ctx context.Context, query string, limit int) ([]AuthorSummary, error) {
@@ -368,7 +390,7 @@ func (c *Client) searchAuthors(ctx context.Context, query string, limit int) ([]
 		authors = append(authors, AuthorSummary{
 			ID:        id,
 			Name:      name,
-			PhotoURL:  authorPhotoURL(id, 0),
+			PhotoURL:  c.authorPhotoURL(id, 0),
 			TopWork:   strings.TrimSpace(doc.TopWork),
 			WorkCount: doc.WorkCount,
 		})
@@ -453,7 +475,7 @@ func (c *Client) fetchWorkDetails(ctx context.Context, workID string) (*Book, er
 		ID:          workID,
 		Title:       title,
 		Description: description,
-		CoverURL:    coverURL(coverID),
+		CoverURL:    c.coverURL(coverID),
 		Authors:     authors,
 		AuthorKeys:  authorKeys,
 		Year:        year,
@@ -492,7 +514,7 @@ func (c *Client) fetchAuthorDetails(ctx context.Context, authorID string) (*Auth
 		AuthorSummary: AuthorSummary{
 			ID:        authorID,
 			Name:      name,
-			PhotoURL:  authorPhotoURL(authorID, photoID),
+			PhotoURL:  c.authorPhotoURL(authorID, photoID),
 			WorkCount: &workCount,
 		},
 		Biography: biography,
@@ -512,7 +534,7 @@ func (c *Client) searchBooksByAuthor(ctx context.Context, authorID string, limit
 	}, &payload); err != nil {
 		return nil, err
 	}
-	return normalizeSearchDocs(payload.Docs), nil
+	return c.normalizeSearchDocs(payload.Docs), nil
 }
 
 func (c *Client) fetchAuthorName(ctx context.Context, authorID string) (string, error) {
@@ -654,7 +676,7 @@ type authorResponse struct {
 	Photos    []int           `json:"photos"`
 }
 
-func normalizeSubjectWorks(works []subjectWork) []Book {
+func (c *Client) normalizeSubjectWorks(works []subjectWork) []Book {
 	books := make([]Book, 0, len(works))
 	for _, work := range works {
 		id := NormalizeWorkID(work.Key)
@@ -685,7 +707,7 @@ func normalizeSubjectWorks(works []subjectWork) []Book {
 			ID:          id,
 			Title:       title,
 			Description: description,
-			CoverURL:    coverURL(coverID),
+			CoverURL:    c.coverURL(coverID),
 			Authors:     authors,
 			AuthorKeys:  authorKeys,
 			Year:        work.FirstPublishYear,
@@ -695,7 +717,7 @@ func normalizeSubjectWorks(works []subjectWork) []Book {
 	return books
 }
 
-func normalizeSearchDocs(docs []searchDoc) []Book {
+func (c *Client) normalizeSearchDocs(docs []searchDoc) []Book {
 	books := make([]Book, 0, len(docs))
 	for _, doc := range docs {
 		id := NormalizeWorkID(doc.Key)
@@ -722,7 +744,7 @@ func normalizeSearchDocs(docs []searchDoc) []Book {
 			ID:          id,
 			Title:       title,
 			Description: strings.Join(authors, ", "),
-			CoverURL:    coverURL(coverID),
+			CoverURL:    c.coverURL(coverID),
 			Authors:     authors,
 			AuthorKeys:  authorKeys,
 			Year:        doc.FirstPublishYear,
@@ -756,21 +778,21 @@ func NormalizeAuthorID(value string) string {
 	return strings.ToUpper(match)
 }
 
-func coverURL(coverID int) string {
+func (c *Client) coverURL(coverID int) string {
 	if coverID <= 0 {
 		return fallbackCover
 	}
-	return fmt.Sprintf("%s/b/id/%d-L.jpg", defaultCoversBase, coverID)
+	return fmt.Sprintf("%s/b/id/%d.jpg", c.coverPublicBase, coverID)
 }
 
-func authorPhotoURL(authorID string, photoID int) string {
+func (c *Client) authorPhotoURL(authorID string, photoID int) string {
 	if photoID > 0 {
-		return fmt.Sprintf("%s/a/id/%d-M.jpg", defaultCoversBase, photoID)
+		return fmt.Sprintf("%s/a/id/%d.jpg", c.coverPublicBase, photoID)
 	}
 	if authorID == "" {
 		return fallbackAuthor
 	}
-	return fmt.Sprintf("%s/a/olid/%s-M.jpg", defaultCoversBase, authorID)
+	return fmt.Sprintf("%s/a/olid/%s.jpg", c.coverPublicBase, authorID)
 }
 
 func extractText(value openLibraryText) string {
