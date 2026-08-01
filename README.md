@@ -110,6 +110,8 @@ Configure the stream server (see [`apps/stream-server/.env.example`](apps/stream
 ```bash
 REALDEBRID_TOKEN=your_token
 CORS_ORIGINS=http://localhost:5173
+ABB_USERNAME=  # optional AudiobookBay account (recommended)
+ABB_PASSWORD=
 RD_BLOCKED_FILENAME_REGEX=web-dl|webrip|bdrip|hdrip|dvdrip|BluRay\.x264|HDTV\.x264|HDTV\.XviD|WEB\.x264|WEB\.h264
 ```
 

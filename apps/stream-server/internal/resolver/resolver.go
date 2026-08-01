@@ -159,23 +159,25 @@ func (s *Service) listBookSources(req Request) ([]Source, error) {
 		return nil, fmt.Errorf("audiobook discovery is not configured")
 	}
 	title := strings.TrimSpace(req.Title)
+	author := strings.TrimSpace(req.Author)
 	query := strings.TrimSpace(req.Query)
 	if query == "" {
-		query = strings.TrimSpace(title + " " + req.Author)
+		query = strings.TrimSpace(title + " " + author)
 	}
 	if query == "" {
 		return nil, fmt.Errorf("query or title is required for %s", req.Type)
 	}
 
-	results, err := s.abb.Search(query)
+	ranked, err := s.searchAndRankBooks(query, title, author)
 	if err != nil {
 		return nil, err
 	}
-
-	ranked := abb.RankResults(results, title, req.Author, 25)
-	if len(ranked) == 0 {
-		// Fall back to unranked results so the user still has options.
-		ranked = abb.RankResults(results, "", "", 25)
+	// Prefer a title-only search when the combined query produced nothing useful.
+	if len(ranked) == 0 && title != "" && !strings.EqualFold(strings.TrimSpace(query), title) {
+		ranked, err = s.searchAndRankBooks(title, title, author)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if len(ranked) == 0 {
 		return nil, fmt.Errorf("no AudiobookBay matches found")
@@ -187,7 +189,7 @@ func (s *Service) listBookSources(req Request) ([]Source, error) {
 		sources = append(sources, Source{
 			ID:         fmt.Sprintf("abb_%d", index),
 			Title:      result.Title,
-			Magnet:     "", // fetched on resolve from abbPostUrl
+			Magnet:     "", // fetched on resolve from abbPostUrl / info hash
 			AbbPostURL: result.URL,
 			Info:       result.Info,
 			MatchScore: &score,
@@ -195,6 +197,14 @@ func (s *Service) listBookSources(req Request) ([]Source, error) {
 		})
 	}
 	return sources, nil
+}
+
+func (s *Service) searchAndRankBooks(query, title, author string) ([]abb.RankedResult, error) {
+	results, err := s.abb.Search(query)
+	if err != nil {
+		return nil, err
+	}
+	return abb.RankResults(results, title, author, 25), nil
 }
 
 func (s *Service) search(ctx context.Context, req Request) ([]search.Release, error) {

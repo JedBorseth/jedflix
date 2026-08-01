@@ -31,6 +31,8 @@ type Config struct {
 	OpenLibraryCoverPublicBase string
 	OpenLibraryCoversBaseURL   string
 	AbbBaseURL                 string
+	AbbUsername                string
+	AbbPassword                string
 }
 
 func Load() Config {
@@ -56,6 +58,8 @@ func Load() Config {
 		OpenLibraryCoverPublicBase: strings.TrimRight(envOr("OPEN_LIBRARY_COVER_PUBLIC_BASE", "/stream-api/api/v1/openlibrary/covers"), "/"),
 		OpenLibraryCoversBaseURL:   strings.TrimRight(envOr("OPEN_LIBRARY_COVERS_BASE_URL", "https://covers.openlibrary.org"), "/"),
 		AbbBaseURL:                 strings.TrimRight(envOr("ABB_BASE_URL", "https://audiobookbay.lu"), "/"),
+		AbbUsername:                strings.TrimSpace(os.Getenv("ABB_USERNAME")),
+		AbbPassword:                os.Getenv("ABB_PASSWORD"),
 	}
 	return cfg
 }

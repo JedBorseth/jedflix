@@ -1,6 +1,7 @@
 package abb
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -34,7 +35,7 @@ func TestParseSearchHTML(t *testing.T) {
 	}
 }
 
-func TestParsePostHTML(t *testing.T) {
+func TestParsePostHTMLMagnetLink(t *testing.T) {
 	html := `<html><head><meta property="og:title" content="Harry Potter and the Stone" /></head>
   <body>
     <h1>Harry Potter and the Stone</h1>
@@ -47,11 +48,48 @@ func TestParsePostHTML(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !stringsHasPrefix(post.Magnet, "magnet:") {
+	if !strings.HasPrefix(post.Magnet, "magnet:") {
 		t.Fatalf("expected magnet, got %q", post.Magnet)
 	}
 	if post.Title != "Harry Potter and the Stone" {
 		t.Fatalf("unexpected title: %s", post.Title)
+	}
+}
+
+func TestParsePostHTMLInfoHash(t *testing.T) {
+	html := `<html><body>
+    <h1>Project Hail Mary - Andy Weir</h1>
+    <table>
+      <tr><td>Info Hash:</td><td>ad5fae5ffda056f9f45131045d140326bbafc4dc</td></tr>
+    </table>
+  </body></html>`
+
+	post, err := ParsePostHTML(html, "https://audiobookbay.lu/abss/prokject-hail-mary-andy-weir/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "magnet:?xt=urn:btih:ad5fae5ffda056f9f45131045d140326bbafc4dc"
+	if post.Magnet != want {
+		t.Fatalf("expected %q, got %q", want, post.Magnet)
+	}
+}
+
+func TestParsePostHTMLMissingMagnet(t *testing.T) {
+	html := `<html><body><h1>No Hash Here</h1><p>Nothing useful</p></body></html>`
+	_, err := ParsePostHTML(html, "https://audiobookbay.lu/abss/missing/")
+	if err == nil {
+		t.Fatal("expected error when magnet/hash missing")
+	}
+}
+
+func TestLooksLikeHomepage(t *testing.T) {
+	home := `<html><head><title>Unabridged Audiobooks Free Download</title></head></html>`
+	if !looksLikeHomepage(home, "project hail mary") {
+		t.Fatal("expected homepage detection")
+	}
+	ok := `<html><head><title>Project Hail Mary Audiobook</title></head></html>`
+	if looksLikeHomepage(ok, "project hail mary") {
+		t.Fatal("did not expect homepage detection for real search title")
 	}
 }
 
@@ -68,8 +106,4 @@ func TestRankResults(t *testing.T) {
 	if ranked[0].URL != "b" && ranked[0].URL != "c" {
 		t.Fatalf("expected potter match first, got %#v", ranked[0])
 	}
-}
-
-func stringsHasPrefix(s, prefix string) bool {
-	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
 }

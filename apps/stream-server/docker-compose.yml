@@ -14,3 +14,6 @@ services:
       OPEN_LIBRARY_COVER_PUBLIC_BASE: ${OPEN_LIBRARY_COVER_PUBLIC_BASE:-/stream-api/api/v1/openlibrary/covers}
       CORS_ORIGINS: http://localhost:5173
       STREAM_SERVER_API_KEY: ${STREAM_SERVER_API_KEY:-}
+      ABB_BASE_URL: ${ABB_BASE_URL:-https://audiobookbay.lu}
+      ABB_USERNAME: ${ABB_USERNAME:-}
+      ABB_PASSWORD: ${ABB_PASSWORD:-}

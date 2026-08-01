@@ -32,7 +32,15 @@ func main() {
 
 	searcher := search.NewTorrentioSearcher(cfg)
 	rd := realdebrid.NewClient(cfg)
-	abbClient := abb.NewClient(cfg.AbbBaseURL, cfg.HTTPClient())
+	abbClient := abb.NewClientWithOptions(abb.ClientOptions{
+		BaseURL:    cfg.AbbBaseURL,
+		Username:   cfg.AbbUsername,
+		Password:   cfg.AbbPassword,
+		HTTPClient: cfg.HTTPClient(),
+	})
+	if cfg.AbbUsername != "" {
+		log.Printf("AudiobookBay login configured for user %q", cfg.AbbUsername)
+	}
 	resolverService := resolver.NewService(cfg, searcher, rd, abbClient)
 	letterboxdClient := letterboxd.NewClient(cfg)
 	openLibraryClient := openlibrary.NewClient(cfg)

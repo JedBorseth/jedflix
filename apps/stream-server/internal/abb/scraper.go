@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
@@ -14,7 +16,15 @@ import (
 
 const DefaultBaseURL = "https://audiobookbay.lu"
 
-var magnetRE = regexp.MustCompile(`(?i)magnet:\?xt=urn:btih:[a-zA-Z0-9]+[^\s"'<>]*`)
+// ABB silently ignores Title-Case queries and returns the homepage instead.
+// Always search with a lowercased query string.
+var (
+	magnetRE   = regexp.MustCompile(`(?i)magnet:\?xt=urn:btih:[a-zA-Z0-9]+[^\s"'<>]*`)
+	infoHashRE = regexp.MustCompile(`(?is)Info\s*Hash:\s*</t[dh]>\s*<t[dh][^>]*>\s*([a-fA-F0-9]{40})\s*</t[dh]>`)
+	hexHashRE  = regexp.MustCompile(`\b([a-fA-F0-9]{40})\b`)
+)
+
+const browserUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
 
 type SearchResult struct {
 	Title string `json:"title"`
@@ -31,21 +41,58 @@ type PostDetail struct {
 
 type Client struct {
 	baseURL    string
+	username   string
+	password   string
 	httpClient *http.Client
 	cache      *searchCache
+
+	loginMu     sync.Mutex
+	loggedIn    bool
+	loginTried  bool
+	loginErr    error
+}
+
+type ClientOptions struct {
+	BaseURL    string
+	Username   string
+	Password   string
+	HTTPClient *http.Client
 }
 
 func NewClient(baseURL string, httpClient *http.Client) *Client {
-	base := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	return NewClientWithOptions(ClientOptions{
+		BaseURL:    baseURL,
+		HTTPClient: httpClient,
+	})
+}
+
+func NewClientWithOptions(opts ClientOptions) *Client {
+	base := strings.TrimRight(strings.TrimSpace(opts.BaseURL), "/")
 	if base == "" {
 		base = DefaultBaseURL
 	}
+
+	httpClient := opts.HTTPClient
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 30 * time.Second}
 	}
+	// Clone so we can attach a cookie jar without mutating a shared client.
+	cloned := *httpClient
+	if cloned.Jar == nil {
+		jar, err := cookiejar.New(nil)
+		if err == nil {
+			cloned.Jar = jar
+		}
+	}
+	if cloned.Timeout == 0 {
+		cloned.Timeout = 30 * time.Second
+	}
+
 	return &Client{
 		baseURL:    base,
-		httpClient: httpClient,
+		username:   strings.TrimSpace(opts.Username),
+		password:   opts.Password,
+		httpClient: &cloned,
 		cache:      newSearchCache(30 * time.Minute),
 	}
 }
@@ -55,17 +102,19 @@ func (c *Client) Search(query string) ([]SearchResult, error) {
 	if q == "" {
 		return nil, fmt.Errorf("query is required")
 	}
+	// ABB's search endpoint fails open to the homepage for Title Case queries.
+	q = strings.ToLower(q)
 
 	if cached, ok := c.cache.get(q); ok {
 		return cached, nil
 	}
 
-	html, err := c.fetchHTML("/?s=" + url.QueryEscape(q))
-	if err != nil {
-		return nil, err
+	if err := c.ensureSession(); err != nil {
+		// Session/login failure shouldn't block anonymous search.
+		_ = err
 	}
 
-	results, err := ParseSearchHTML(html, c.baseURL)
+	results, err := c.searchOnce(q)
 	if err != nil {
 		return nil, err
 	}
@@ -76,12 +125,90 @@ func (c *Client) Search(query string) ([]SearchResult, error) {
 	return results, nil
 }
 
+func (c *Client) searchOnce(queryLower string) ([]SearchResult, error) {
+	html, err := c.fetchHTML("/?s=" + url.QueryEscape(queryLower))
+	if err != nil {
+		return nil, err
+	}
+	if looksLikeHomepage(html, queryLower) {
+		return nil, fmt.Errorf("AudiobookBay returned the homepage instead of search results for %q", queryLower)
+	}
+	return ParseSearchHTML(html, c.baseURL)
+}
+
 func (c *Client) GetPost(postURL string) (*PostDetail, error) {
+	if err := c.ensureSession(); err != nil {
+		_ = err
+	}
 	html, err := c.fetchHTML(postURL)
 	if err != nil {
 		return nil, err
 	}
 	return ParsePostHTML(html, postURL)
+}
+
+func (c *Client) ensureSession() error {
+	c.loginMu.Lock()
+	defer c.loginMu.Unlock()
+
+	if c.loggedIn {
+		return nil
+	}
+	if c.username == "" || c.password == "" {
+		// Warm a PHPSESSID anonymously — some ABB responses behave better with one.
+		_, err := c.fetchHTML("/")
+		return err
+	}
+	if c.loginTried {
+		return c.loginErr
+	}
+	c.loginTried = true
+	c.loginErr = c.loginLocked()
+	if c.loginErr == nil {
+		c.loggedIn = true
+	}
+	return c.loginErr
+}
+
+func (c *Client) loginLocked() error {
+	// Hit login page first for cookies.
+	if _, err := c.fetchHTML("/member/login"); err != nil {
+		return fmt.Errorf("ABB login page: %w", err)
+	}
+
+	form := url.Values{}
+	form.Set("username", c.username)
+	form.Set("password", c.password)
+
+	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/member/login.php", strings.NewReader(form.Encode()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("User-Agent", browserUA)
+	req.Header.Set("Accept", "text/html,application/xhtml+xml")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Referer", c.baseURL+"/member/login")
+
+	res, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("ABB login request: %w", err)
+	}
+	defer res.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(res.Body, 256*1024))
+	html := string(body)
+
+	lower := strings.ToLower(html)
+	if strings.Contains(lower, "logout") || strings.Contains(lower, "member/users") {
+		return nil
+	}
+	if res.StatusCode >= 200 && res.StatusCode < 400 {
+		// Follow-up check: member area should show logout when authenticated.
+		check, checkErr := c.fetchHTML("/member/users/")
+		if checkErr == nil && strings.Contains(strings.ToLower(check), "logout") {
+			return nil
+		}
+	}
+	return fmt.Errorf("ABB login failed (status %d)", res.StatusCode)
 }
 
 func (c *Client) fetchHTML(pathOrURL string) (string, error) {
@@ -94,8 +221,9 @@ func (c *Client) fetchHTML(pathOrURL string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; JedFlix/1.0)")
-	req.Header.Set("Accept", "text/html")
+	req.Header.Set("User-Agent", browserUA)
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 
 	res, err := c.httpClient.Do(req)
 	if err != nil {
@@ -182,6 +310,25 @@ func ParsePostHTML(html, postURL string) (*PostDetail, error) {
 		title = "Unknown"
 	}
 
+	magnet := extractMagnet(html, doc)
+	if magnet == "" {
+		return nil, fmt.Errorf("no magnet link found on this AudiobookBay post")
+	}
+
+	info := strings.TrimSpace(doc.Find(".postContent, #content, article").First().Text())
+	if len(info) > 500 {
+		info = info[:500]
+	}
+
+	return &PostDetail{
+		Title:  title,
+		URL:    postURL,
+		Magnet: magnet,
+		Info:   info,
+	}, nil
+}
+
+func extractMagnet(html string, doc *goquery.Document) string {
 	magnet := ""
 	doc.Find(`a[href^="magnet:"]`).EachWithBreak(func(_ int, link *goquery.Selection) bool {
 		if href, ok := link.Attr("href"); ok && strings.HasPrefix(href, "magnet:") {
@@ -209,21 +356,71 @@ func ParsePostHTML(html, postURL string) (*PostDetail, error) {
 	}
 
 	magnet = strings.TrimSpace(magnet)
-	if !strings.HasPrefix(magnet, "magnet:") {
-		return nil, fmt.Errorf("no magnet link found on this AudiobookBay post")
+	if strings.HasPrefix(magnet, "magnet:") {
+		return magnet
 	}
 
-	info := strings.TrimSpace(doc.Find(".postContent, #content, article").First().Text())
-	if len(info) > 500 {
-		info = info[:500]
+	// ABB no longer exposes magnet: links publicly — build one from the Info Hash table.
+	if hash := extractInfoHash(html, doc); hash != "" {
+		return "magnet:?xt=urn:btih:" + strings.ToLower(hash)
+	}
+	return ""
+}
+
+func extractInfoHash(html string, doc *goquery.Document) string {
+	if match := infoHashRE.FindStringSubmatch(html); len(match) == 2 {
+		return match[1]
 	}
 
-	return &PostDetail{
-		Title:  title,
-		URL:    postURL,
-		Magnet: magnet,
-		Info:   info,
-	}, nil
+	var hash string
+	doc.Find("tr").EachWithBreak(func(_ int, row *goquery.Selection) bool {
+		label := strings.ToLower(strings.TrimSpace(row.Find("td").First().Text()))
+		if !strings.Contains(label, "info hash") {
+			return true
+		}
+		value := strings.TrimSpace(row.Find("td").Eq(1).Text())
+		if hexHashRE.MatchString(value) {
+			hash = hexHashRE.FindString(value)
+			return false
+		}
+		return true
+	})
+	return hash
+}
+
+// looksLikeHomepage detects when ABB ignored the search query and served the front page.
+func looksLikeHomepage(html, query string) bool {
+	lowerTitle := ""
+	if start := strings.Index(strings.ToLower(html), "<title>"); start >= 0 {
+		rest := html[start+7:]
+		if end := strings.Index(strings.ToLower(rest), "</title>"); end >= 0 {
+			lowerTitle = strings.ToLower(strings.TrimSpace(rest[:end]))
+		}
+	}
+	if lowerTitle == "" {
+		return false
+	}
+	if strings.Contains(lowerTitle, "unabridged audiobooks free download") {
+		return true
+	}
+	// Successful searches usually put query tokens into the <title>.
+	tokens := strings.Fields(strings.ToLower(query))
+	matched := 0
+	for _, t := range tokens {
+		if len(t) < 3 {
+			continue
+		}
+		if strings.Contains(lowerTitle, t) {
+			matched++
+		}
+	}
+	significant := 0
+	for _, t := range tokens {
+		if len(t) >= 3 {
+			significant++
+		}
+	}
+	return significant > 0 && matched == 0
 }
 
 func absolutize(href, baseURL string) string {
