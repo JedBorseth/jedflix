@@ -4,17 +4,18 @@ import type { BookItem } from "@/lib/openlibrary";
 import { getBookDetailPath } from "@/lib/openlibrary";
 
 type BookCardProps = {
-  book: BookItem;
+  book: Pick<BookItem, "id" | "title" | "coverUrl" | "coverFullUrl" | "authors">;
+  to?: string;
 };
 
-export function BookCard({ book }: BookCardProps) {
-  const detailPath = getBookDetailPath(book);
+export function BookCard({ book, to }: BookCardProps) {
+  const detailPath = to ?? getBookDetailPath(book);
   const subtitle = book.authors.length > 0 ? book.authors.join(", ") : null;
 
   return (
     <AppLink
       to={detailPath}
-      state={{ preview: book }}
+      state={to ? undefined : { preview: book }}
       className="group relative block w-36 shrink-0 snap-start md:w-44"
       data-testid="book-card"
     >

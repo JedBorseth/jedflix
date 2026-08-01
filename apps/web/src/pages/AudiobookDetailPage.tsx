@@ -4,11 +4,15 @@ import { BookCard } from "@/components/browse/BookCard";
 import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
 import { AppLink } from "@/components/layout/AppLink";
 import { Navbar } from "@/components/layout/Navbar";
+import { AddToMyListButton } from "@/components/mylist/AddToMyListButton";
+import { MediaReviews } from "@/components/reviews/MediaReviews";
 import { Button } from "@/components/ui/button";
 import { DetailPageSkeleton } from "@/components/ui/skeleton";
 import type { BookItem } from "@/lib/openlibrary";
 import {
   getAuthorPath,
+  getListenPath,
+  getReadPath,
   getWorkDetails,
   normalizeWorkId,
   searchBooks,
@@ -149,9 +153,17 @@ export function AudiobookDetailPage() {
               </p>
             ) : null}
             <p className="mb-8 max-w-2xl whitespace-pre-line text-zinc-200">{description}</p>
-            <p className="mb-6 text-sm text-zinc-500">
-              Streaming from AudiobookBay will be available in a later update.
-            </p>
+            {normalizedId ? (
+              <div className="mb-6 flex flex-wrap gap-3">
+                <Button asChild size="lg" className="bg-red-600 hover:bg-red-700">
+                  <AppLink to={getListenPath(normalizedId)}>Listen</AppLink>
+                </Button>
+                <Button asChild size="lg" variant="outline" className="border-zinc-600">
+                  <AppLink to={getReadPath(normalizedId)}>Read</AppLink>
+                </Button>
+                <AddToMyListButton mediaType="audiobook" workId={normalizedId} />
+              </div>
+            ) : null}
             {(book?.subjects ?? displayBook.subjects).length > 0 ? (
               <div className="flex flex-wrap gap-2">
                 {(book?.subjects ?? displayBook.subjects).slice(0, 8).map((subject) => (
@@ -169,7 +181,7 @@ export function AudiobookDetailPage() {
       </section>
 
       {related.length > 0 ? (
-        <section className="px-4 pb-24 md:px-12 md:pb-16">
+        <section className="px-4 pb-12 md:px-12">
           <h2 className="mb-3 text-lg font-semibold text-white md:text-xl">Related books</h2>
           <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2 scrollbar-hide">
             {related.map((item) => (
@@ -178,6 +190,8 @@ export function AudiobookDetailPage() {
           </div>
         </section>
       ) : null}
+
+      {normalizedId ? <MediaReviews mediaType="audiobook" workId={normalizedId} /> : null}
     </div>
   );
 }

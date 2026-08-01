@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/jedborseth/jeds-movies/stream-server/internal/abb"
 	"github.com/jedborseth/jeds-movies/stream-server/internal/api"
 	"github.com/jedborseth/jeds-movies/stream-server/internal/config"
 	"github.com/jedborseth/jeds-movies/stream-server/internal/letterboxd"
@@ -31,7 +32,8 @@ func main() {
 
 	searcher := search.NewTorrentioSearcher(cfg)
 	rd := realdebrid.NewClient(cfg)
-	resolverService := resolver.NewService(cfg, searcher, rd)
+	abbClient := abb.NewClient(cfg.AbbBaseURL, cfg.HTTPClient())
+	resolverService := resolver.NewService(cfg, searcher, rd, abbClient)
 	letterboxdClient := letterboxd.NewClient(cfg)
 	openLibraryClient := openlibrary.NewClient(cfg)
 	openLibraryClient.Start(ctx)

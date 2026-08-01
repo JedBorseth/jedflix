@@ -89,6 +89,8 @@ function normalizeErrorCode(code: string): RealDebridErrorCode {
     case "cancelled":
     case "invalid_request":
       return code;
+    case "abb_magnet":
+      return "invalid_request";
     default:
       return "no_links";
   }

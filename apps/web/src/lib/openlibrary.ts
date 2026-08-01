@@ -36,6 +36,14 @@ export function getBookDetailPath(book: Pick<BookItem, "id">) {
   return `/audiobook/${book.id}`;
 }
 
+export function getListenPath(workId: string) {
+  return `/listen/${workId}`;
+}
+
+export function getReadPath(workId: string) {
+  return `/read/${workId}`;
+}
+
 export function getAuthorPath(authorId: string) {
   return `/author/${authorId}`;
 }

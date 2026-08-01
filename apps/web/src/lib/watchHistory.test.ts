@@ -8,6 +8,7 @@ import {
   subscribeUserSettings,
 } from "@/lib/userSettings";
 import {
+  buildContinueListeningItems,
   buildContinueWatchingItems,
   buildRecentlyWatchedItems,
   mediaKey,
@@ -83,13 +84,39 @@ describe("watchHistory helpers", () => {
 
     const continueItems = buildContinueWatchingItems(history, mediaItems);
     const continueKeys = new Set(
-      continueItems.map((item) => mediaKey(item.mediaType, item.movieId)),
+      continueItems.map((item) => mediaKey(item.mediaType, item.movieId!)),
     );
     const recentItems = buildRecentlyWatchedItems(history, mediaItems, continueKeys);
 
     expect(continueItems).toHaveLength(1);
     expect(recentItems).toHaveLength(1);
     expect(recentItems[0]?.media.title).toBe("Finished");
+  });
+
+  test("buildContinueListeningItems keeps in-progress audiobooks", () => {
+    const items = buildContinueListeningItems(
+      [
+        {
+          workId: "OL1W",
+          mediaType: "audiobook",
+          progressSeconds: 120,
+          fileIndex: 2,
+          lastWatchedAt: 10,
+        },
+      ],
+      [
+        {
+          id: "OL1W",
+          title: "Example Book",
+          coverUrl: "https://example.com/cover.jpg",
+          authors: ["Author"],
+        },
+      ],
+    );
+
+    expect(items).toHaveLength(1);
+    expect(items[0]?.book.title).toBe("Example Book");
+    expect(items[0]?.fileIndex).toBe(2);
   });
 });
 

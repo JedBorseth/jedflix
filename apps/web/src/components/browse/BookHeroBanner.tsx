@@ -45,6 +45,16 @@ export function BookHeroBanner({ book }: BookHeroBannerProps) {
             {book.subjects[0] ? <span>{book.subjects[0]}</span> : null}
           </div>
           <div className="flex flex-wrap items-start gap-3">
+            <Button asChild size="lg" className="bg-red-600 hover:bg-red-700">
+              <AppLink to={`/listen/${book.id}`} state={{ preview: book }}>
+                Listen
+              </AppLink>
+            </Button>
+            <Button asChild size="lg" variant="outline" className="border-zinc-600">
+              <AppLink to={`/read/${book.id}`} state={{ preview: book }}>
+                Read
+              </AppLink>
+            </Button>
             <Button
               asChild
               size="lg"

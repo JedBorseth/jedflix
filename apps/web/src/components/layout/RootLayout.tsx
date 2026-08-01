@@ -11,7 +11,11 @@ function shouldShowBottomNav(pathname: string) {
     return false;
   }
 
-  return !pathname.startsWith("/watch");
+  return (
+    !pathname.startsWith("/watch") &&
+    !pathname.startsWith("/listen") &&
+    !pathname.startsWith("/read")
+  );
 }
 
 export function RootLayout() {

@@ -19,33 +19,37 @@ export type StreamResolveState = {
 
 const idleState: StreamResolveState = { status: "idle" };
 
+function sourceKey(source: StreamSource | null, request: ResolveRequest | null): string | null {
+  if (!request || !source) {
+    return null;
+  }
+  const identity =
+    source.abbPostUrl ||
+    request.abbPostUrl ||
+    source.infoHash ||
+    request.infoHash ||
+    source.magnet ||
+    request.magnet;
+  if (!identity) {
+    return null;
+  }
+  return [
+    request.type,
+    request.imdbId ?? "",
+    request.season ?? "",
+    request.episode ?? "",
+    identity,
+    request.fileIdx ?? source.fileIdx ?? "",
+    request.realDebridToken ?? "",
+  ].join(":");
+}
+
 export function useStreamResolve(request: ResolveRequest | null, source: StreamSource | null = null) {
   const [state, setState] = useState<StreamResolveState>({ status: "idle" });
-  const requestKey = useMemo(() => {
-    if (!request?.magnet) {
-      return null;
-    }
-
-    return [
-      request.type,
-      request.imdbId,
-      request.season ?? "",
-      request.episode ?? "",
-      request.infoHash || request.magnet,
-      request.realDebridToken ?? "",
-    ].join(":");
-  }, [
-    request?.episode,
-    request?.imdbId,
-    request?.infoHash,
-    request?.magnet,
-    request?.realDebridToken,
-    request?.season,
-    request?.type,
-  ]);
+  const requestKey = useMemo(() => sourceKey(source, request), [request, source]);
 
   useEffect(() => {
-    if (!request || !requestKey) {
+    if (!request || !requestKey || !source) {
       return;
     }
 
@@ -60,11 +64,8 @@ export function useStreamResolve(request: ResolveRequest | null, source: StreamS
         requestKey: currentRequestKey,
       });
       try {
-        if (!source) {
-          throw new Error("No stream source selected.");
-        }
         const stream = await resolveRealDebridStream(
-          source,
+          source!,
           currentRequest,
           currentRequest.realDebridToken ?? "",
           {

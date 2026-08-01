@@ -1,4 +1,14 @@
-export type MediaType = "movie" | "tv";
+export type MediaType = "movie" | "tv" | "audiobook" | "ebook";
+
+export type BookFormat = "audiobook" | "ebook";
+
+export function isBookMediaType(mediaType: MediaType): mediaType is BookFormat {
+  return mediaType === "audiobook" || mediaType === "ebook";
+}
+
+export function isVideoMediaType(mediaType: MediaType): mediaType is "movie" | "tv" {
+  return mediaType === "movie" || mediaType === "tv";
+}
 
 /** @deprecated Playback is direct-only; kept for existing Convex userSettings docs. */
 export type StreamMode = "direct" | "proxy";
@@ -24,9 +34,11 @@ export type MediaItem = {
 
 export type WatchProgressKey = {
   mediaType: MediaType;
-  movieId: number;
+  movieId?: number;
+  workId?: string;
   season?: number;
   episode?: number;
+  fileIndex?: number;
 };
 
 export type CastMember = {

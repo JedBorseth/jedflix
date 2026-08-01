@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import {
   getAuthorPath,
   getBookDetailPath,
+  getListenPath,
+  getReadPath,
   normalizeAuthorId,
   normalizeWorkId,
   pickRandomBook,
@@ -24,6 +26,8 @@ describe("openlibrary helpers", () => {
   test("path helpers", () => {
     expect(getBookDetailPath({ id: "OL82563W" })).toBe("/audiobook/OL82563W");
     expect(getAuthorPath("OL23919A")).toBe("/author/OL23919A");
+    expect(getListenPath("OL82563W")).toBe("/listen/OL82563W");
+    expect(getReadPath("OL82563W")).toBe("/read/OL82563W");
   });
 
   test("pickRandomBook prefers covers", () => {

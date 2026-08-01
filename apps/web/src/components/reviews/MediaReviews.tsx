@@ -1,22 +1,30 @@
 import { useEffect, useState } from "react";
-import { Authenticated, Unauthenticated } from "convex/react";
-import { useMutation, useQuery } from "convex/react";
+import { Authenticated, Unauthenticated, useMutation, useQuery } from "convex/react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { StarRating } from "@/components/reviews/StarRating";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { MediaType } from "@/lib/types";
+import type { MediaType } from "@jedflix/shared";
+import { isBookMediaType } from "@jedflix/shared";
 
 type MediaReviewsProps = {
-  movieId: number;
   mediaType: MediaType;
+  movieId?: number;
+  workId?: string;
 };
 
-export function MediaReviews({ movieId, mediaType }: MediaReviewsProps) {
-  const summary = useQuery(api.reviews.getSummary, { movieId, mediaType });
-  const reviews = useQuery(api.reviews.getForMedia, { movieId, mediaType });
+function identityArgs(props: MediaReviewsProps) {
+  return isBookMediaType(props.mediaType)
+    ? { mediaType: props.mediaType, workId: props.workId }
+    : { mediaType: props.mediaType, movieId: props.movieId };
+}
+
+export function MediaReviews(props: MediaReviewsArgs) {
+  const args = identityArgs(props);
+  const summary = useQuery(api.reviews.getSummary, args);
+  const reviews = useQuery(api.reviews.getForMedia, args);
 
   return (
     <section className="mx-auto max-w-6xl px-4 pb-24 md:px-12 md:pb-16">
@@ -38,7 +46,7 @@ export function MediaReviews({ movieId, mediaType }: MediaReviewsProps) {
       </div>
 
       <Authenticated>
-        <ReviewForm movieId={movieId} mediaType={mediaType} />
+        <ReviewForm {...props} />
       </Authenticated>
 
       <Unauthenticated>
@@ -94,8 +102,11 @@ export function MediaReviews({ movieId, mediaType }: MediaReviewsProps) {
   );
 }
 
-function ReviewForm({ movieId, mediaType }: MediaReviewsProps) {
-  const viewerReview = useQuery(api.reviews.getViewerReview, { movieId, mediaType });
+type MediaReviewsArgs = MediaReviewsProps;
+
+function ReviewForm(props: MediaReviewsProps) {
+  const args = identityArgs(props);
+  const viewerReview = useQuery(api.reviews.getViewerReview, args);
   const submitReview = useMutation(api.reviews.submit);
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
@@ -114,7 +125,7 @@ function ReviewForm({ movieId, mediaType }: MediaReviewsProps) {
       onSubmit={(event) => {
         event.preventDefault();
         setSubmitting(true);
-        void submitReview({ movieId, mediaType, rating, comment })
+        void submitReview({ ...args, rating, comment })
           .then(() => {
             toast.success(viewerReview ? "Review updated" : "Review posted");
           })

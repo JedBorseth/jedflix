@@ -1,26 +1,31 @@
-import { Authenticated } from "convex/react";
-import { useMutation, useQuery } from "convex/react";
+import { Authenticated, useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import { Button } from "@/components/ui/button";
-import type { MediaType } from "@/lib/types";
+import type { MediaType } from "@jedflix/shared";
+import { isBookMediaType } from "@jedflix/shared";
 import { PlusIcon, CheckIcon } from "@radix-ui/react-icons";
 
 type AddToMyListButtonProps = {
-  movieId: number;
   mediaType: MediaType;
+  movieId?: number;
+  workId?: string;
 };
 
-export function AddToMyListButton({ movieId, mediaType }: AddToMyListButtonProps) {
+export function AddToMyListButton(props: AddToMyListButtonProps) {
   return (
     <Authenticated>
-      <AddToMyListButtonInner movieId={movieId} mediaType={mediaType} />
+      <AddToMyListButtonInner {...props} />
     </Authenticated>
   );
 }
 
-function AddToMyListButtonInner({ movieId, mediaType }: AddToMyListButtonProps) {
-  const isSaved = useQuery(api.myList.isSaved, { movieId, mediaType });
+function AddToMyListButtonInner({ movieId, workId, mediaType }: AddToMyListButtonProps) {
+  const identityArgs = isBookMediaType(mediaType)
+    ? { mediaType, workId }
+    : { mediaType, movieId };
+
+  const isSaved = useQuery(api.myList.isSaved, identityArgs);
   const toggleMyList = useMutation(api.myList.toggle);
 
   if (isSaved === undefined) {
@@ -37,7 +42,7 @@ function AddToMyListButtonInner({ movieId, mediaType }: AddToMyListButtonProps) 
       variant="outline"
       className="border-zinc-600"
       onClick={() => {
-        void toggleMyList({ movieId, mediaType })
+        void toggleMyList(identityArgs)
           .then((result) => {
             toast.success(result.saved ? "Added to My List" : "Removed from My List");
           })

@@ -12,7 +12,12 @@ export function ContinueWatchingCard({ item }: ContinueWatchingCardProps) {
 
   return (
     <AppLink
-      to={getWatchPath(item.mediaType, item.media.id, item.season, item.episode)}
+      to={getWatchPath(
+        item.mediaType === "tv" ? "tv" : "movie",
+        item.media.id,
+        item.season,
+        item.episode,
+      )}
       state={{ preview: item.media }}
       className="group relative block w-36 shrink-0 snap-start md:w-44"
     >

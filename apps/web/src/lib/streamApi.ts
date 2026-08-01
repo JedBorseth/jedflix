@@ -14,8 +14,10 @@ export type {
   OpenLibraryBook,
   OpenLibraryBrowseResponse,
   OpenLibrarySearchResponse,
+  PackKind,
   ResolveRequest,
   SourcesRequest,
+  StreamFile,
   StreamResult,
   StreamSource,
 } from "@jedflix/stream-client";

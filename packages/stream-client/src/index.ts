@@ -1,4 +1,5 @@
 export type {
+  BookSourcesRequest,
   LetterboxdFilm,
   LetterboxdFilmsResponse,
   LetterboxdVerifyResponse,
@@ -8,11 +9,14 @@ export type {
   OpenLibraryBrowseResponse,
   OpenLibrarySearchResponse,
   OpenLibrarySubjectRow,
+  PackKind,
   ResolveRequest,
   SourcesRequest,
   StreamClient,
   StreamClientConfig,
+  StreamFile,
   StreamResult,
   StreamSource,
+  VideoSourcesRequest,
 } from "./client";
 export { createStreamClient, StreamResolveError } from "./client";

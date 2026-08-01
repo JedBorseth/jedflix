@@ -3,12 +3,16 @@ import { useQuery as useConvexQuery } from "convex/react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@convex/_generated/api";
 import { MovieCard } from "@/components/browse/MovieCard";
+import { BookCard } from "@/components/browse/BookCard";
 import { ContinueWatchingCard } from "@/components/browse/ContinueWatchingCard";
 import { PosterRowSkeleton } from "@/components/ui/skeleton";
+import { isVideoMediaType } from "@jedflix/shared";
+import { getListenPath, getWorkDetails } from "@/lib/openlibrary";
 import { catalogQueryKeys } from "@/lib/queryClient";
 import { getMediaDetailsByIds } from "@/lib/tmdb";
 import { getWatchHistoryItemKey } from "@/lib/watchHistoryKeys";
 import {
+  buildContinueListeningItems,
   buildContinueWatchingItems,
   buildRecentlyWatchedItems,
   mediaKey,
@@ -23,38 +27,62 @@ type WatchHistoryRowProps = {
 export function WatchHistoryRow({ title, mode }: WatchHistoryRowProps) {
   const history = useConvexQuery(api.watchHistory.getForUser);
 
-  const historyIds = useMemo(
-    () =>
-      (history ?? []).map((entry) => ({
-        mediaType: entry.mediaType,
-        movieId: entry.movieId,
-      })),
-    [history],
-  );
-
-  const mediaQuery = useQuery({
-    queryKey: catalogQueryKeys.tmdb.detailsByIds(historyIds),
-    queryFn: () => getMediaDetailsByIds(historyIds),
-    enabled: history !== undefined && historyIds.length > 0,
-  });
-
-  const mediaItems = useMemo(() => {
-    if (history !== undefined && historyIds.length === 0) {
-      return [];
-    }
-    return mediaQuery.data;
-  }, [history, historyIds.length, mediaQuery.data]);
-
   const historyRecords: WatchHistoryRecord[] = useMemo(
     () =>
       (history ?? []).map((entry) => ({
         movieId: entry.movieId,
+        workId: entry.workId,
         mediaType: entry.mediaType,
         progressSeconds: entry.progressSeconds,
         lastWatchedAt: entry.lastWatchedAt,
+        season: entry.season,
+        episode: entry.episode,
+        fileIndex: entry.fileIndex,
+        location: entry.location,
       })),
     [history],
   );
+
+  const videoIds = useMemo(
+    () =>
+      historyRecords
+        .filter(
+          (entry) =>
+            isVideoMediaType(entry.mediaType) && typeof entry.movieId === "number",
+        )
+        .map((entry) => ({
+          mediaType: entry.mediaType as "movie" | "tv",
+          movieId: entry.movieId as number,
+        })),
+    [historyRecords],
+  );
+
+  const audiobookIds = useMemo(
+    () =>
+      historyRecords
+        .filter((entry) => entry.mediaType === "audiobook" && entry.workId)
+        .map((entry) => entry.workId as string),
+    [historyRecords],
+  );
+
+  const mediaQuery = useQuery({
+    queryKey: catalogQueryKeys.tmdb.detailsByIds(videoIds),
+    queryFn: () => getMediaDetailsByIds(videoIds),
+    enabled: history !== undefined && videoIds.length > 0,
+  });
+
+  const booksQuery = useQuery({
+    queryKey: ["continue-listening-books", audiobookIds],
+    queryFn: async () => Promise.all(audiobookIds.map((id) => getWorkDetails(id))),
+    enabled: history !== undefined && audiobookIds.length > 0 && mode === "continue",
+  });
+
+  const mediaItems = useMemo(() => {
+    if (history !== undefined && videoIds.length === 0) {
+      return [];
+    }
+    return mediaQuery.data;
+  }, [history, videoIds.length, mediaQuery.data]);
 
   const continueItems = useMemo(
     () => buildContinueWatchingItems(historyRecords, mediaItems ?? []),
@@ -62,7 +90,12 @@ export function WatchHistoryRow({ title, mode }: WatchHistoryRowProps) {
   );
 
   const continueKeys = useMemo(
-    () => new Set(continueItems.map((item) => mediaKey(item.mediaType, item.movieId))),
+    () =>
+      new Set(
+        continueItems
+          .filter((item) => item.movieId !== undefined)
+          .map((item) => mediaKey(item.mediaType, item.movieId!)),
+      ),
     [continueItems],
   );
 
@@ -71,9 +104,21 @@ export function WatchHistoryRow({ title, mode }: WatchHistoryRowProps) {
     [continueKeys, historyRecords, mediaItems],
   );
 
-  const items = mode === "continue" ? continueItems : recentItems;
+  const listeningItems = useMemo(
+    () =>
+      mode === "continue"
+        ? buildContinueListeningItems(historyRecords, booksQuery.data ?? [])
+        : [],
+    [booksQuery.data, historyRecords, mode],
+  );
 
-  if (history === undefined || mediaItems === undefined) {
+  const videoItems = mode === "continue" ? continueItems : recentItems;
+  const loading =
+    history === undefined ||
+    (videoIds.length > 0 && mediaItems === undefined) ||
+    (mode === "continue" && audiobookIds.length > 0 && booksQuery.data === undefined);
+
+  if (loading) {
     return (
       <section className="mb-8 px-4 md:px-12">
         <h2 className="mb-3 text-lg font-semibold text-white md:text-xl">{title}</h2>
@@ -82,7 +127,11 @@ export function WatchHistoryRow({ title, mode }: WatchHistoryRowProps) {
     );
   }
 
-  if (mediaQuery.isError || items.length === 0) {
+  if (mediaQuery.isError && listeningItems.length === 0) {
+    return null;
+  }
+
+  if (videoItems.length === 0 && listeningItems.length === 0) {
     return null;
   }
 
@@ -90,13 +139,20 @@ export function WatchHistoryRow({ title, mode }: WatchHistoryRowProps) {
     <section className="mb-8 px-4 md:px-12">
       <h2 className="mb-3 text-lg font-semibold text-white md:text-xl">{title}</h2>
       <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2 scrollbar-hide">
-        {items.map((item) =>
+        {videoItems.map((item) =>
           mode === "continue" ? (
             <ContinueWatchingCard key={getWatchHistoryItemKey(item)} item={item} />
           ) : (
             <MovieCard key={getWatchHistoryItemKey(item)} movie={item.media} />
           ),
         )}
+        {listeningItems.map((item) => (
+          <BookCard
+            key={getWatchHistoryItemKey(item)}
+            book={item.book}
+            to={getListenPath(item.book.id)}
+          />
+        ))}
       </div>
     </section>
   );

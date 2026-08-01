@@ -1,8 +1,25 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
+import { isBookMediaType, isVideoMediaType, mediaTypeValidator } from "@jedflix/shared";
 import { mutation, query } from "./_generated/server";
 
-const mediaTypeValidator = v.union(v.literal("movie"), v.literal("tv"));
+function assertMediaIdentity(args: {
+  mediaType: "movie" | "tv" | "audiobook" | "ebook";
+  movieId?: number;
+  workId?: string;
+}) {
+  if (isVideoMediaType(args.mediaType)) {
+    if (args.movieId === undefined) {
+      throw new Error("movieId is required for movie/tv");
+    }
+    return;
+  }
+  if (isBookMediaType(args.mediaType)) {
+    if (!args.workId?.trim()) {
+      throw new Error("workId is required for audiobook/ebook");
+    }
+  }
+}
 
 export const getForUser = query({
   args: {},
@@ -23,8 +40,9 @@ export const getForUser = query({
 
 export const isSaved = query({
   args: {
-    movieId: v.number(),
     mediaType: mediaTypeValidator,
+    movieId: v.optional(v.number()),
+    workId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
@@ -32,10 +50,23 @@ export const isSaved = query({
       return false;
     }
 
+    assertMediaIdentity(args);
+
+    if (isBookMediaType(args.mediaType)) {
+      const workId = args.workId!.trim();
+      const existing = await ctx.db
+        .query("myList")
+        .withIndex("by_user_and_media_type_and_work_id", (q) =>
+          q.eq("userId", userId).eq("mediaType", args.mediaType).eq("workId", workId),
+        )
+        .unique();
+      return existing !== null;
+    }
+
     const existing = await ctx.db
       .query("myList")
       .withIndex("by_user_and_media_type_and_movie_id", (q) =>
-        q.eq("userId", userId).eq("mediaType", args.mediaType).eq("movieId", args.movieId),
+        q.eq("userId", userId).eq("mediaType", args.mediaType).eq("movieId", args.movieId!),
       )
       .unique();
 
@@ -45,8 +76,9 @@ export const isSaved = query({
 
 export const toggle = mutation({
   args: {
-    movieId: v.number(),
     mediaType: mediaTypeValidator,
+    movieId: v.optional(v.number()),
+    workId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
@@ -54,10 +86,36 @@ export const toggle = mutation({
       throw new Error("Must be signed in to update My List");
     }
 
+    assertMediaIdentity(args);
+
+    if (isBookMediaType(args.mediaType)) {
+      const workId = args.workId!.trim();
+      const existing = await ctx.db
+        .query("myList")
+        .withIndex("by_user_and_media_type_and_work_id", (q) =>
+          q.eq("userId", userId).eq("mediaType", args.mediaType).eq("workId", workId),
+        )
+        .unique();
+
+      if (existing) {
+        await ctx.db.delete(existing._id);
+        return { saved: false };
+      }
+
+      await ctx.db.insert("myList", {
+        userId,
+        workId,
+        mediaType: args.mediaType,
+        addedAt: Date.now(),
+      });
+      return { saved: true };
+    }
+
+    const movieId = args.movieId!;
     const existing = await ctx.db
       .query("myList")
       .withIndex("by_user_and_media_type_and_movie_id", (q) =>
-        q.eq("userId", userId).eq("mediaType", args.mediaType).eq("movieId", args.movieId),
+        q.eq("userId", userId).eq("mediaType", args.mediaType).eq("movieId", movieId),
       )
       .unique();
 
@@ -68,7 +126,7 @@ export const toggle = mutation({
 
     await ctx.db.insert("myList", {
       userId,
-      movieId: args.movieId,
+      movieId,
       mediaType: args.mediaType,
       addedAt: Date.now(),
     });

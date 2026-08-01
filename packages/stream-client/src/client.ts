@@ -1,12 +1,22 @@
 import type { PlaybackProfile } from "@jedflix/shared";
 
-export type SourcesRequest = {
+export type VideoSourcesRequest = {
   type: "movie" | "tv";
   imdbId: string;
   season?: number;
   episode?: number;
   playbackProfile?: PlaybackProfile;
 };
+
+export type BookSourcesRequest = {
+  type: "audiobook" | "ebook";
+  title: string;
+  author?: string;
+  query?: string;
+  playbackProfile?: PlaybackProfile;
+};
+
+export type SourcesRequest = VideoSourcesRequest | BookSourcesRequest;
 
 export type StreamSource = {
   id: string;
@@ -17,15 +27,38 @@ export type StreamSource = {
   sizeGb?: number;
   seeders?: number;
   cached?: boolean;
+  abbPostUrl?: string;
+  info?: string;
+  matchScore?: number;
 };
 
-export type ResolveRequest = SourcesRequest & {
+export type ResolveRequest = {
+  type: SourcesRequest["type"];
+  imdbId?: string;
+  season?: number;
+  episode?: number;
+  title?: string;
+  author?: string;
+  query?: string;
   magnet?: string;
+  abbPostUrl?: string;
   infoHash?: string;
   mediaTitle?: string;
   fileIdx?: number;
+  playbackProfile?: PlaybackProfile;
   realDebridToken?: string;
 };
+
+export type StreamFile = {
+  index: number;
+  fileId: number;
+  filename: string;
+  url: string;
+  filesize: number;
+  mimeType?: string;
+};
+
+export type PackKind = "single" | "chapters" | "series";
 
 export type StreamResult = {
   url: string;
@@ -33,6 +66,8 @@ export type StreamResult = {
   filename?: string;
   filesize?: number;
   mode: "direct";
+  files?: StreamFile[];
+  packKind?: PackKind;
 };
 
 export type LetterboxdFilm = {
@@ -187,7 +222,7 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
       throw new Error(payload?.error ?? `Source search failed (${response.status})`);
     }
     const payload = (await response.json()) as { sources: StreamSource[] };
-    return payload.sources;
+    return (payload.sources ?? []).map(normalizeSource);
   }
 
   async function resolveStream(
@@ -209,7 +244,8 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
       signal: options.signal,
       body: JSON.stringify({
         type: request.type,
-        magnet: source.magnet,
+        magnet: source.magnet || request.magnet,
+        abbPostUrl: source.abbPostUrl || request.abbPostUrl,
         infoHash: source.infoHash ?? request.infoHash,
         title: source.title,
         mediaTitle: request.mediaTitle,
@@ -233,7 +269,7 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
       throw new Error(message);
     }
 
-    return (await response.json()) as StreamResult;
+    return normalizeStreamResult((await response.json()) as StreamResult);
   }
 
   async function fetchLetterboxdFilmsByDate(username: string): Promise<LetterboxdFilmsResponse> {
@@ -336,6 +372,36 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
     searchOpenLibrary,
     fetchOpenLibraryWork,
     fetchOpenLibraryAuthor,
+  };
+}
+
+function normalizeSource(source: StreamSource): StreamSource {
+  return {
+    ...source,
+    magnet: source.magnet ?? "",
+    abbPostUrl: source.abbPostUrl,
+    info: source.info,
+    matchScore: source.matchScore,
+  };
+}
+
+function normalizeStreamResult(result: StreamResult): StreamResult {
+  const files =
+    result.files && result.files.length > 0
+      ? result.files
+      : [
+          {
+            index: 0,
+            fileId: 0,
+            filename: result.filename ?? "stream",
+            url: result.directUrl ?? result.url,
+            filesize: result.filesize ?? 0,
+          },
+        ];
+  return {
+    ...result,
+    files,
+    packKind: result.packKind ?? (files.length > 1 ? "chapters" : "single"),
   };
 }
 

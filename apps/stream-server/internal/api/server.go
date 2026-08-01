@@ -98,6 +98,9 @@ func (s *Server) handleSources(w http.ResponseWriter, r *http.Request) {
 	if token := bearerToken(r); token != "" {
 		req.RealDebridToken = token
 	}
+	if (req.Type == "audiobook" || req.Type == "ebook") && strings.TrimSpace(req.Query) == "" {
+		req.Query = strings.TrimSpace(strings.TrimSpace(req.Title) + " " + strings.TrimSpace(req.Author))
+	}
 
 	sources, err := s.resolver.ListSources(req)
 	if err != nil {

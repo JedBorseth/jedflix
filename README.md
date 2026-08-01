@@ -75,13 +75,14 @@ deploy/             Caddy and nginx configs
 - Netflix-style browse page with hero banner and genre rows
 - Movie detail pages with synopsis and metadata
 - Stremio-style full-screen player with Real Debrid streaming (via Go stream-server)
-- Direct or proxied stream delivery toggle in the navbar
+- Direct Real Debrid stream delivery (no proxy)
 - TV season/episode picker and playback routes
+- Audiobook and ebook streaming via AudiobookBay + Real Debrid (multi-file chapter/series packs)
 - Convex Auth sign-in with GitHub or Google
-- My List for saved titles (signed-in users)
+- My List for saved titles (movies, shows, and books)
 - Star ratings and public reviews on title pages
-- Continue Watching and Recently Watched rows on the home page
-- Watch progress saved while signed in
+- Continue Watching / Continue Listening and Recently Watched rows on the home page
+- Watch/listen progress saved while signed in
 
 ## Streaming
 

@@ -17,6 +17,12 @@ import { PersonPage } from "@/pages/PersonPage";
 const WatchPage = lazy(() =>
   import("@/pages/WatchPage").then((module) => ({ default: module.WatchPage })),
 );
+const ListenPage = lazy(() =>
+  import("@/pages/ListenPage").then((module) => ({ default: module.ListenPage })),
+);
+const ReadPage = lazy(() =>
+  import("@/pages/ReadPage").then((module) => ({ default: module.ReadPage })),
+);
 
 function WatchPageFallback() {
   return (
@@ -30,6 +36,22 @@ function LazyWatchPage() {
   return (
     <Suspense fallback={<WatchPageFallback />}>
       <WatchPage />
+    </Suspense>
+  );
+}
+
+function LazyListenPage() {
+  return (
+    <Suspense fallback={<WatchPageFallback />}>
+      <ListenPage />
+    </Suspense>
+  );
+}
+
+function LazyReadPage() {
+  return (
+    <Suspense fallback={<WatchPageFallback />}>
+      <ReadPage />
     </Suspense>
   );
 }
@@ -59,6 +81,8 @@ const router = createBrowserRouter([
       { path: "/watch/movie/:mediaId", element: <LazyWatchPage /> },
       { path: "/watch/tv/:mediaId/:season/:episode", element: <LazyWatchPage /> },
       { path: "/watch/:mediaType/:mediaId", element: <LazyWatchPage /> },
+      { path: "/listen/:workId", element: <LazyListenPage /> },
+      { path: "/read/:workId", element: <LazyReadPage /> },
       { path: "/search", element: <SearchPage /> },
       { path: "/person/:personId", element: <PersonPage /> },
       { path: "/my-list", element: <MyListPage /> },

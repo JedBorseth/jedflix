@@ -413,7 +413,7 @@ export function getMediaDetailPath(media: Pick<MediaItem, "id" | "mediaType">) {
 }
 
 export function getWatchPath(
-  mediaType: MediaType,
+  mediaType: Extract<MediaType, "movie" | "tv">,
   mediaId: number,
   season?: number,
   episode?: number,

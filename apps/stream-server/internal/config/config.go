@@ -30,6 +30,7 @@ type Config struct {
 	OpenLibraryCacheTTL        time.Duration
 	OpenLibraryCoverPublicBase string
 	OpenLibraryCoversBaseURL   string
+	AbbBaseURL                 string
 }
 
 func Load() Config {
@@ -54,6 +55,7 @@ func Load() Config {
 		OpenLibraryCacheTTL:        envDuration("OPEN_LIBRARY_CACHE_TTL", 12*time.Hour),
 		OpenLibraryCoverPublicBase: strings.TrimRight(envOr("OPEN_LIBRARY_COVER_PUBLIC_BASE", "/stream-api/api/v1/openlibrary/covers"), "/"),
 		OpenLibraryCoversBaseURL:   strings.TrimRight(envOr("OPEN_LIBRARY_COVERS_BASE_URL", "https://covers.openlibrary.org"), "/"),
+		AbbBaseURL:                 strings.TrimRight(envOr("ABB_BASE_URL", "https://audiobookbay.lu"), "/"),
 	}
 	return cfg
 }
