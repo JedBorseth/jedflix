@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
 import { createBrowserRouter, Navigate, RouterProvider } from "react-router-dom";
 import { RootLayout } from "@/components/layout/RootLayout";
+import { StartupGate } from "@/components/startup/StartupGate";
 import { AudiobookDetailPage } from "@/pages/AudiobookDetailPage";
 import { AudiobooksPage } from "@/pages/AudiobooksPage";
 import { AuthorPage } from "@/pages/AuthorPage";
@@ -94,5 +95,9 @@ const router = createBrowserRouter([
 ]);
 
 export default function App() {
-  return <RouterProvider router={router} />;
+  return (
+    <StartupGate>
+      <RouterProvider router={router} />
+    </StartupGate>
+  );
 }
