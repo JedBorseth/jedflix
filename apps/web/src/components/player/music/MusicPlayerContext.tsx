@@ -100,9 +100,6 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       imageUrl: track.imageUrl,
       durationMs: track.durationMs,
     });
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new Event("jedflix-music-recent"));
-    }
     const src = getYoutubeAudioUrl({
       artist: artistLabel(track.artists),
       title: track.title,

@@ -1,12 +1,18 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, beforeEach } from "bun:test";
 import {
+  getRecentlyPlayedMusicSnapshot,
   loadRecentlyPlayedMusic,
   recordRecentlyPlayedMusic,
+  resetRecentlyPlayedMusicCacheForTests,
 } from "@/lib/recentlyPlayedMusic";
 
 describe("recentlyPlayedMusic", () => {
-  test("records unique tracks newest first and caps at 12", () => {
+  beforeEach(() => {
     window.localStorage.clear();
+    resetRecentlyPlayedMusicCacheForTests();
+  });
+
+  test("records unique tracks newest first and caps at 12", () => {
     for (let i = 0; i < 15; i++) {
       recordRecentlyPlayedMusic({
         id: `id-${i}`,
@@ -24,7 +30,6 @@ describe("recentlyPlayedMusic", () => {
   });
 
   test("moves replayed track to the front", () => {
-    window.localStorage.clear();
     recordRecentlyPlayedMusic({
       id: "a",
       title: "A",
@@ -51,5 +56,19 @@ describe("recentlyPlayedMusic", () => {
     });
     const list = loadRecentlyPlayedMusic();
     expect(list.map((item) => item.id)).toEqual(["a", "b"]);
+  });
+
+  test("getSnapshot returns a stable reference when storage is unchanged", () => {
+    recordRecentlyPlayedMusic({
+      id: "stable",
+      title: "Stable",
+      artists: ["A"],
+      albumName: "Alb",
+      imageUrl: "https://example.com/a.jpg",
+      durationMs: 1000,
+    });
+    const first = getRecentlyPlayedMusicSnapshot();
+    const second = getRecentlyPlayedMusicSnapshot();
+    expect(first).toBe(second);
   });
 });

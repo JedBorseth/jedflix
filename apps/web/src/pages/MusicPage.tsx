@@ -7,7 +7,10 @@ import { Navbar } from "@/components/layout/Navbar";
 import { PosterRowSkeleton } from "@/components/ui/skeleton";
 import type { MusicBrowseResponse, MusicCatalogRow } from "@/lib/spotify";
 import { getMusicBrowse } from "@/lib/spotify";
-import { loadRecentlyPlayedMusic } from "@/lib/recentlyPlayedMusic";
+import {
+  getRecentlyPlayedMusicSnapshot,
+  subscribeRecentlyPlayedMusic,
+} from "@/lib/recentlyPlayedMusic";
 import { catalogQueryKeys } from "@/lib/queryClient";
 
 async function loadMusicBrowsePage(): Promise<MusicCatalogRow[]> {
@@ -20,19 +23,6 @@ async function loadMusicBrowsePage(): Promise<MusicCatalogRow[]> {
   });
 }
 
-function subscribeRecentlyPlayed(onStoreChange: () => void) {
-  if (typeof window === "undefined") {
-    return () => {};
-  }
-  const handler = () => onStoreChange();
-  window.addEventListener("storage", handler);
-  window.addEventListener("jedflix-music-recent", handler);
-  return () => {
-    window.removeEventListener("storage", handler);
-    window.removeEventListener("jedflix-music-recent", handler);
-  };
-}
-
 export function MusicPage() {
   const browseQuery = useQuery({
     queryKey: catalogQueryKeys.spotify.browse(),
@@ -40,9 +30,9 @@ export function MusicPage() {
   });
 
   const recentTracks = useSyncExternalStore(
-    subscribeRecentlyPlayed,
-    loadRecentlyPlayedMusic,
-    () => [],
+    subscribeRecentlyPlayedMusic,
+    getRecentlyPlayedMusicSnapshot,
+    getRecentlyPlayedMusicSnapshot,
   );
 
   const rows = browseQuery.data;

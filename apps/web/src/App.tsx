@@ -1,6 +1,8 @@
 import { lazy, Suspense } from "react";
 import { createBrowserRouter, Navigate, RouterProvider } from "react-router-dom";
+import { AppErrorBoundary } from "@/components/layout/AppErrorBoundary";
 import { RootLayout } from "@/components/layout/RootLayout";
+import { RouteErrorPage } from "@/components/layout/RouteErrorPage";
 import { StartupGate } from "@/components/startup/StartupGate";
 import { AudiobookDetailPage } from "@/pages/AudiobookDetailPage";
 import { AudiobooksPage } from "@/pages/AudiobooksPage";
@@ -63,13 +65,14 @@ function LazyReadPage() {
 const router = createBrowserRouter([
   {
     element: <RootLayout />,
+    errorElement: <RouteErrorPage />,
     children: [
       { path: "/onboarding", element: <OnboardingPage /> },
       { path: "/", element: <BrowsePage /> },
       { path: "/movies", element: <BrowsePage mediaType="movie" /> },
       { path: "/shows", element: <BrowsePage mediaType="tv" /> },
       { path: "/audiobooks", element: <AudiobooksPage /> },
-      { path: "/music", element: <MusicPage /> },
+      { path: "/music", element: <MusicPage />, errorElement: <RouteErrorPage /> },
       {
         path: "/video-games",
         element: (
@@ -83,8 +86,12 @@ const router = createBrowserRouter([
       { path: "/show/:mediaId", element: <MovieDetailPage mediaType="tv" /> },
       { path: "/audiobook/:workId", element: <AudiobookDetailPage /> },
       { path: "/author/:authorId", element: <AuthorPage /> },
-      { path: "/album/:albumId", element: <AlbumDetailPage /> },
-      { path: "/music-artist/:artistId", element: <MusicArtistPage /> },
+      { path: "/album/:albumId", element: <AlbumDetailPage />, errorElement: <RouteErrorPage /> },
+      {
+        path: "/music-artist/:artistId",
+        element: <MusicArtistPage />,
+        errorElement: <RouteErrorPage />,
+      },
       { path: "/watch/movie/:mediaId", element: <LazyWatchPage /> },
       { path: "/watch/tv/:mediaId/:season/:episode", element: <LazyWatchPage /> },
       { path: "/watch/:mediaType/:mediaId", element: <LazyWatchPage /> },
@@ -103,7 +110,9 @@ const router = createBrowserRouter([
 export default function App() {
   return (
     <StartupGate>
-      <RouterProvider router={router} />
+      <AppErrorBoundary>
+        <RouterProvider router={router} />
+      </AppErrorBoundary>
     </StartupGate>
   );
 }
