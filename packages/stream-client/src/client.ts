@@ -233,6 +233,7 @@ export type StreamClient = {
     artist: string;
     title: string;
     album?: string;
+    durationMs?: number;
   }) => string;
 };
 
@@ -592,6 +593,7 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
     artist: string;
     title: string;
     album?: string;
+    durationMs?: number;
   }): string {
     const query = new URLSearchParams({
       artist: params.artist.trim(),
@@ -599,6 +601,9 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
     });
     if (params.album?.trim()) {
       query.set("album", params.album.trim());
+    }
+    if (params.durationMs && Number.isFinite(params.durationMs) && params.durationMs > 0) {
+      query.set("durationMs", String(Math.round(params.durationMs)));
     }
     if (apiKey) {
       query.set("apikey", apiKey);

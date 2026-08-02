@@ -69,19 +69,20 @@ type SearchResponse struct {
 }
 
 type RowConfig struct {
-	Title string
-	Key   string
-	Kind  string // "albums" | "artists"
-	Query string
+	Title      string
+	Key        string
+	Kind       string // "albums" | "artists"
+	Query      string
+	PlaylistID string // when set, populate albums from a public Spotify playlist
 }
 
 // Queries use plain keywords / search filters. Development Mode no longer
 // supports /browse/new-releases, and genre:"…" album filters often return empty.
+// New Releases is last so featured shelves (genres / playlist) show first.
 var DefaultCatalogRows = []RowConfig{
-	{Title: "New Releases", Key: "new-releases", Kind: "albums", Query: "tag:new"},
 	{Title: "Pop", Key: "pop-albums", Kind: "albums", Query: "pop"},
 	{Title: "Popular Artists", Key: "popular-artists", Kind: "artists", Query: "pop"},
-	{Title: "Hip-Hop", Key: "hiphop-albums", Kind: "albums", Query: "hip hop"},
+	{Title: "Hip-Hop", Key: "hiphop-playlist", Kind: "albums", PlaylistID: "37i9dQZF1EQnqst5TRi17F"},
 	{Title: "Hip-Hop Artists", Key: "hiphop-artists", Kind: "artists", Query: "hip hop"},
 	{Title: "Rock", Key: "rock-albums", Kind: "albums", Query: "rock"},
 	{Title: "Rock Artists", Key: "rock-artists", Kind: "artists", Query: "rock"},
@@ -89,4 +90,5 @@ var DefaultCatalogRows = []RowConfig{
 	{Title: "R&B Artists", Key: "rnb-artists", Kind: "artists", Query: "r&b"},
 	{Title: "Indie", Key: "indie-albums", Kind: "albums", Query: "indie"},
 	{Title: "Jazz Artists", Key: "jazz-artists", Kind: "artists", Query: "jazz"},
+	{Title: "New Releases", Key: "new-releases", Kind: "albums", Query: "tag:new"},
 }

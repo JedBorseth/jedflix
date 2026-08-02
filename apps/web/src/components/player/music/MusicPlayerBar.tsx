@@ -1,4 +1,5 @@
 import { PauseIcon, PlayIcon, TrackNextIcon, TrackPreviousIcon } from "@radix-ui/react-icons";
+import { useEffect } from "react";
 import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
 import { useMusicPlayer } from "@/components/player/music/MusicPlayerContext";
 import { cn } from "@/lib/utils";
@@ -40,6 +41,7 @@ export function MusicPlayerBar() {
 
   return (
     <>
+      <FullscreenScrollLock enabled={expanded} />
       <div
         className={cn(
           "fixed inset-x-0 z-40 border-t border-zinc-800 bg-zinc-950/95 backdrop-blur-md",
@@ -108,7 +110,7 @@ export function MusicPlayerBar() {
       </div>
 
       {expanded ? (
-        <div className="fixed inset-0 z-[60] flex flex-col bg-zinc-950 text-white">
+        <div className="fixed inset-0 z-[60] flex flex-col overflow-hidden overscroll-none bg-zinc-950 text-white">
           <div
             className="absolute inset-0 opacity-40 blur-3xl"
             style={{
@@ -198,3 +200,30 @@ export function MusicPlayerBar() {
     </>
   );
 }
+
+function FullscreenScrollLock({ enabled }: { enabled: boolean }) {
+  useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+    const { body, documentElement } = document;
+    const previousBodyOverflow = body.style.overflow;
+    const previousHtmlOverflow = documentElement.style.overflow;
+    const previousBodyTouchAction = body.style.touchAction;
+    body.style.overflow = "hidden";
+    documentElement.style.overflow = "hidden";
+    body.style.touchAction = "none";
+    const prevent = (event: TouchEvent) => {
+      event.preventDefault();
+    };
+    document.addEventListener("touchmove", prevent, { passive: false });
+    return () => {
+      body.style.overflow = previousBodyOverflow;
+      documentElement.style.overflow = previousHtmlOverflow;
+      body.style.touchAction = previousBodyTouchAction;
+      document.removeEventListener("touchmove", prevent);
+    };
+  }, [enabled]);
+  return null;
+}
+

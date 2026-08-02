@@ -1,40 +1,36 @@
 import { useQuery } from "@tanstack/react-query";
+import { useSyncExternalStore } from "react";
 import { AlbumCard } from "@/components/browse/AlbumCard";
 import { ArtistCard } from "@/components/browse/ArtistCard";
-import { MusicHeroBanner } from "@/components/browse/MusicHeroBanner";
+import { RecentlyPlayedMusicGrid } from "@/components/browse/RecentlyPlayedMusicGrid";
 import { Navbar } from "@/components/layout/Navbar";
-import { HeroBannerSkeleton, PosterRowSkeleton } from "@/components/ui/skeleton";
-import type { AlbumItem, MusicBrowseResponse, MusicCatalogRow } from "@/lib/spotify";
-import { getAlbumDetails, getMusicBrowse, pickRandomAlbum } from "@/lib/spotify";
+import { PosterRowSkeleton } from "@/components/ui/skeleton";
+import type { MusicBrowseResponse, MusicCatalogRow } from "@/lib/spotify";
+import { getMusicBrowse } from "@/lib/spotify";
+import { loadRecentlyPlayedMusic } from "@/lib/recentlyPlayedMusic";
 import { catalogQueryKeys } from "@/lib/queryClient";
 
-type MusicBrowsePageData = {
-  rows: MusicCatalogRow[];
-  heroAlbum: AlbumItem | undefined;
-};
-
-async function loadMusicBrowsePage(): Promise<MusicBrowsePageData> {
+async function loadMusicBrowsePage(): Promise<MusicCatalogRow[]> {
   const browse: MusicBrowseResponse = await getMusicBrowse();
-  const catalogRows = browse.rows.filter((row) => {
+  return browse.rows.filter((row) => {
     if (row.kind === "artists") {
       return (row.artists?.length ?? 0) > 0;
     }
     return (row.albums?.length ?? 0) > 0;
   });
+}
 
-  const candidate =
-    pickRandomAlbum(browse.newReleases) ??
-    pickRandomAlbum(browse.rows.find((row) => row.kind === "albums")?.albums ?? []);
-  if (!candidate) {
-    return { rows: catalogRows, heroAlbum: undefined };
+function subscribeRecentlyPlayed(onStoreChange: () => void) {
+  if (typeof window === "undefined") {
+    return () => {};
   }
-
-  try {
-    const details = await getAlbumDetails(candidate.id);
-    return { rows: catalogRows, heroAlbum: details };
-  } catch {
-    return { rows: catalogRows, heroAlbum: candidate };
-  }
+  const handler = () => onStoreChange();
+  window.addEventListener("storage", handler);
+  window.addEventListener("jedflix-music-recent", handler);
+  return () => {
+    window.removeEventListener("storage", handler);
+    window.removeEventListener("jedflix-music-recent", handler);
+  };
 }
 
 export function MusicPage() {
@@ -43,8 +39,13 @@ export function MusicPage() {
     queryFn: loadMusicBrowsePage,
   });
 
-  const heroAlbum = browseQuery.data?.heroAlbum;
-  const rows = browseQuery.data?.rows;
+  const recentTracks = useSyncExternalStore(
+    subscribeRecentlyPlayed,
+    loadRecentlyPlayedMusic,
+    () => [],
+  );
+
+  const rows = browseQuery.data;
   const error = browseQuery.error
     ? browseQuery.error instanceof Error
       ? browseQuery.error.message
@@ -54,28 +55,27 @@ export function MusicPage() {
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
       <Navbar searchMode="music" />
-      {heroAlbum ? (
-        <MusicHeroBanner album={heroAlbum} />
-      ) : error ? (
-        <div className="pt-navbar flex h-[50vh] items-center justify-center px-4 text-center">
-          <p className="text-zinc-400">{error}</p>
+      <div className="pt-navbar space-y-8 pb-36 md:pb-24">
+        <div className="px-4 md:px-12">
+          <h1 className="text-2xl font-bold md:text-3xl">Music</h1>
         </div>
-      ) : (
-        <HeroBannerSkeleton />
-      )}
 
-      <div className="-mt-16 relative z-10 pb-24 md:pb-16">
-        <div className="px-4 pb-6 md:px-12">
-          <h1 className="sr-only">Music</h1>
-        </div>
-        {rows === undefined ? (
+        {recentTracks.length > 0 ? <RecentlyPlayedMusicGrid tracks={recentTracks} /> : null}
+
+        {error ? (
+          <div className="px-4 md:px-12">
+            <p className="text-zinc-400">{error}</p>
+          </div>
+        ) : null}
+
+        {rows === undefined && !error ? (
           <>
-            <CatalogRowSkeleton title="New Releases" />
-            <CatalogRowSkeleton title="Popular Artists" />
+            <CatalogRowSkeleton title="Pop" />
+            <CatalogRowSkeleton title="Hip-Hop" />
           </>
         ) : (
-          rows.map((row) => (
-            <section key={row.key} className="mb-8 px-4 md:px-12">
+          (rows ?? []).map((row) => (
+            <section key={row.key} className="px-4 md:px-12">
               <h2 className="mb-3 text-lg font-semibold text-white md:text-xl">{row.title}</h2>
               <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2 scrollbar-hide">
                 {row.kind === "artists"
@@ -96,7 +96,7 @@ export function MusicPage() {
 
 function CatalogRowSkeleton({ title }: { title: string }) {
   return (
-    <section className="mb-8 px-4 md:px-12">
+    <section className="px-4 md:px-12">
       <h2 className="mb-3 text-lg font-semibold text-white md:text-xl">{title}</h2>
       <PosterRowSkeleton />
     </section>

@@ -154,3 +154,56 @@ func TestRefreshUsesSearchNotBrowseNewReleases(t *testing.T) {
 		t.Fatalf("expected 2 rows, got %d", len(browse.Rows))
 	}
 }
+
+func TestFetchPlaylistAlbums(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/token":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"access_token": "test-token",
+				"token_type":   "Bearer",
+				"expires_in":   3600,
+			})
+		case strings.HasPrefix(r.URL.Path, "/playlists/") && strings.HasSuffix(r.URL.Path, "/tracks"):
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []map[string]any{
+					{"track": map[string]any{"album": map[string]any{
+						"id": "albumid000000000000001", "name": "Album A", "album_type": "album",
+						"images": []map[string]any{{"url": "https://img/a.jpg", "width": 300}},
+						"artists": []map[string]any{{"id": "artistid00000000000001", "name": "A"}},
+					}}},
+					{"track": map[string]any{"album": map[string]any{
+						"id": "albumid000000000000001", "name": "Album A", "album_type": "album",
+						"images": []map[string]any{{"url": "https://img/a.jpg", "width": 300}},
+						"artists": []map[string]any{{"id": "artistid00000000000001", "name": "A"}},
+					}}},
+					{"track": map[string]any{"album": map[string]any{
+						"id": "albumid000000000000002", "name": "Album B", "album_type": "album",
+						"images": []map[string]any{{"url": "https://img/b.jpg", "width": 300}},
+						"artists": []map[string]any{{"id": "artistid00000000000002", "name": "B"}},
+					}}},
+				},
+				"next": "",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer upstream.Close()
+
+	client := NewClient(config.Config{
+		SpotifyClientID:     "id",
+		SpotifyClientSecret: "secret",
+		SpotifyAPIBaseURL:   upstream.URL,
+		SpotifyAuthURL:      upstream.URL + "/api/token",
+		SpotifyCacheTTL:     time.Hour,
+	})
+	albums, err := client.fetchPlaylistAlbums(context.Background(), "37i9dQZF1EQnqst5TRi17F", 10)
+	if err != nil {
+		t.Fatalf("fetchPlaylistAlbums: %v", err)
+	}
+	if len(albums) != 2 {
+		t.Fatalf("expected 2 unique albums, got %d", len(albums))
+	}
+}
+

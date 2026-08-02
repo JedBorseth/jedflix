@@ -409,6 +409,18 @@ func NormalizeID(value string) string {
 }
 
 func (c *Client) fetchCatalogRow(ctx context.Context, row RowConfig) (CatalogRow, error) {
+	if row.PlaylistID != "" {
+		albums, err := c.fetchPlaylistAlbums(ctx, row.PlaylistID, catalogPageCount*defaultLimit)
+		if err != nil {
+			return CatalogRow{}, err
+		}
+		return CatalogRow{
+			Title:  row.Title,
+			Key:    row.Key,
+			Kind:   "albums",
+			Albums: albums,
+		}, nil
+	}
 	switch row.Kind {
 	case "artists":
 		artists, err := c.searchArtists(ctx, row.Query, catalogPageCount*defaultLimit)
@@ -433,6 +445,72 @@ func (c *Client) fetchCatalogRow(ctx context.Context, row RowConfig) (CatalogRow
 			Albums: albums,
 		}, nil
 	}
+}
+
+type playlistTracksPayload struct {
+	Items []struct {
+		Track *struct {
+			Album *spotifyAlbumPayload `json:"album"`
+		} `json:"track"`
+	} `json:"items"`
+	Next string `json:"next"`
+}
+
+func (c *Client) fetchPlaylistAlbums(ctx context.Context, playlistID string, maxItems int) ([]Album, error) {
+	playlistID = NormalizeID(playlistID)
+	if playlistID == "" {
+		return nil, fmt.Errorf("%w: invalid playlist id", ErrBadRequest)
+	}
+	if maxItems <= 0 {
+		maxItems = catalogPageCount * defaultLimit
+	}
+
+	albums := make([]Album, 0, maxItems)
+	seen := make(map[string]struct{})
+	path := "/playlists/" + url.PathEscape(playlistID) + "/tracks?limit=50&fields=items(track(album(id,name,album_type,total_tracks,release_date,images,artists))),next"
+
+	for path != "" && len(albums) < maxItems {
+		var payload playlistTracksPayload
+		if err := c.getJSON(ctx, path, &payload); err != nil {
+			if len(albums) > 0 {
+				return albums, nil
+			}
+			return nil, err
+		}
+		for _, item := range payload.Items {
+			if item.Track == nil || item.Track.Album == nil {
+				continue
+			}
+			album := mapAlbum(*item.Track.Album)
+			if album.ID == "" {
+				continue
+			}
+			if _, ok := seen[album.ID]; ok {
+				continue
+			}
+			seen[album.ID] = struct{}{}
+			albums = append(albums, album)
+			if len(albums) >= maxItems {
+				break
+			}
+		}
+		next := strings.TrimSpace(payload.Next)
+		if next == "" {
+			break
+		}
+		// getJSON expects a path relative to apiBaseURL; strip the host if present.
+		if strings.HasPrefix(next, c.apiBaseURL) {
+			path = strings.TrimPrefix(next, c.apiBaseURL)
+		} else if u, err := url.Parse(next); err == nil && u.Path != "" {
+			path = u.Path
+			if u.RawQuery != "" {
+				path += "?" + u.RawQuery
+			}
+		} else {
+			break
+		}
+	}
+	return albums, nil
 }
 
 func (c *Client) searchAlbums(ctx context.Context, query string, maxItems int) ([]Album, error) {

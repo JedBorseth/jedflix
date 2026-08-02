@@ -22,7 +22,7 @@ var (
 )
 
 const (
-	defaultSearchCount = 5
+	defaultSearchCount = 8
 	urlCacheTTL        = 45 * time.Minute
 	maxURLCacheSize    = 256
 )
@@ -45,9 +45,10 @@ type cachedURL struct {
 
 // Request identifies a track to resolve.
 type Request struct {
-	Artist string
-	Title  string
-	Album  string
+	Artist     string
+	Title      string
+	Album      string
+	DurationMs int // Spotify track length; used to prefer audio over music videos
 }
 
 // StreamInfo is a resolved direct audio URL (ephemeral; not stored on disk).
@@ -132,7 +133,10 @@ func (r *Resolver) Resolve(ctx context.Context, req Request) (*StreamInfo, error
 }
 
 func cacheKey(req Request) string {
-	return strings.ToLower(req.Artist) + "\x00" + strings.ToLower(req.Title) + "\x00" + strings.ToLower(req.Album)
+	return strings.ToLower(req.Artist) + "\x00" +
+		strings.ToLower(req.Title) + "\x00" +
+		strings.ToLower(req.Album) + "\x00" +
+		fmt.Sprintf("%d", req.DurationMs)
 }
 
 func (r *Resolver) getCached(key string) (StreamInfo, bool) {
@@ -172,10 +176,9 @@ func (r *Resolver) putCached(key string, info StreamInfo) {
 }
 
 func buildSearchQuery(req Request) string {
-	parts := []string{req.Artist, req.Title}
-	if req.Album != "" {
-		parts = append(parts, req.Album)
-	}
+	// Bias search toward official audio / Topic uploads instead of music videos
+	// that often include intros/outros longer than the Spotify track.
+	parts := []string{req.Artist, req.Title, "official audio"}
 	return strings.Join(parts, " ")
 }
 
@@ -251,10 +254,10 @@ func (r *Resolver) search(ctx context.Context, req Request) ([]searchEntry, erro
 
 func pickBestEntry(entries []searchEntry, req Request) *searchEntry {
 	var best *searchEntry
-	bestScore := -1.0
+	bestScore := -1e9
 	for i := range entries {
 		entry := &entries[i]
-		if isLikelyLiveOrNonMusic(entry) {
+		if isLikelyLiveOrNonMusic(entry, req) {
 			continue
 		}
 		score := scoreEntry(entry, req)
@@ -263,13 +266,68 @@ func pickBestEntry(entries []searchEntry, req Request) *searchEntry {
 			best = entry
 		}
 	}
-	if best == nil && len(entries) > 0 {
+	if best != nil {
+		return best
+	}
+	// Soft fallback: allow music videos / duration outliers if every candidate was filtered.
+	bestScore = -1e9
+	for i := range entries {
+		entry := &entries[i]
+		title := strings.ToLower(entry.Title)
+		if entry.WasLive || strings.Contains(title, "official trailer") {
+			continue
+		}
+		score := scoreEntry(entry, req)
+		if score > bestScore {
+			bestScore = score
+			best = entry
+		}
+	}
+	if best != nil {
+		return best
+	}
+	if len(entries) > 0 {
 		return &entries[0]
 	}
-	return best
+	return nil
 }
 
-func isLikelyLiveOrNonMusic(entry *searchEntry) bool {
+func isMusicVideoTitle(title string) bool {
+	title = strings.ToLower(title)
+	for _, bad := range []string{
+		"official music video",
+		"official video",
+		"music video",
+		"(official video)",
+		"[official video]",
+		"(mv)",
+		"[mv]",
+		" visualizer",
+	} {
+		if strings.Contains(title, bad) {
+			return true
+		}
+	}
+	return false
+}
+
+func isAudioPreferredTitle(title, channel string) bool {
+	combined := strings.ToLower(title + " " + channel)
+	for _, good := range []string{
+		"official audio",
+		"audio only",
+		"lyric",
+		" - topic",
+		"topic",
+	} {
+		if strings.Contains(combined, good) {
+			return true
+		}
+	}
+	return strings.HasSuffix(strings.ToLower(strings.TrimSpace(channel)), "- topic")
+}
+
+func isLikelyLiveOrNonMusic(entry *searchEntry, req Request) bool {
 	if entry.WasLive {
 		return true
 	}
@@ -284,6 +342,23 @@ func isLikelyLiveOrNonMusic(entry *searchEntry) bool {
 		}
 	}
 	if entry.Duration > 0 && (entry.Duration < 45 || entry.Duration > 20*60) {
+		return true
+	}
+
+	// When we know the Spotify length, drop obvious music videos that are much longer
+	// (intros/outro skits) than the track.
+	if req.DurationMs > 0 && entry.Duration > 0 {
+		wantSec := float64(req.DurationMs) / 1000.0
+		delta := entry.Duration - wantSec
+		if isMusicVideoTitle(entry.Title) && delta > 25 {
+			return true
+		}
+		if delta > maxFloat(45, wantSec*0.25) {
+			return true
+		}
+	} else if isMusicVideoTitle(entry.Title) {
+		// Without a duration target, still prefer skipping clear MVs in the first pass
+		// by filtering them; soft fallback above can still pick them if needed.
 		return true
 	}
 	return false
@@ -315,18 +390,56 @@ func scoreEntry(entry *searchEntry, req Request) float64 {
 	if wantAlbum != "" && strings.Contains(title, wantAlbum) {
 		score += 10
 	}
-	for _, bonus := range []string{"official audio", "official music video", "topic", "lyrics"} {
-		if strings.Contains(title, normalizeText(bonus)) {
-			score += 5
-		}
+
+	rawTitle := entry.Title
+	rawChannel := entry.Uploader
+	if rawChannel == "" {
+		rawChannel = entry.Channel
 	}
-	if entry.Duration >= 90 && entry.Duration <= 8*60 {
+	if isAudioPreferredTitle(rawTitle, rawChannel) {
+		score += 35
+	}
+	if isMusicVideoTitle(rawTitle) {
+		score -= 40
+	}
+
+	if req.DurationMs > 0 && entry.Duration > 0 {
+		wantSec := float64(req.DurationMs) / 1000.0
+		delta := absFloat(entry.Duration - wantSec)
+		switch {
+		case delta <= 5:
+			score += 60
+		case delta <= 12:
+			score += 40
+		case delta <= 20:
+			score += 20
+		case delta <= 35:
+			score += 5
+		default:
+			score -= minFloat(50, delta)
+		}
+	} else if entry.Duration >= 90 && entry.Duration <= 8*60 {
 		score += 8
 	}
+
 	if entry.ViewCount > 0 {
-		score += minFloat(10, entry.ViewCount/1_000_000)
+		score += minFloat(8, entry.ViewCount/1_000_000)
 	}
 	return score
+}
+
+func absFloat(v float64) float64 {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
+func maxFloat(a, b float64) float64 {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func (r *Resolver) extractStream(ctx context.Context, entry *searchEntry) (*StreamInfo, error) {

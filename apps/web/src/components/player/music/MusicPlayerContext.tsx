@@ -11,6 +11,7 @@ import { useMediaSession } from "@/hooks/useMediaSession";
 import { mapMediaElementError } from "@/components/player/shared/playbackErrors";
 import { playMediaElement } from "@/lib/mediaSession";
 import { getYoutubeAudioUrl, type TrackItem } from "@/lib/spotify";
+import { recordRecentlyPlayedMusic } from "@/lib/recentlyPlayedMusic";
 
 export type MusicQueueTrack = {
   id: string;
@@ -90,10 +91,23 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     if (!audio) {
       return;
     }
+    recordRecentlyPlayedMusic({
+      id: track.id,
+      title: track.title,
+      artists: track.artists,
+      albumName: track.albumName,
+      albumId: track.albumId,
+      imageUrl: track.imageUrl,
+      durationMs: track.durationMs,
+    });
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("jedflix-music-recent"));
+    }
     const src = getYoutubeAudioUrl({
       artist: artistLabel(track.artists),
       title: track.title,
       album: track.albumName,
+      durationMs: track.durationMs > 0 ? track.durationMs : undefined,
     });
     playIntentRef.current = true;
     setLoading(true);

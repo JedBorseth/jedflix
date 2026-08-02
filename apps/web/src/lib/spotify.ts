@@ -70,6 +70,7 @@ export function getYoutubeAudioUrl(params: {
   artist: string;
   title: string;
   album?: string;
+  durationMs?: number;
 }): string {
   return streamClient.getYoutubeAudioUrl(params);
 }

@@ -428,6 +428,12 @@ func (s *Server) handleYouTubeAudio(w http.ResponseWriter, r *http.Request) {
 	artist := strings.TrimSpace(r.URL.Query().Get("artist"))
 	title := strings.TrimSpace(r.URL.Query().Get("title"))
 	album := strings.TrimSpace(r.URL.Query().Get("album"))
+	durationMs := 0
+	if raw := strings.TrimSpace(r.URL.Query().Get("durationMs")); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+			durationMs = parsed
+		}
+	}
 	if artist == "" || title == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "artist and title are required"})
 		return
@@ -437,9 +443,10 @@ func (s *Server) handleYouTubeAudio(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	info, err := s.youtube.Resolve(ctx, youtube.Request{
-		Artist: artist,
-		Title:  title,
-		Album:  album,
+		Artist:     artist,
+		Title:      title,
+		Album:      album,
+		DurationMs: durationMs,
 	})
 	if err != nil {
 		writeYouTubeError(w, err)
