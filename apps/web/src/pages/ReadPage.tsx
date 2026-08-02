@@ -14,6 +14,11 @@ import {
   normalizeWorkId,
 } from "@/lib/openlibrary";
 import { catalogQueryKeys } from "@/lib/queryClient";
+import {
+  hasSavedStream,
+  matchSavedStream,
+  streamPreferenceFromSource,
+} from "@/lib/savedStream";
 import { fetchSources, type ResolveRequest, type StreamFile, type StreamSource } from "@/lib/streamApi";
 
 function isEpub(file: StreamFile) {
@@ -53,6 +58,7 @@ export function ReadPage() {
   const [sourcesError, setSourcesError] = useState<string>();
   const [selected, setSelected] = useState<StreamSource | null>(null);
   const [searchKey, setSearchKey] = useState(0);
+  const [preferPicker, setPreferPicker] = useState(false);
   const [activeFileIndex, setActiveFileIndex] = useState(0);
 
   const book = bookQuery.data;
@@ -65,7 +71,6 @@ export function ReadPage() {
     let cancelled = false;
     setSourcesLoading(true);
     setSourcesError(undefined);
-    setSelected(null);
 
     void fetchSources({
       type: "ebook",
@@ -94,6 +99,19 @@ export function ReadPage() {
       cancelled = true;
     };
   }, [author, book, searchKey, workId]);
+
+  useEffect(() => {
+    if (!rdToken || preferPicker || selected || history === undefined) {
+      return;
+    }
+    if (!hasSavedStream(savedProgress)) {
+      return;
+    }
+    const matched = matchSavedStream(sources, savedProgress);
+    if (matched) {
+      setSelected(matched);
+    }
+  }, [history, preferPicker, rdToken, savedProgress, selected, sources]);
 
   const resolveRequest: ResolveRequest | null = useMemo(() => {
     if (!selected || !rdToken) {
@@ -126,6 +144,30 @@ export function ReadPage() {
 
   const activeFile = files[activeFileIndex] ?? files[0];
 
+  const onSelectSource = useCallback(
+    (source: StreamSource) => {
+      setPreferPicker(false);
+      setSelected(source);
+      if (!workId) {
+        return;
+      }
+      void upsertProgress({
+        mediaType: "ebook",
+        workId,
+        progressSeconds: 0,
+        fileIndex: savedProgress?.fileIndex,
+        location: savedProgress?.location,
+        ...streamPreferenceFromSource(source),
+      }).catch(() => {});
+    },
+    [savedProgress?.fileIndex, savedProgress?.location, upsertProgress, workId],
+  );
+
+  const onChangeSource = useCallback(() => {
+    setPreferPicker(true);
+    setSelected(null);
+  }, []);
+
   const onLocationChange = useCallback(
     (location: string) => {
       if (!workId) {
@@ -137,9 +179,10 @@ export function ReadPage() {
         progressSeconds: 0,
         fileIndex: activeFileIndex,
         location,
+        ...(selected ? streamPreferenceFromSource(selected) : {}),
       }).catch(() => {});
     },
-    [activeFileIndex, upsertProgress, workId],
+    [activeFileIndex, selected, upsertProgress, workId],
   );
 
   if (!workId) {
@@ -169,6 +212,15 @@ export function ReadPage() {
     );
   }
 
+  const showReader = resolveState.status === "ready" && Boolean(activeFile);
+  const showDownload = Boolean(selected) && resolveState.status === "downloading";
+  const showFailed = Boolean(selected) && resolveState.status === "failed";
+  const showPicker =
+    preferPicker ||
+    ((!selected || resolveState.status === "idle" || resolveState.status === "failed") &&
+      !showDownload &&
+      !showReader);
+
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
       <header className="border-b border-zinc-800 px-4 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] md:px-8">
@@ -176,11 +228,22 @@ export function ReadPage() {
           <Link to={getBookDetailPath(book)} className="text-sm text-zinc-400 hover:text-white">
             ← {book.title}
           </Link>
-          {!rdToken ? (
-            <Button asChild size="sm" className="bg-red-600 hover:bg-red-700">
-              <Link to="/settings">Add Real Debrid key</Link>
-            </Button>
-          ) : null}
+          <div className="flex shrink-0 items-center gap-2">
+            {showReader || showDownload ? (
+              <button
+                type="button"
+                className="text-sm text-zinc-400 hover:text-white"
+                onClick={onChangeSource}
+              >
+                Change source
+              </button>
+            ) : null}
+            {!rdToken ? (
+              <Button asChild size="sm" className="bg-red-600 hover:bg-red-700">
+                <Link to="/settings">Add Real Debrid key</Link>
+              </Button>
+            ) : null}
+          </div>
         </div>
       </header>
 
@@ -191,7 +254,7 @@ export function ReadPage() {
           </div>
         ) : null}
 
-        {resolveState.status === "ready" && activeFile ? (
+        {showReader && activeFile ? (
           <div className="space-y-4">
             {files.length > 1 ? (
               <div className="flex flex-wrap gap-2">
@@ -240,51 +303,43 @@ export function ReadPage() {
               </div>
             )}
           </div>
-        ) : (
-          <div className="space-y-4">
-            {selected && resolveState.status === "downloading" ? (
-              <div className="rounded-lg border border-zinc-800 bg-zinc-900/70 p-4 text-center text-sm text-zinc-300">
-                <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-zinc-600 border-t-white" />
-                {resolveState.progress ?? "Resolving with Real Debrid..."}
-              </div>
-            ) : null}
+        ) : null}
 
-            {selected && resolveState.status === "failed" ? (
-              <div className="rounded-lg border border-red-900/50 bg-red-950/40 p-4 text-sm text-red-200">
-                <p className="font-medium text-red-100">Could not start this source</p>
-                <p className="mt-2 break-words text-red-100/90">
-                  {resolveState.error ?? "Unknown resolve error"}
-                </p>
-                {selected.title ? (
-                  <p className="mt-2 text-xs text-red-200/70">Source: {selected.title}</p>
-                ) : null}
-                {selected.abbPostUrl ? (
-                  <p className="mt-1 break-all text-xs text-red-200/60">{selected.abbPostUrl}</p>
-                ) : null}
-                <button
-                  type="button"
-                  className="mt-4 rounded-md bg-white px-4 py-2 text-black"
-                  onClick={() => setSelected(null)}
-                >
-                  Pick another source
-                </button>
-              </div>
-            ) : null}
-
-            {!selected || resolveState.status === "idle" || resolveState.status === "failed" ? (
-              <BookSourcePicker
-                sources={sources}
-                loading={sourcesLoading}
-                error={sourcesError}
-                mediaLabel="ebook"
-                selectedId={selected?.id}
-                disabled={!rdToken || resolveState.status === "downloading"}
-                onSelect={setSelected}
-                onRetry={() => setSearchKey((value) => value + 1)}
-              />
-            ) : null}
+        {showDownload ? (
+          <div className="rounded-lg border border-zinc-800 bg-zinc-900/70 p-4 text-center text-sm text-zinc-300">
+            <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-zinc-600 border-t-white" />
+            {resolveState.progress ?? "Resuming saved source with Real Debrid..."}
           </div>
-        )}
+        ) : null}
+
+        {showFailed ? (
+          <div className="mb-4 rounded-lg border border-red-900/50 bg-red-950/40 p-4 text-sm text-red-200">
+            <p className="font-medium text-red-100">Could not start this source</p>
+            <p className="mt-2 break-words text-red-100/90">
+              {resolveState.error ?? "Unknown resolve error"}
+            </p>
+            <button
+              type="button"
+              className="mt-4 rounded-md bg-white px-4 py-2 text-black"
+              onClick={onChangeSource}
+            >
+              Pick another source
+            </button>
+          </div>
+        ) : null}
+
+        {showPicker ? (
+          <BookSourcePicker
+            sources={sources}
+            loading={sourcesLoading || history === undefined}
+            error={sourcesError}
+            mediaLabel="ebook"
+            selectedId={selected?.id}
+            disabled={!rdToken || resolveState.status === "downloading"}
+            onSelect={onSelectSource}
+            onRetry={() => setSearchKey((value) => value + 1)}
+          />
+        ) : null}
       </main>
     </div>
   );

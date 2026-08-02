@@ -24,6 +24,11 @@ export default defineSchema({
     fileIndex: v.optional(v.number()),
     // Ebook location: EPUB CFI or PDF page number as string.
     location: v.optional(v.string()),
+    // Last-picked stream source so Continue Listening can skip the picker.
+    streamAbbPostUrl: v.optional(v.string()),
+    streamMagnet: v.optional(v.string()),
+    streamInfoHash: v.optional(v.string()),
+    streamTitle: v.optional(v.string()),
   })
     .index("by_user", ["userId"])
     .index("by_user_and_media_type_and_movie_id", ["userId", "mediaType", "movieId"])

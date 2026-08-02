@@ -151,6 +151,7 @@ export function WatchPage() {
     movieId: movie.id,
     mediaType: movie.mediaType,
     title: movie.title,
+    posterUrl: movie.posterUrl,
     imdbId,
     season,
     episode,

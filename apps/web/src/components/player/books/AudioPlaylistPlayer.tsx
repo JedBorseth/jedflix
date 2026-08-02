@@ -1,9 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import { mapMediaElementError } from "@/components/player/shared/playbackErrors";
+import {
+  artworkFromUrl,
+  bindMediaSessionHandlers,
+  setMediaSessionMetadata,
+  setMediaSessionPlaybackState,
+  setMediaSessionPositionState,
+} from "@/lib/mediaSession";
 import type { PackKind, StreamFile } from "@/lib/streamApi";
 
 type AudioPlaylistPlayerProps = {
   title: string;
+  artist?: string;
+  artworkUrl?: string;
   files: StreamFile[];
   packKind?: PackKind;
   initialFileIndex?: number;
@@ -40,6 +49,8 @@ function packLabel(packKind: PackKind | undefined, count: number) {
 
 export function AudioPlaylistPlayer({
   title,
+  artist,
+  artworkUrl,
   files,
   packKind,
   initialFileIndex = 0,
@@ -72,6 +83,74 @@ export function AudioPlaylistPlayer({
     }
     audio.playbackRate = rate;
   }, [rate, currentFile?.url]);
+
+  useEffect(() => {
+    setMediaSessionMetadata({
+      title,
+      artist: artist || "Audiobook",
+      album: currentFile?.filename || "JedFlix",
+      artwork: artworkFromUrl(artworkUrl),
+    });
+  }, [artist, artworkUrl, currentFile?.filename, title]);
+
+  useEffect(() => {
+    setMediaSessionPlaybackState(playing ? "playing" : "paused");
+  }, [playing]);
+
+  useEffect(() => {
+    setMediaSessionPositionState({
+      duration,
+      position: current,
+      playbackRate: rate,
+    });
+  }, [current, duration, rate]);
+
+  useEffect(() => {
+    return bindMediaSessionHandlers({
+      play: () => {
+        const audio = audioRef.current;
+        if (!audio) {
+          return;
+        }
+        void audio.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
+      },
+      pause: () => {
+        audioRef.current?.pause();
+        setPlaying(false);
+      },
+      seekbackward: (details) => {
+        const audio = audioRef.current;
+        if (!audio) {
+          return;
+        }
+        const offset = details.seekOffset ?? 30;
+        audio.currentTime = Math.max(0, audio.currentTime - offset);
+      },
+      seekforward: (details) => {
+        const audio = audioRef.current;
+        if (!audio) {
+          return;
+        }
+        const offset = details.seekOffset ?? 30;
+        audio.currentTime = Math.min(audio.duration || 0, audio.currentTime + offset);
+      },
+      previoustrack: () => {
+        setFileIndex((index) => Math.max(0, index - 1));
+        setPlaying(true);
+      },
+      nexttrack: () => {
+        setFileIndex((index) => Math.min(files.length - 1, index + 1));
+        setPlaying(true);
+      },
+      seekto: (details) => {
+        const audio = audioRef.current;
+        if (!audio || details.seekTime == null) {
+          return;
+        }
+        audio.currentTime = details.seekTime;
+      },
+    });
+  }, [files.length]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {

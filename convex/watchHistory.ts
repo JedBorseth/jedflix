@@ -22,8 +22,62 @@ function assertMediaIdentity(args: {
   }
 }
 
+const streamSourceArgs = {
+  streamAbbPostUrl: v.optional(v.string()),
+  streamMagnet: v.optional(v.string()),
+  streamInfoHash: v.optional(v.string()),
+  streamTitle: v.optional(v.string()),
+};
+
+function streamPatch(args: {
+  streamAbbPostUrl?: string;
+  streamMagnet?: string;
+  streamInfoHash?: string;
+  streamTitle?: string;
+}) {
+  const patch: {
+    streamAbbPostUrl?: string;
+    streamMagnet?: string;
+    streamInfoHash?: string;
+    streamTitle?: string;
+  } = {};
+  if (args.streamAbbPostUrl !== undefined) {
+    patch.streamAbbPostUrl = args.streamAbbPostUrl.trim() || undefined;
+  }
+  if (args.streamMagnet !== undefined) {
+    patch.streamMagnet = args.streamMagnet.trim() || undefined;
+  }
+  if (args.streamInfoHash !== undefined) {
+    patch.streamInfoHash = args.streamInfoHash.trim().toLowerCase() || undefined;
+  }
+  if (args.streamTitle !== undefined) {
+    patch.streamTitle = args.streamTitle.trim() || undefined;
+  }
+  return patch;
+}
+
 export const getForUser = query({
   args: {},
+  returns: v.array(
+    v.object({
+      _id: v.id("watchHistory"),
+      _creationTime: v.number(),
+      userId: v.id("users"),
+      movieId: v.optional(v.number()),
+      workId: v.optional(v.string()),
+      mediaType: mediaTypeValidator,
+      progressSeconds: v.number(),
+      lastWatchedAt: v.number(),
+      season: v.optional(v.number()),
+      episode: v.optional(v.number()),
+      fileIndex: v.optional(v.number()),
+      location: v.optional(v.string()),
+      streamAbbPostUrl: v.optional(v.string()),
+      streamMagnet: v.optional(v.string()),
+      streamInfoHash: v.optional(v.string()),
+      streamTitle: v.optional(v.string()),
+    }),
+  ),
   handler: async (ctx) => {
     const userId = await getAuthUserId(ctx);
     if (userId === null) {
@@ -49,7 +103,9 @@ export const upsertProgress = mutation({
     episode: v.optional(v.number()),
     fileIndex: v.optional(v.number()),
     location: v.optional(v.string()),
+    ...streamSourceArgs,
   },
+  returns: v.id("watchHistory"),
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
     if (userId === null) {
@@ -59,6 +115,7 @@ export const upsertProgress = mutation({
     assertMediaIdentity(args);
 
     const lastWatchedAt = Date.now();
+    const stream = streamPatch(args);
     const patch = {
       progressSeconds: args.progressSeconds,
       lastWatchedAt,
@@ -66,6 +123,7 @@ export const upsertProgress = mutation({
       episode: args.episode,
       fileIndex: args.fileIndex,
       location: args.location,
+      ...stream,
     };
 
     if (isBookMediaType(args.mediaType)) {
@@ -92,6 +150,7 @@ export const upsertProgress = mutation({
         episode: args.episode,
         fileIndex: args.fileIndex,
         location: args.location,
+        ...stream,
       });
     }
 
@@ -118,6 +177,7 @@ export const upsertProgress = mutation({
       episode: args.episode,
       fileIndex: args.fileIndex,
       location: args.location,
+      ...stream,
     });
   },
 });

@@ -15,12 +15,20 @@ import { toDisplaySeconds } from "../stremio/time";
 import { StreamSourcePicker } from "../stremio/StreamSourcePicker";
 import { useStreamResolve } from "../stremio/useStreamResolve";
 import { useVideoJs } from "./useVideoJs";
+import {
+  artworkFromUrl,
+  bindMediaSessionHandlers,
+  setMediaSessionMetadata,
+  setMediaSessionPlaybackState,
+  setMediaSessionPositionState,
+} from "@/lib/mediaSession";
 import "../stremio/player.css";
 
 type VideoJsPlayerProps = {
   movieId: number;
   mediaType: MediaType;
   title: string;
+  posterUrl?: string;
   imdbId: string;
   season?: number;
   episode?: number;
@@ -35,6 +43,7 @@ export function VideoJsPlayer({
   movieId,
   mediaType,
   title,
+  posterUrl,
   imdbId,
   season,
   episode,
@@ -152,6 +161,55 @@ export function VideoJsPlayer({
     resolveState.stream?.filename,
     title,
   ]);
+
+  useEffect(() => {
+    if (!resolveState.playbackUrl) {
+      return;
+    }
+    setMediaSessionMetadata({
+      title,
+      artist: mediaType === "tv" ? "TV Show" : "Movie",
+      album: "JedFlix",
+      artwork: artworkFromUrl(posterUrl),
+    });
+  }, [mediaType, posterUrl, resolveState.playbackUrl, title]);
+
+  useEffect(() => {
+    setMediaSessionPlaybackState(state.paused ? "paused" : "playing");
+    setMediaSessionPositionState({
+      duration: (state.duration ?? 0) / 1000,
+      position: (state.time ?? 0) / 1000,
+      playbackRate: 1,
+    });
+  }, [state.duration, state.paused, state.time]);
+
+  useEffect(() => {
+    return bindMediaSessionHandlers({
+      play: () => setPaused(false),
+      pause: () => setPaused(true),
+      seekbackward: (details) => {
+        const el = videoRef.current;
+        if (!el) {
+          return;
+        }
+        setTime(Math.max(0, el.currentTime * 1000 - (details.seekOffset ?? 15) * 1000));
+      },
+      seekforward: (details) => {
+        const el = videoRef.current;
+        if (!el) {
+          return;
+        }
+        const durationMs = (el.duration || 0) * 1000;
+        setTime(Math.min(durationMs, el.currentTime * 1000 + (details.seekOffset ?? 15) * 1000));
+      },
+      seekto: (details) => {
+        if (details.seekTime == null) {
+          return;
+        }
+        setTime(details.seekTime * 1000);
+      },
+    });
+  }, [setPaused, setTime, videoRef]);
 
   const tryNextSource = useCallback(
     (message: string) => {

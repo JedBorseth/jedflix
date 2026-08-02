@@ -4,6 +4,7 @@ import { useParams } from "react-router-dom";
 import { BookCard } from "@/components/browse/BookCard";
 import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
 import { AppLink } from "@/components/layout/AppLink";
+import { DetailBackButton } from "@/components/layout/DetailBackButton";
 import { Navbar } from "@/components/layout/Navbar";
 import { Button } from "@/components/ui/button";
 import { DetailPageSkeleton } from "@/components/ui/skeleton";
@@ -109,6 +110,9 @@ export function AuthorPage() {
               <p className="mb-4 text-sm text-zinc-400">Born {author.birthDate}</p>
             ) : null}
             <AuthorBiography biography={author.biography} />
+            <div className="mt-6">
+              <DetailBackButton fallbackTo="/audiobooks" label="Back" />
+            </div>
           </div>
         </div>
 
