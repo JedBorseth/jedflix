@@ -65,7 +65,10 @@ export async function resolveRealDebridStream(
         ...request,
         realDebridToken: trimmedToken,
       },
-      { signal: options.signal },
+      {
+        signal: options.signal,
+        onProgress: options.onProgress,
+      },
     );
   } catch (error) {
     if (options.signal?.aborted) {

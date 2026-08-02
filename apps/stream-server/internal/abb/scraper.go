@@ -75,7 +75,7 @@ func NewClientWithOptions(opts ClientOptions) *Client {
 
 	httpClient := opts.HTTPClient
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 30 * time.Second}
+		httpClient = &http.Client{Timeout: 25 * time.Second}
 	}
 	// Clone so we can attach a cookie jar without mutating a shared client.
 	cloned := *httpClient
@@ -85,8 +85,10 @@ func NewClientWithOptions(opts ClientOptions) *Client {
 			cloned.Jar = jar
 		}
 	}
-	if cloned.Timeout == 0 {
-		cloned.Timeout = 30 * time.Second
+	// Keep ABB page fetches bounded so resolve jobs fail fast with a clear error
+	// instead of hanging until mobile browsers report "Load failed".
+	if cloned.Timeout == 0 || cloned.Timeout > 25*time.Second {
+		cloned.Timeout = 25 * time.Second
 	}
 
 	return &Client{

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jedborseth/jeds-movies/stream-server/internal/abb"
@@ -189,14 +190,70 @@ func (s *Service) listBookSources(req Request) ([]Source, error) {
 		sources = append(sources, Source{
 			ID:         fmt.Sprintf("abb_%d", index),
 			Title:      result.Title,
-			Magnet:     "", // fetched on resolve from abbPostUrl / info hash
+			Magnet:     "",
 			AbbPostURL: result.URL,
 			Info:       result.Info,
 			MatchScore: &score,
 			Cached:     false,
 		})
 	}
+
+	// Prefetch magnets for the top hits so resolve can hit Real Debrid immediately.
+	s.enrichBookMagnets(sources, 5)
 	return sources, nil
+}
+
+func (s *Service) enrichBookMagnets(sources []Source, limit int) {
+	if s.abb == nil || limit <= 0 {
+		return
+	}
+	if limit > len(sources) {
+		limit = len(sources)
+	}
+
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 3)
+	for i := 0; i < limit; i++ {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			post, err := s.abb.GetPost(sources[index].AbbPostURL)
+			if err != nil || post == nil || strings.TrimSpace(post.Magnet) == "" {
+				return
+			}
+			sources[index].Magnet = post.Magnet
+			if hash := infoHashFromMagnet(post.Magnet); hash != "" {
+				sources[index].InfoHash = hash
+			}
+		}(i)
+	}
+	wg.Wait()
+}
+
+func infoHashFromMagnet(magnet string) string {
+	lower := strings.ToLower(magnet)
+	const prefix = "urn:btih:"
+	idx := strings.Index(lower, prefix)
+	if idx < 0 {
+		return ""
+	}
+	rest := magnet[idx+len(prefix):]
+	end := 0
+	for end < len(rest) {
+		c := rest[end]
+		if (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') {
+			end++
+			continue
+		}
+		break
+	}
+	if end < 32 {
+		return ""
+	}
+	return strings.ToLower(rest[:end])
 }
 
 func (s *Service) searchAndRankBooks(query, title, author string) ([]abb.RankedResult, error) {
@@ -219,19 +276,40 @@ func (s *Service) search(ctx context.Context, req Request) ([]search.Release, er
 }
 
 func (s *Service) Resolve(ctx context.Context, req ResolveRequest) (*StreamResult, error) {
+	return s.ResolveWithProgress(ctx, req, nil)
+}
+
+func (s *Service) ResolveWithProgress(
+	ctx context.Context,
+	req ResolveRequest,
+	onProgress func(string),
+) (*StreamResult, error) {
+	report := func(message string) {
+		if onProgress != nil && strings.TrimSpace(message) != "" {
+			onProgress(message)
+		}
+	}
+
 	token := strings.TrimSpace(req.RealDebridToken)
 	if token == "" {
 		return nil, &ResolveError{Code: "missing_token", Message: "Real Debrid API key is required for direct streaming."}
 	}
 
 	magnet := strings.TrimSpace(req.Magnet)
+	if magnet == "" && strings.TrimSpace(req.InfoHash) != "" {
+		magnet = "magnet:?xt=urn:btih:" + strings.ToLower(strings.TrimSpace(req.InfoHash))
+	}
 	if magnet == "" && strings.TrimSpace(req.AbbPostURL) != "" {
 		if s.abb == nil {
 			return nil, &ResolveError{Code: "invalid_request", Message: "audiobook discovery is not configured"}
 		}
+		report("Fetching magnet from AudiobookBay…")
 		post, err := s.abb.GetPost(strings.TrimSpace(req.AbbPostURL))
 		if err != nil {
-			return nil, &ResolveError{Code: "abb_magnet", Message: err.Error()}
+			return nil, &ResolveError{
+				Code:    "abb_magnet",
+				Message: "Could not fetch magnet from AudiobookBay: " + err.Error(),
+			}
 		}
 		magnet = post.Magnet
 		if strings.TrimSpace(req.Title) == "" {
@@ -246,12 +324,17 @@ func (s *Service) Resolve(ctx context.Context, req ResolveRequest) (*StreamResul
 	}
 
 	if req.Type == "audiobook" || req.Type == "ebook" {
-		return s.resolveBook(ctx, token, magnet, req)
+		return s.resolveBook(ctx, token, magnet, req, report)
 	}
-	return s.resolveVideo(ctx, token, magnet, req)
+	return s.resolveVideo(ctx, token, magnet, req, report)
 }
 
-func (s *Service) resolveVideo(ctx context.Context, token, magnet string, req ResolveRequest) (*StreamResult, error) {
+func (s *Service) resolveVideo(
+	ctx context.Context,
+	token, magnet string,
+	req ResolveRequest,
+	report func(string),
+) (*StreamResult, error) {
 	rd := realdebrid.NewClientWithToken(s.cfg, token)
 	maxBytes := int64(s.cfg.MaxVideoSizeGB * 1024 * 1024 * 1024)
 	timeout := s.cfg.ResolveTimeout
@@ -270,12 +353,14 @@ func (s *Service) resolveVideo(ctx context.Context, token, magnet string, req Re
 		}
 	}()
 
+	report("Adding magnet to Real Debrid…")
 	id, err := rd.AddMagnet(resolveCtx, magnet)
 	if err != nil {
 		return nil, mapRDError(err)
 	}
 	torrentID = id
 	cleanupTorrent = true
+	report("Magnet added to Real Debrid. Waiting for file list…")
 
 	info, err := rd.WaitForFileList(resolveCtx, torrentID, timeout)
 	if err != nil {
@@ -302,10 +387,12 @@ func (s *Service) resolveVideo(ctx context.Context, token, magnet string, req Re
 		return nil, &ResolveError{Code: "size_limit", Message: "Selected file exceeds size limit."}
 	}
 
+	report("Selecting video file on Real Debrid…")
 	if err := rd.SelectFiles(resolveCtx, torrentID, []int{file.ID}); err != nil {
 		return nil, mapRDError(err)
 	}
 
+	report("Waiting for Real Debrid download…")
 	info, err = rd.WaitReady(resolveCtx, torrentID, timeout, nil)
 	if err != nil {
 		if resolveCtx.Err() != nil {
@@ -317,6 +404,7 @@ func (s *Service) resolveVideo(ctx context.Context, token, magnet string, req Re
 		return nil, &ResolveError{Code: "no_links", Message: "Real Debrid returned no links."}
 	}
 
+	report("Unrestricting Real Debrid link…")
 	unrestricted, err := rd.UnrestrictLink(resolveCtx, info.Links[0])
 	if err != nil {
 		return nil, mapRDError(err)
@@ -339,7 +427,12 @@ func (s *Service) resolveVideo(ctx context.Context, token, magnet string, req Re
 	}, nil
 }
 
-func (s *Service) resolveBook(ctx context.Context, token, magnet string, req ResolveRequest) (*StreamResult, error) {
+func (s *Service) resolveBook(
+	ctx context.Context,
+	token, magnet string,
+	req ResolveRequest,
+	report func(string),
+) (*StreamResult, error) {
 	rd := realdebrid.NewClientWithToken(s.cfg, token)
 	timeout := s.cfg.ResolveTimeout
 	if timeout <= 0 {
@@ -357,12 +450,14 @@ func (s *Service) resolveBook(ctx context.Context, token, magnet string, req Res
 		}
 	}()
 
+	report("Adding magnet to Real Debrid…")
 	id, err := rd.AddMagnet(resolveCtx, magnet)
 	if err != nil {
 		return nil, mapRDError(err)
 	}
 	torrentID = id
 	cleanupTorrent = true
+	report("Magnet added to Real Debrid. Waiting for file list…")
 
 	info, err := rd.WaitForFileList(resolveCtx, torrentID, timeout)
 	if err != nil {
@@ -406,10 +501,12 @@ func (s *Service) resolveBook(ctx context.Context, token, magnet string, req Res
 	for i, file := range mediaFiles {
 		fileIDs[i] = file.ID
 	}
+	report(fmt.Sprintf("Selecting %d %s file(s) on Real Debrid…", len(fileIDs), req.Type))
 	if err := rd.SelectFiles(resolveCtx, torrentID, fileIDs); err != nil {
 		return nil, mapRDError(err)
 	}
 
+	report("Waiting for Real Debrid download…")
 	info, err = rd.WaitReady(resolveCtx, torrentID, timeout, nil)
 	if err != nil {
 		if resolveCtx.Err() != nil {
@@ -443,6 +540,7 @@ func (s *Service) resolveBook(ctx context.Context, token, magnet string, req Res
 		}
 	}
 
+	report(fmt.Sprintf("Unrestricting %d Real Debrid link(s)…", len(selectedOrdered)))
 	streamFiles := make([]StreamFile, 0, len(selectedOrdered))
 	for index, file := range selectedOrdered {
 		unrestricted, unrestrictErr := rd.UnrestrictLink(resolveCtx, info.Links[index])

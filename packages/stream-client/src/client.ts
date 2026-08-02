@@ -159,7 +159,7 @@ export type StreamClient = {
   resolveStream: (
     source: StreamSource,
     request: ResolveRequest,
-    options?: { signal?: AbortSignal },
+    options?: { signal?: AbortSignal; onProgress?: (progress: string) => void },
   ) => Promise<StreamResult>;
   fetchLetterboxdFilmsByDate: (username: string) => Promise<LetterboxdFilmsResponse>;
   verifyLetterboxdUsername: (username: string) => Promise<LetterboxdVerifyResponse>;
@@ -228,7 +228,7 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
   async function resolveStream(
     source: StreamSource,
     request: ResolveRequest,
-    options: { signal?: AbortSignal } = {},
+    options: { signal?: AbortSignal; onProgress?: (progress: string) => void } = {},
   ): Promise<StreamResult> {
     const token = request.realDebridToken?.trim() ?? "";
     if (!token) {
@@ -238,38 +238,144 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
       );
     }
 
-    const response = await fetch(`${apiBase}/api/v1/resolve`, {
+    const body = JSON.stringify({
+      type: request.type,
+      magnet: source.magnet || request.magnet,
+      abbPostUrl: source.abbPostUrl || request.abbPostUrl,
+      infoHash: source.infoHash ?? request.infoHash,
+      title: source.title,
+      mediaTitle: request.mediaTitle,
+      fileIdx: source.fileIdx ?? request.fileIdx,
+      season: request.season,
+      episode: request.episode,
+      playbackProfile: request.playbackProfile ?? "browser",
+    });
+
+    options.onProgress?.("Starting resolve job…");
+    const startResponse = await fetch(`${apiBase}/api/v1/resolve`, {
       method: "POST",
       headers: headers(token),
       signal: options.signal,
-      body: JSON.stringify({
-        type: request.type,
-        magnet: source.magnet || request.magnet,
-        abbPostUrl: source.abbPostUrl || request.abbPostUrl,
-        infoHash: source.infoHash ?? request.infoHash,
-        title: source.title,
-        mediaTitle: request.mediaTitle,
-        fileIdx: source.fileIdx ?? request.fileIdx,
-        season: request.season,
-        episode: request.episode,
-        playbackProfile: request.playbackProfile ?? "browser",
-      }),
+      credentials: "same-origin",
+      body,
     });
 
-    if (!response.ok) {
-      const payload = (await response.json().catch(() => null)) as {
+    // Legacy sync servers still return 200 with the stream payload.
+    if (startResponse.ok && startResponse.status === 200) {
+      return normalizeStreamResult((await startResponse.json()) as StreamResult);
+    }
+
+    if (startResponse.status !== 202 && !startResponse.ok) {
+      const payload = (await startResponse.json().catch(() => null)) as {
         error?: string;
         code?: string;
       } | null;
       const code = payload?.code;
-      const message = payload?.error ?? `Stream resolve failed (${response.status})`;
+      const message = payload?.error ?? `Stream resolve failed (${startResponse.status})`;
       if (code) {
-        throw new StreamResolveError(code, message, response.status);
+        throw new StreamResolveError(code, message, startResponse.status);
       }
       throw new Error(message);
     }
 
-    return normalizeStreamResult((await response.json()) as StreamResult);
+    const started = (await startResponse.json()) as {
+      jobId?: string;
+      status?: string;
+      progress?: string;
+      result?: StreamResult;
+      error?: string;
+      code?: string;
+    };
+
+    if (started.result && started.status === "ready") {
+      return normalizeStreamResult(started.result);
+    }
+
+    const jobId = started.jobId?.trim();
+    if (!jobId) {
+      throw new Error("Stream resolve did not return a job id.");
+    }
+
+    if (started.progress) {
+      options.onProgress?.(started.progress);
+    }
+
+    const startedAt = Date.now();
+    const maxWaitMs = 12 * 60 * 1000;
+
+    while (true) {
+      if (options.signal?.aborted) {
+        throw new DOMException("Real Debrid resolve was cancelled.", "AbortError");
+      }
+      if (Date.now() - startedAt > maxWaitMs) {
+        throw new StreamResolveError(
+          "timeout",
+          "Timed out waiting for the stream-server resolve job. Check Real Debrid or try another source.",
+        );
+      }
+
+      await sleep(1500, options.signal);
+
+      const pollResponse = await fetch(`${apiBase}/api/v1/resolve/jobs/${encodeURIComponent(jobId)}`, {
+        headers: headers(token),
+        signal: options.signal,
+        credentials: "same-origin",
+      });
+
+      if (!pollResponse.ok) {
+        const payload = (await pollResponse.json().catch(() => null)) as {
+          error?: string;
+          code?: string;
+        } | null;
+        const code = payload?.code;
+        const message = payload?.error ?? `Resolve job poll failed (${pollResponse.status})`;
+        if (code) {
+          throw new StreamResolveError(code, message, pollResponse.status);
+        }
+        throw new Error(message);
+      }
+
+      const job = (await pollResponse.json()) as {
+        status?: string;
+        progress?: string;
+        result?: StreamResult;
+        error?: string;
+        code?: string;
+      };
+
+      if (job.progress) {
+        options.onProgress?.(job.progress);
+      }
+
+      if (job.status === "ready" && job.result) {
+        return normalizeStreamResult(job.result);
+      }
+      if (job.status === "failed") {
+        const message = job.error ?? "Stream resolve failed.";
+        if (job.code) {
+          throw new StreamResolveError(job.code, message);
+        }
+        throw new Error(message);
+      }
+    }
+  }
+
+  function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(new DOMException("Real Debrid resolve was cancelled.", "AbortError"));
+        return;
+      }
+      const timer = globalThis.setTimeout(() => {
+        signal?.removeEventListener("abort", onAbort);
+        resolve();
+      }, ms);
+      const onAbort = () => {
+        globalThis.clearTimeout(timer);
+        reject(new DOMException("Real Debrid resolve was cancelled.", "AbortError"));
+      };
+      signal?.addEventListener("abort", onAbort, { once: true });
+    });
   }
 
   async function fetchLetterboxdFilmsByDate(username: string): Promise<LetterboxdFilmsResponse> {

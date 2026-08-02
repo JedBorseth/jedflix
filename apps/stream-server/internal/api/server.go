@@ -15,12 +15,14 @@ import (
 	"github.com/jedborseth/jeds-movies/stream-server/internal/config"
 	"github.com/jedborseth/jeds-movies/stream-server/internal/letterboxd"
 	"github.com/jedborseth/jeds-movies/stream-server/internal/openlibrary"
+	"github.com/jedborseth/jeds-movies/stream-server/internal/resolvejobs"
 	"github.com/jedborseth/jeds-movies/stream-server/internal/resolver"
 )
 
 type Server struct {
 	cfg         config.Config
 	resolver    *resolver.Service
+	jobs        *resolvejobs.Store
 	letterboxd  *letterboxd.Client
 	openLibrary *openlibrary.Client
 }
@@ -34,6 +36,7 @@ func NewServer(
 	return &Server{
 		cfg:         cfg,
 		resolver:    resolverService,
+		jobs:        resolvejobs.NewStore(30 * time.Minute),
 		letterboxd:  letterboxdClient,
 		openLibrary: openLibraryClient,
 	}
@@ -68,6 +71,7 @@ func (s *Server) Router() http.Handler {
 		r.Use(s.authMiddleware)
 		r.Post("/sources", s.handleSources)
 		r.Post("/resolve", s.handleResolve)
+		r.Get("/resolve/jobs/{jobId}", s.handleResolveJob)
 		r.Get("/letterboxd/{username}/verify", s.handleLetterboxdVerify)
 		r.Get("/letterboxd/{username}/films/by/date", s.handleLetterboxdFilmsByDate)
 		r.Get("/openlibrary/browse", s.handleOpenLibraryBrowse)
@@ -126,11 +130,21 @@ func (s *Server) handleResolve(w http.ResponseWriter, r *http.Request) {
 		req.RealDebridToken = token
 	}
 
-	// Allow long Real Debrid waits without the reverse proxy or client closing early.
 	timeout := s.cfg.ResolveTimeout
 	if timeout <= 0 {
 		timeout = 10 * time.Minute
 	}
+
+	// Async by default so mobile Safari does not kill long-lived resolve POSTs
+	// ("Load failed") before Real Debrid is contacted.
+	syncRequested := strings.EqualFold(r.URL.Query().Get("sync"), "1") ||
+		strings.EqualFold(r.URL.Query().Get("sync"), "true")
+	if !syncRequested {
+		job := s.jobs.Start(timeout+30*time.Second, req, s.resolver.ResolveWithProgress)
+		writeJSON(w, http.StatusAccepted, job)
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), timeout+30*time.Second)
 	defer cancel()
 
@@ -140,6 +154,20 @@ func (s *Server) handleResolve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleResolveJob(w http.ResponseWriter, r *http.Request) {
+	jobID := strings.TrimSpace(chi.URLParam(r, "jobId"))
+	if jobID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "jobId is required"})
+		return
+	}
+	job, ok := s.jobs.Get(jobID)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "resolve job not found", "code": "not_found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, job)
 }
 
 func writeResolveError(w http.ResponseWriter, err error) {
