@@ -3,6 +3,7 @@ import { useMutation, useQuery as useConvexQuery } from "convex/react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import { api } from "@convex/_generated/api";
+import { BookDownloadStatus } from "@/components/player/books/BookDownloadStatus";
 import { BookSourcePicker } from "@/components/player/books/BookSourcePicker";
 import { EpubReader } from "@/components/player/books/EpubReader";
 import { useStreamResolve } from "@/components/player/stremio/useStreamResolve";
@@ -184,15 +185,15 @@ export function ReadPage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-5xl px-4 py-8 pb-[calc(2rem+env(safe-area-inset-bottom,0px))] md:px-8">
+      <main className="mx-auto flex max-w-5xl flex-col items-center px-4 py-8 pb-[calc(2rem+env(safe-area-inset-bottom,0px))] md:px-8">
         {!rdToken ? (
-          <div className="mb-4 rounded-lg border border-amber-800/60 bg-amber-950/30 p-4 text-sm text-amber-100">
+          <div className="mb-6 w-full rounded-lg border border-amber-800/60 bg-amber-950/30 p-4 text-sm text-amber-100">
             Add your Real Debrid API key in Settings to open ebooks.
           </div>
         ) : null}
 
         {resolveState.status === "ready" && activeFile ? (
-          <div className="space-y-4">
+          <div className="w-full space-y-4">
             {files.length > 1 ? (
               <div className="flex flex-wrap gap-2">
                 {files.map((file) => (
@@ -240,51 +241,53 @@ export function ReadPage() {
               </div>
             )}
           </div>
-        ) : (
-          <div className="space-y-4">
-            {selected && resolveState.status === "downloading" ? (
-              <div className="rounded-lg border border-zinc-800 bg-zinc-900/70 p-4 text-center text-sm text-zinc-300">
-                <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-zinc-600 border-t-white" />
-                {resolveState.progress ?? "Resolving with Real Debrid..."}
-              </div>
-            ) : null}
+        ) : null}
 
-            {selected && resolveState.status === "failed" ? (
-              <div className="rounded-lg border border-red-900/50 bg-red-950/40 p-4 text-sm text-red-200">
-                <p className="font-medium text-red-100">Could not start this source</p>
-                <p className="mt-2 break-words text-red-100/90">
-                  {resolveState.error ?? "Unknown resolve error"}
-                </p>
-                {selected.title ? (
-                  <p className="mt-2 text-xs text-red-200/70">Source: {selected.title}</p>
-                ) : null}
-                {selected.abbPostUrl ? (
-                  <p className="mt-1 break-all text-xs text-red-200/60">{selected.abbPostUrl}</p>
-                ) : null}
-                <button
-                  type="button"
-                  className="mt-4 rounded-md bg-white px-4 py-2 text-black"
-                  onClick={() => setSelected(null)}
-                >
-                  Pick another source
-                </button>
-              </div>
-            ) : null}
+        {selected && resolveState.status === "downloading" ? (
+          <BookDownloadStatus
+            source={selected}
+            progress={resolveState.progress}
+            mediaLabel="ebook"
+            onCancel={() => setSelected(null)}
+          />
+        ) : null}
 
-            {!selected || resolveState.status === "idle" || resolveState.status === "failed" ? (
-              <BookSourcePicker
-                sources={sources}
-                loading={sourcesLoading}
-                error={sourcesError}
-                mediaLabel="ebook"
-                selectedId={selected?.id}
-                disabled={!rdToken || resolveState.status === "downloading"}
-                onSelect={setSelected}
-                onRetry={() => setSearchKey((value) => value + 1)}
-              />
+        {selected && resolveState.status === "failed" ? (
+          <div className="w-full max-w-xl rounded-lg border border-red-900/50 bg-red-950/40 p-4 text-sm text-red-200">
+            <p className="font-medium text-red-100">Could not start this source</p>
+            <p className="mt-2 break-words text-red-100/90">
+              {resolveState.error ?? "Unknown resolve error"}
+            </p>
+            {selected.title ? (
+              <p className="mt-2 text-xs text-red-200/70">Source: {selected.title}</p>
             ) : null}
+            {selected.abbPostUrl ? (
+              <p className="mt-1 break-all text-xs text-red-200/60">{selected.abbPostUrl}</p>
+            ) : null}
+            <button
+              type="button"
+              className="mt-4 rounded-md bg-white px-4 py-2 text-black"
+              onClick={() => setSelected(null)}
+            >
+              Pick another source
+            </button>
           </div>
-        )}
+        ) : null}
+
+        {!selected || resolveState.status === "idle" || resolveState.status === "failed" ? (
+          <div className="w-full">
+            <BookSourcePicker
+              sources={sources}
+              loading={sourcesLoading}
+              error={sourcesError}
+              mediaLabel="ebook"
+              selectedId={selected?.id}
+              disabled={!rdToken}
+              onSelect={setSelected}
+              onRetry={() => setSearchKey((value) => value + 1)}
+            />
+          </div>
+        ) : null}
       </main>
     </div>
   );

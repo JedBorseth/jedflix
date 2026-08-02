@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-var sizePattern = regexp.MustCompile(`(?i)(\d+(?:\.\d+)?)\s*(gb|mb|tb)`)
+var sizePattern = regexp.MustCompile(`(?i)(\d+(?:\.\d+)?)\s*(tbs?|gbs?|mbs?)`)
 
 func ParseSizeHintFromText(text string) (int64, bool) {
 	match := sizePattern.FindStringSubmatch(text)
@@ -17,7 +17,8 @@ func ParseSizeHintFromText(text string) (int64, bool) {
 	if err != nil {
 		return 0, false
 	}
-	switch strings.ToLower(match[2]) {
+	unit := strings.TrimRight(strings.ToLower(match[2]), "s")
+	switch unit {
 	case "tb":
 		return int64(value * 1024 * 1024 * 1024 * 1024), true
 	case "gb":
@@ -29,7 +30,7 @@ func ParseSizeHintFromText(text string) (int64, bool) {
 	}
 }
 
-var seedersPattern = regexp.MustCompile(`(?i)(?:👤|seeders?)\s*(\d+)`)
+var seedersPattern = regexp.MustCompile(`(?i)(?:👤|seeders?|seeds?)\s*[:=]?\s*(\d+)`)
 
 func ParseSeedersFromText(text string) (int, bool) {
 	match := seedersPattern.FindStringSubmatch(text)

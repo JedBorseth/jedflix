@@ -12,11 +12,13 @@ func TestParseSearchHTML(t *testing.T) {
         <h2><a href="/abss/harry-potter-stone/">Harry Potter and the Stone</a></h2>
       </div>
       <div class="postInfo">Fantasy · M4B · 128 Kbps</div>
+      <div class="postContent"><p>Format: M4B / Bitrate: 128 Kbps<br />File Size: <span>250.74</span> MBs</p></div>
     </div>
     <div class="post">
       <div class="postTitle">
         <h2><a href="/abss/other-book/">Other Book Title</a></h2>
       </div>
+      <div class="postContent">Seeders: 12 · File Size: 1.2 GBs</div>
     </div>
   </body></html>`
 
@@ -32,6 +34,12 @@ func TestParseSearchHTML(t *testing.T) {
 	}
 	if results[0].URL != "https://audiobookbay.lu/abss/harry-potter-stone/" {
 		t.Fatalf("unexpected url: %s", results[0].URL)
+	}
+	if results[0].SizeBytes < 250*1024*1024 || results[0].SizeBytes > 252*1024*1024 {
+		t.Fatalf("unexpected size bytes: %d", results[0].SizeBytes)
+	}
+	if results[1].Seeders == nil || *results[1].Seeders != 12 {
+		t.Fatalf("expected seeders 12, got %#v", results[1].Seeders)
 	}
 }
 

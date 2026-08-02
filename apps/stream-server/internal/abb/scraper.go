@@ -7,6 +7,7 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -28,9 +29,11 @@ var (
 const browserUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
 
 type SearchResult struct {
-	Title string `json:"title"`
-	URL   string `json:"url"`
-	Info  string `json:"info,omitempty"`
+	Title     string  `json:"title"`
+	URL       string  `json:"url"`
+	Info      string  `json:"info,omitempty"`
+	SizeBytes int64   `json:"sizeBytes,omitempty"`
+	Seeders   *int    `json:"seeders,omitempty"`
 }
 
 type PostDetail struct {
@@ -267,15 +270,23 @@ func ParseSearchHTML(html, baseURL string) ([]SearchResult, error) {
 			return
 		}
 		seen[absolute] = struct{}{}
-		info := strings.TrimSpace(post.Find(".postInfo, .postContent").First().Text())
+		postInfo := strings.TrimSpace(post.Find(".postInfo").First().Text())
+		postContent := strings.TrimSpace(post.Find(".postContent").First().Text())
+		info := strings.TrimSpace(postInfo + "\n" + postContent)
 		if len(info) > 300 {
 			info = info[:300]
 		}
-		results = append(results, SearchResult{
-			Title: title,
-			URL:   absolute,
-			Info:  info,
-		})
+		sizeBytes, seeders := parseSearchMeta(postContent + " " + postInfo)
+		result := SearchResult{
+			Title:     title,
+			URL:       absolute,
+			Info:      info,
+			SizeBytes: sizeBytes,
+		}
+		if seeders != nil {
+			result.Seeders = seeders
+		}
+		results = append(results, result)
 	})
 
 	if len(results) == 0 {
@@ -538,4 +549,55 @@ func absolutize(href, baseURL string) string {
 		return base + href
 	}
 	return base + "/" + href
+}
+
+// parseSearchMeta extracts file size and optional seeder counts from ABB card text.
+// ABB search cards typically expose "File Size: 250.74 MBs" but rarely list seeders.
+func parseSearchMeta(text string) (sizeBytes int64, seeders *int) {
+	if bytes, ok := parseSizeBytes(text); ok {
+		sizeBytes = bytes
+	}
+	if n, ok := parseSeeders(text); ok {
+		seeders = &n
+	}
+	return sizeBytes, seeders
+}
+
+var (
+	abbSizeRE    = regexp.MustCompile(`(?i)(\d+(?:\.\d+)?)\s*(tbs?|gbs?|mbs?)`)
+	abbSeedersRE = regexp.MustCompile(`(?i)(?:seeders?|seeds?|peers?)\s*[:=]?\s*(\d+)`)
+)
+
+func parseSizeBytes(text string) (int64, bool) {
+	match := abbSizeRE.FindStringSubmatch(text)
+	if len(match) < 3 {
+		return 0, false
+	}
+	value, err := strconv.ParseFloat(match[1], 64)
+	if err != nil {
+		return 0, false
+	}
+	unit := strings.TrimRight(strings.ToLower(match[2]), "s")
+	switch unit {
+	case "tb":
+		return int64(value * 1024 * 1024 * 1024 * 1024), true
+	case "gb":
+		return int64(value * 1024 * 1024 * 1024), true
+	case "mb":
+		return int64(value * 1024 * 1024), true
+	default:
+		return 0, false
+	}
+}
+
+func parseSeeders(text string) (int, bool) {
+	match := abbSeedersRE.FindStringSubmatch(text)
+	if len(match) < 2 {
+		return 0, false
+	}
+	n, err := strconv.Atoi(match[1])
+	if err != nil {
+		return 0, false
+	}
+	return n, true
 }
