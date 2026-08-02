@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, useParams } from "react-router-dom";
 import { AppLink } from "@/components/layout/AppLink";
+import { DetailBackButton } from "@/components/layout/DetailBackButton";
 import { MediaPlayButton } from "@/components/browse/MediaPlayButton";
 import { Navbar } from "@/components/layout/Navbar";
 import { Button } from "@/components/ui/button";
@@ -101,7 +102,7 @@ export function MovieDetailPage({ mediaType }: MovieDetailPageProps) {
         <div className="flex h-[60vh] flex-col items-center justify-center gap-4">
           <p className="text-zinc-400">{error ?? "Title not found."}</p>
           <Button asChild variant="outline">
-            <AppLink to="/">
+            <AppLink to={mediaType === "tv" ? "/shows" : "/movies"}>
               Back to browse
             </AppLink>
           </Button>
@@ -159,11 +160,10 @@ export function MovieDetailPage({ mediaType }: MovieDetailPageProps) {
                 movieId={displayMovie.id}
                 mediaType={displayMovie.mediaType}
               />
-              <Button asChild size="lg" variant="outline" className="border-zinc-600">
-                <AppLink to="/">
-                  Back to browse
-                </AppLink>
-              </Button>
+              <DetailBackButton
+                fallbackTo={displayMovie.mediaType === "tv" ? "/shows" : "/movies"}
+                label="Back"
+              />
             </div>
           </div>
         </div>

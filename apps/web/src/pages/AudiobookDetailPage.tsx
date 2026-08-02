@@ -3,6 +3,7 @@ import { useLocation, useParams } from "react-router-dom";
 import { BookCard } from "@/components/browse/BookCard";
 import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
 import { AppLink } from "@/components/layout/AppLink";
+import { DetailBackButton } from "@/components/layout/DetailBackButton";
 import { Navbar } from "@/components/layout/Navbar";
 import { AddToMyListButton } from "@/components/mylist/AddToMyListButton";
 import { MediaReviews } from "@/components/reviews/MediaReviews";
@@ -162,6 +163,7 @@ export function AudiobookDetailPage() {
                   <AppLink to={getReadPath(normalizedId)}>Read</AppLink>
                 </Button>
                 <AddToMyListButton mediaType="audiobook" workId={normalizedId} />
+                <DetailBackButton fallbackTo="/audiobooks" label="Back" />
               </div>
             ) : null}
             {(book?.subjects ?? displayBook.subjects).length > 0 ? (

@@ -12,12 +12,20 @@ import { PlayerErrorOverlay } from "../shared/PlayerErrorOverlay";
 import { isFallbackError, MAX_AUTO_FALLBACKS } from "../shared/playbackErrors";
 import { StreamSourcePicker } from "../stremio/StreamSourcePicker";
 import { useStreamResolve } from "../stremio/useStreamResolve";
+import {
+  artworkFromUrl,
+  bindMediaSessionHandlers,
+  setMediaSessionMetadata,
+  setMediaSessionPlaybackState,
+  setMediaSessionPositionState,
+} from "@/lib/mediaSession";
 import "../stremio/player.css";
 
 type NativeVideoPlayerProps = {
   movieId: number;
   mediaType: MediaType;
   title: string;
+  posterUrl?: string;
   imdbId: string;
   season?: number;
   episode?: number;
@@ -32,6 +40,7 @@ export function NativeVideoPlayer({
   movieId,
   mediaType,
   title,
+  posterUrl,
   imdbId,
   season,
   episode,
@@ -158,6 +167,77 @@ export function NativeVideoPlayer({
       // Autoplay may be blocked until user interaction.
     });
   }, [absolutePlaybackUrl]);
+
+  useEffect(() => {
+    if (!absolutePlaybackUrl) {
+      return;
+    }
+    setMediaSessionMetadata({
+      title,
+      artist: mediaType === "tv" ? "TV Show" : "Movie",
+      album: "JedFlix",
+      artwork: artworkFromUrl(posterUrl),
+    });
+  }, [absolutePlaybackUrl, mediaType, posterUrl, title]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) {
+      return;
+    }
+    const onPlay = () => setMediaSessionPlaybackState("playing");
+    const onPause = () => setMediaSessionPlaybackState("paused");
+    const onTimeUpdate = () => {
+      setMediaSessionPositionState({
+        duration: video.duration || 0,
+        position: video.currentTime || 0,
+        playbackRate: video.playbackRate || 1,
+      });
+    };
+    video.addEventListener("play", onPlay);
+    video.addEventListener("pause", onPause);
+    video.addEventListener("timeupdate", onTimeUpdate);
+    return () => {
+      video.removeEventListener("play", onPlay);
+      video.removeEventListener("pause", onPause);
+      video.removeEventListener("timeupdate", onTimeUpdate);
+    };
+  }, [absolutePlaybackUrl]);
+
+  useEffect(() => {
+    return bindMediaSessionHandlers({
+      play: () => {
+        void videoRef.current?.play();
+      },
+      pause: () => {
+        videoRef.current?.pause();
+      },
+      seekbackward: (details) => {
+        const video = videoRef.current;
+        if (!video) {
+          return;
+        }
+        video.currentTime = Math.max(0, video.currentTime - (details.seekOffset ?? 15));
+      },
+      seekforward: (details) => {
+        const video = videoRef.current;
+        if (!video) {
+          return;
+        }
+        video.currentTime = Math.min(
+          video.duration || 0,
+          video.currentTime + (details.seekOffset ?? 15),
+        );
+      },
+      seekto: (details) => {
+        const video = videoRef.current;
+        if (!video || details.seekTime == null) {
+          return;
+        }
+        video.currentTime = details.seekTime;
+      },
+    });
+  }, []);
 
   useEffect(() => {
     const saveProgress = saveProgressRef.current;
