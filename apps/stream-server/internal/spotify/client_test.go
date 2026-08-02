@@ -232,20 +232,17 @@ func TestFetchPlaylistArtists(t *testing.T) {
 				},
 				"next": "",
 			})
-		case r.URL.Path == "/artists":
+		case r.URL.Path == "/artists/artistid00000000000001":
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"artists": []map[string]any{
-					{
-						"id": "artistid00000000000001", "name": "Artist A", "popularity": 80,
-						"images": []map[string]any{{"url": "https://img/a.jpg", "width": 300}},
-						"followers": map[string]any{"total": 1000},
-					},
-					{
-						"id": "artistid00000000000002", "name": "Artist B", "popularity": 70,
-						"images": []map[string]any{{"url": "https://img/b.jpg", "width": 300}},
-						"followers": map[string]any{"total": 500},
-					},
-				},
+				"id": "artistid00000000000001", "name": "Artist A", "popularity": 80,
+				"images":    []map[string]any{{"url": "https://img/a.jpg", "width": 300}},
+				"followers": map[string]any{"total": 1000},
+			})
+		case r.URL.Path == "/artists/artistid00000000000002":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id": "artistid00000000000002", "name": "Artist B", "popularity": 70,
+				"images":    []map[string]any{{"url": "https://img/b.jpg", "width": 300}},
+				"followers": map[string]any{"total": 500},
 			})
 		default:
 			http.NotFound(w, r)

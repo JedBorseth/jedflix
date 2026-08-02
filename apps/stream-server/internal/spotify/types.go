@@ -94,27 +94,23 @@ type RowConfig struct {
 	PlaylistID string // when set, populate from a public Spotify playlist (albums or artists by Kind)
 }
 
-// Rows are populated from official Spotify editorial playlists so shelves
-// reflect curated catalogs instead of keyword search noise.
-// New Releases is last so featured genre shelves show first.
+// Queries use plain keywords / search filters.
+//
+// Official editorial playlist IDs are kept as comments for reference, but
+// Development Mode (Feb/Mar 2026) returns 403 for playlist contents unless the
+// authenticated user owns/collaborates on the playlist. Extended Quota Mode
+// apps can set PlaylistID again; fetchCatalogRow falls back to Query on failure.
+// New Releases is last so featured shelves show first.
 var DefaultCatalogRows = []RowConfig{
-	// Today's Top Hits
-	{Title: "Pop", Key: "pop-albums", Kind: "albums", PlaylistID: "37i9dQZF1DXcBWIGoYBM5M"},
-	{Title: "Popular Artists", Key: "popular-artists", Kind: "artists", PlaylistID: "37i9dQZF1DXcBWIGoYBM5M"},
-	// RapCaviar
-	{Title: "Hip-Hop", Key: "hiphop-playlist", Kind: "albums", PlaylistID: "37i9dQZF1DX0XUsuxWHRQd"},
-	{Title: "Hip-Hop Artists", Key: "hiphop-artists", Kind: "artists", PlaylistID: "37i9dQZF1DX0XUsuxWHRQd"},
-	// Rock Classics
-	{Title: "Rock", Key: "rock-albums", Kind: "albums", PlaylistID: "37i9dQZF1DWXRqgorJj26U"},
-	{Title: "Rock Artists", Key: "rock-artists", Kind: "artists", PlaylistID: "37i9dQZF1DWXRqgorJj26U"},
-	// mint
-	{Title: "Electronic", Key: "electronic-albums", Kind: "albums", PlaylistID: "37i9dQZF1DX4dyzvuaRJ0n"},
-	// Chilled R&B
-	{Title: "R&B Artists", Key: "rnb-artists", Kind: "artists", PlaylistID: "37i9dQZF1DX2UgsUIg75Vg"},
-	// Indie Pop
-	{Title: "Indie", Key: "indie-albums", Kind: "albums", PlaylistID: "37i9dQZF1DWWEcRhUVtL8n"},
-	// Jazz Classics
-	{Title: "Jazz Artists", Key: "jazz-artists", Kind: "artists", PlaylistID: "37i9dQZF1DXbITWG1ZJKYt"},
-	// New Music Friday
-	{Title: "New Releases", Key: "new-releases", Kind: "albums", PlaylistID: "37i9dQZF1DX4JAvHpjipBk"},
+	{Title: "Pop", Key: "pop-albums", Kind: "albums", Query: "pop"},                                               // Today's Top Hits 37i9dQZF1DXcBWIGoYBM5M
+	{Title: "Popular Artists", Key: "popular-artists", Kind: "artists", Query: "pop"},                             // Today's Top Hits
+	{Title: "Hip-Hop", Key: "hiphop-playlist", Kind: "albums", Query: "hip hop"},                                  // RapCaviar 37i9dQZF1DX0XUsuxWHRQd
+	{Title: "Hip-Hop Artists", Key: "hiphop-artists", Kind: "artists", Query: "hip hop"},                          // RapCaviar
+	{Title: "Rock", Key: "rock-albums", Kind: "albums", Query: "rock"},                                            // Rock Classics 37i9dQZF1DWXRqgorJj26U
+	{Title: "Rock Artists", Key: "rock-artists", Kind: "artists", Query: "rock"},                                  // Rock Classics
+	{Title: "Electronic", Key: "electronic-albums", Kind: "albums", Query: "electronic"},                          // mint 37i9dQZF1DX4dyzvuaRJ0n
+	{Title: "R&B Artists", Key: "rnb-artists", Kind: "artists", Query: "r&b"},                                     // Chilled R&B 37i9dQZF1DX2UgsUIg75Vg
+	{Title: "Indie", Key: "indie-albums", Kind: "albums", Query: "indie"},                                         // Indie Pop 37i9dQZF1DWWEcRhUVtL8n
+	{Title: "Jazz Artists", Key: "jazz-artists", Kind: "artists", Query: "jazz"},                                  // Jazz Classics 37i9dQZF1DXbITWG1ZJKYt
+	{Title: "New Releases", Key: "new-releases", Kind: "albums", Query: "tag:new"},                                // New Music Friday 37i9dQZF1DX4JAvHpjipBk
 }

@@ -449,29 +449,50 @@ func NormalizeID(value string) string {
 
 func (c *Client) fetchCatalogRow(ctx context.Context, row RowConfig) (CatalogRow, error) {
 	if row.PlaylistID != "" {
-		if row.Kind == "artists" {
-			artists, err := c.fetchPlaylistArtists(ctx, row.PlaylistID, catalogPageCount*defaultLimit)
-			if err != nil {
-				return CatalogRow{}, err
-			}
-			return CatalogRow{
-				Title:   row.Title,
-				Key:     row.Key,
-				Kind:    "artists",
-				Artists: artists,
-			}, nil
+		catalogRow, err := c.fetchCatalogRowFromPlaylist(ctx, row)
+		if err == nil {
+			return catalogRow, nil
 		}
-		albums, err := c.fetchPlaylistAlbums(ctx, row.PlaylistID, catalogPageCount*defaultLimit)
+		// Development Mode forbids public playlist contents (403). Fall back to search.
+		if row.Query == "" {
+			return CatalogRow{}, err
+		}
+	}
+	return c.fetchCatalogRowFromSearch(ctx, row)
+}
+
+func (c *Client) fetchCatalogRowFromPlaylist(ctx context.Context, row RowConfig) (CatalogRow, error) {
+	if row.Kind == "artists" {
+		artists, err := c.fetchPlaylistArtists(ctx, row.PlaylistID, catalogPageCount*defaultLimit)
 		if err != nil {
 			return CatalogRow{}, err
 		}
+		if len(artists) == 0 {
+			return CatalogRow{}, fmt.Errorf("%w: empty playlist artists", ErrFetchFailed)
+		}
 		return CatalogRow{
-			Title:  row.Title,
-			Key:    row.Key,
-			Kind:   "albums",
-			Albums: albums,
+			Title:   row.Title,
+			Key:     row.Key,
+			Kind:    "artists",
+			Artists: artists,
 		}, nil
 	}
+	albums, err := c.fetchPlaylistAlbums(ctx, row.PlaylistID, catalogPageCount*defaultLimit)
+	if err != nil {
+		return CatalogRow{}, err
+	}
+	if len(albums) == 0 {
+		return CatalogRow{}, fmt.Errorf("%w: empty playlist albums", ErrFetchFailed)
+	}
+	return CatalogRow{
+		Title:  row.Title,
+		Key:    row.Key,
+		Kind:   "albums",
+		Albums: albums,
+	}, nil
+}
+
+func (c *Client) fetchCatalogRowFromSearch(ctx context.Context, row RowConfig) (CatalogRow, error) {
 	switch row.Kind {
 	case "artists":
 		artists, err := c.searchArtists(ctx, row.Query, catalogPageCount*defaultLimit)
@@ -617,32 +638,18 @@ func (c *Client) fetchPlaylistArtists(ctx context.Context, playlistID string, ma
 }
 
 func (c *Client) fetchArtistsByIDs(ctx context.Context, ids []string) ([]Artist, error) {
-	const batchSize = 50
+	// Development Mode removed GET /artists?ids=… — fetch one at a time.
 	byID := make(map[string]Artist, len(ids))
-	for i := 0; i < len(ids); i += batchSize {
-		end := i + batchSize
-		if end > len(ids) {
-			end = len(ids)
+	for _, id := range ids {
+		var payload spotifyArtistPayload
+		if err := c.getJSON(ctx, "/artists/"+url.PathEscape(id), &payload); err != nil {
+			continue
 		}
-		batch := ids[i:end]
-		params := url.Values{}
-		params.Set("ids", strings.Join(batch, ","))
-		var payload struct {
-			Artists []spotifyArtistPayload `json:"artists"`
+		artist := mapArtist(payload)
+		if artist.ID == "" {
+			continue
 		}
-		if err := c.getJSON(ctx, "/artists?"+params.Encode(), &payload); err != nil {
-			if len(byID) > 0 {
-				break
-			}
-			return nil, err
-		}
-		for _, item := range payload.Artists {
-			artist := mapArtist(item)
-			if artist.ID == "" {
-				continue
-			}
-			byID[artist.ID] = artist
-		}
+		byID[artist.ID] = artist
 	}
 
 	artists := make([]Artist, 0, len(ids))
@@ -650,6 +657,9 @@ func (c *Client) fetchArtistsByIDs(ctx context.Context, ids []string) ([]Artist,
 		if artist, ok := byID[id]; ok {
 			artists = append(artists, artist)
 		}
+	}
+	if len(artists) == 0 && len(ids) > 0 {
+		return nil, fmt.Errorf("%w: unable to resolve playlist artists", ErrFetchFailed)
 	}
 	return artists, nil
 }
