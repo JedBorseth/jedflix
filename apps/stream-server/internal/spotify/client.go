@@ -449,6 +449,18 @@ func NormalizeID(value string) string {
 
 func (c *Client) fetchCatalogRow(ctx context.Context, row RowConfig) (CatalogRow, error) {
 	if row.PlaylistID != "" {
+		if row.Kind == "artists" {
+			artists, err := c.fetchPlaylistArtists(ctx, row.PlaylistID, catalogPageCount*defaultLimit)
+			if err != nil {
+				return CatalogRow{}, err
+			}
+			return CatalogRow{
+				Title:   row.Title,
+				Key:     row.Key,
+				Kind:    "artists",
+				Artists: artists,
+			}, nil
+		}
 		albums, err := c.fetchPlaylistAlbums(ctx, row.PlaylistID, catalogPageCount*defaultLimit)
 		if err != nil {
 			return CatalogRow{}, err
@@ -489,10 +501,29 @@ func (c *Client) fetchCatalogRow(ctx context.Context, row RowConfig) (CatalogRow
 type playlistTracksPayload struct {
 	Items []struct {
 		Track *struct {
-			Album *spotifyAlbumPayload `json:"album"`
+			Album   *spotifyAlbumPayload `json:"album"`
+			Artists []spotifyArtistRef   `json:"artists"`
 		} `json:"track"`
 	} `json:"items"`
 	Next string `json:"next"`
+}
+
+func playlistNextPath(apiBaseURL, next string) string {
+	next = strings.TrimSpace(next)
+	if next == "" {
+		return ""
+	}
+	if strings.HasPrefix(next, apiBaseURL) {
+		return strings.TrimPrefix(next, apiBaseURL)
+	}
+	if u, err := url.Parse(next); err == nil && u.Path != "" {
+		path := u.Path
+		if u.RawQuery != "" {
+			path += "?" + u.RawQuery
+		}
+		return path
+	}
+	return ""
 }
 
 func (c *Client) fetchPlaylistAlbums(ctx context.Context, playlistID string, maxItems int) ([]Album, error) {
@@ -533,23 +564,94 @@ func (c *Client) fetchPlaylistAlbums(ctx context.Context, playlistID string, max
 				break
 			}
 		}
-		next := strings.TrimSpace(payload.Next)
-		if next == "" {
-			break
-		}
-		// getJSON expects a path relative to apiBaseURL; strip the host if present.
-		if strings.HasPrefix(next, c.apiBaseURL) {
-			path = strings.TrimPrefix(next, c.apiBaseURL)
-		} else if u, err := url.Parse(next); err == nil && u.Path != "" {
-			path = u.Path
-			if u.RawQuery != "" {
-				path += "?" + u.RawQuery
-			}
-		} else {
-			break
-		}
+		path = playlistNextPath(c.apiBaseURL, payload.Next)
 	}
 	return albums, nil
+}
+
+func (c *Client) fetchPlaylistArtists(ctx context.Context, playlistID string, maxItems int) ([]Artist, error) {
+	playlistID = NormalizeID(playlistID)
+	if playlistID == "" {
+		return nil, fmt.Errorf("%w: invalid playlist id", ErrBadRequest)
+	}
+	if maxItems <= 0 {
+		maxItems = catalogPageCount * defaultLimit
+	}
+
+	ids := make([]string, 0, maxItems)
+	seen := make(map[string]struct{})
+	path := "/playlists/" + url.PathEscape(playlistID) + "/tracks?limit=50&fields=items(track(artists(id,name))),next"
+
+	for path != "" && len(ids) < maxItems {
+		var payload playlistTracksPayload
+		if err := c.getJSON(ctx, path, &payload); err != nil {
+			if len(ids) > 0 {
+				break
+			}
+			return nil, err
+		}
+		for _, item := range payload.Items {
+			if item.Track == nil || len(item.Track.Artists) == 0 {
+				continue
+			}
+			// Primary artist of each playlist track, in playlist order.
+			artistID := NormalizeID(item.Track.Artists[0].ID)
+			if artistID == "" {
+				continue
+			}
+			if _, ok := seen[artistID]; ok {
+				continue
+			}
+			seen[artistID] = struct{}{}
+			ids = append(ids, artistID)
+			if len(ids) >= maxItems {
+				break
+			}
+		}
+		path = playlistNextPath(c.apiBaseURL, payload.Next)
+	}
+	if len(ids) == 0 {
+		return []Artist{}, nil
+	}
+	return c.fetchArtistsByIDs(ctx, ids)
+}
+
+func (c *Client) fetchArtistsByIDs(ctx context.Context, ids []string) ([]Artist, error) {
+	const batchSize = 50
+	byID := make(map[string]Artist, len(ids))
+	for i := 0; i < len(ids); i += batchSize {
+		end := i + batchSize
+		if end > len(ids) {
+			end = len(ids)
+		}
+		batch := ids[i:end]
+		params := url.Values{}
+		params.Set("ids", strings.Join(batch, ","))
+		var payload struct {
+			Artists []spotifyArtistPayload `json:"artists"`
+		}
+		if err := c.getJSON(ctx, "/artists?"+params.Encode(), &payload); err != nil {
+			if len(byID) > 0 {
+				break
+			}
+			return nil, err
+		}
+		for _, item := range payload.Artists {
+			artist := mapArtist(item)
+			if artist.ID == "" {
+				continue
+			}
+			byID[artist.ID] = artist
+		}
+	}
+
+	artists := make([]Artist, 0, len(ids))
+	for _, id := range ids {
+		if artist, ok := byID[id]; ok {
+			artists = append(artists, artist)
+		}
+	}
+	return artists, nil
 }
 
 func (c *Client) searchAlbums(ctx context.Context, query string, maxItems int) ([]Album, error) {

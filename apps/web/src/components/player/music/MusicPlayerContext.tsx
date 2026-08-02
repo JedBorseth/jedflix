@@ -112,6 +112,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const playIntentRef = useRef(false);
   const prefetchedIdsRef = useRef<Set<string>>(new Set());
+  /** Trusted catalog duration (seconds). Prefer over flaky stream metadata. */
+  const catalogDurationSecRef = useRef(0);
   const [queue, setQueue] = useState<MusicQueueTrack[]>([]);
   const [queueIndex, setQueueIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -121,7 +123,6 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [streamSrc, setStreamSrc] = useState<string | null>(null);
 
   const current = queue[queueIndex] ?? null;
 
@@ -150,8 +151,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     setError(null);
     setCurrentTime(0);
-    setDuration(track.durationMs > 0 ? track.durationMs / 1000 : 0);
-    setStreamSrc(src);
+    const catalogSec = track.durationMs > 0 ? track.durationMs / 1000 : 0;
+    catalogDurationSecRef.current = catalogSec;
+    setDuration(catalogSec);
     audio.src = src;
     audio.load();
     void playMediaElement(audio).then((playError) => {
@@ -252,8 +254,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         setQueueOpen(false);
         setCurrentTime(0);
         setDuration(0);
+        catalogDurationSecRef.current = 0;
         setError(null);
-        setStreamSrc(null);
         return;
       }
 
@@ -347,7 +349,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       if (!audio) {
         return;
       }
-      const nextTime = Math.max(0, Math.min(audio.duration || duration || 0, timeSec));
+      // Prefer catalog duration — YouTube stream metadata is often inflated (~2×).
+      const maxSec = duration > 0 ? duration : audio.duration || 0;
+      const nextTime = Math.max(0, Math.min(maxSec, timeSec));
       audio.currentTime = nextTime;
       setCurrentTime(nextTime);
     },
@@ -371,8 +375,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     setQueueOpen(false);
     setCurrentTime(0);
     setDuration(0);
+    catalogDurationSecRef.current = 0;
     setError(null);
-    setStreamSrc(null);
   }, []);
 
   const handleSetExpanded = useCallback((nextExpanded: boolean) => {
@@ -486,8 +490,21 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
         onLoadedMetadata={(event) => {
           const audio = event.currentTarget;
-          if (Number.isFinite(audio.duration) && audio.duration > 0) {
-            setDuration(audio.duration);
+          const streamSec = audio.duration;
+          const catalogSec = catalogDurationSecRef.current;
+          if (Number.isFinite(streamSec) && streamSec > 0) {
+            if (catalogSec <= 0) {
+              setDuration(streamSec);
+            } else {
+              const ratio = streamSec / catalogSec;
+              // Only trust stream duration when it agrees with Spotify metadata.
+              // Proxied YouTube audio often reports inflated lengths (~2×).
+              if (ratio > 0.85 && ratio < 1.15) {
+                setDuration(streamSec);
+              } else {
+                setDuration(catalogSec);
+              }
+            }
           }
           setLoading(false);
           if (!playIntentRef.current) {
@@ -517,9 +534,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           playIntentRef.current = false;
           setPlaying(false);
         }}
-      >
-        {streamSrc ? <source src={streamSrc} /> : null}
-      </audio>
+      />
     </MusicPlayerContext.Provider>
   );
 }

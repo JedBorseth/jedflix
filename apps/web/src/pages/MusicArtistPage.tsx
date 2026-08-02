@@ -1,3 +1,4 @@
+import { PlayIcon } from "@radix-ui/react-icons";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
 import { AlbumCard } from "@/components/browse/AlbumCard";
@@ -103,9 +104,14 @@ export function MusicArtistPage() {
               </p>
             ) : null}
             {topTracks.length > 0 ? (
-              <Button type="button" onClick={() => playTopFrom(0)} className="w-fit">
-                Play popular
-              </Button>
+              <button
+                type="button"
+                onClick={() => playTopFrom(0)}
+                aria-label="Play popular"
+                className="mx-auto inline-flex h-14 w-14 items-center justify-center rounded-full bg-red-600 text-black shadow-lg transition hover:scale-105 hover:bg-red-500 md:mx-0"
+              >
+                <PlayIcon className="h-7 w-7 translate-x-0.5 fill-current" />
+              </button>
             ) : null}
           </div>
         </div>
@@ -171,8 +177,8 @@ export function MusicArtistPage() {
 
         {discography.length > 0 ? (
           <section>
-            <h2 className="mb-4 text-xl font-semibold">Discography</h2>
-            <div className="flex flex-wrap gap-3">
+            <h2 className="mb-4 text-center text-xl font-semibold">Discography</h2>
+            <div className="flex flex-wrap justify-center gap-3">
               {discography.map((album) => (
                 <AlbumCard key={`disc-${album.id}`} album={album} />
               ))}
