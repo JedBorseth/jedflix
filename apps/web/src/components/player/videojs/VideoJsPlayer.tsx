@@ -3,7 +3,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent }
 import { Link } from "react-router-dom";
 import { useMutation } from "convex/react";
 import { api } from "@convex/_generated/api";
+import { useMediaSession } from "@/hooks/useMediaSession";
 import { useScreenOrientationLock } from "@/hooks/useScreenOrientationLock";
+import { formatWatchSessionTitle } from "@/lib/mediaSession";
 import { fetchSources, type StreamSource } from "@/lib/streamApi";
 import { prepareBrowserSources } from "@/lib/iosPlayback";
 import type { MediaType } from "@/lib/types";
@@ -21,6 +23,7 @@ type VideoJsPlayerProps = {
   movieId: number;
   mediaType: MediaType;
   title: string;
+  artworkUrl?: string | null;
   imdbId: string;
   season?: number;
   episode?: number;
@@ -35,6 +38,7 @@ export function VideoJsPlayer({
   movieId,
   mediaType,
   title,
+  artworkUrl,
   imdbId,
   season,
   episode,
@@ -343,6 +347,29 @@ export function VideoJsPlayer({
     },
     [duration, setTime, showControls, time],
   );
+
+  const sessionTitle = formatWatchSessionTitle(
+    title,
+    mediaType === "tv" ? "tv" : "movie",
+    season,
+    episode,
+  );
+  const hasActiveStream = loadedUrlRef.current !== null && !showSourcePicker;
+
+  useMediaSession({
+    title: sessionTitle,
+    artist: mediaType === "tv" ? title : "Movie",
+    album: mediaType === "tv" && season != null ? `Season ${season}` : title,
+    artworkUrl,
+    enabled: hasActiveStream,
+    playbackState: !hasActiveStream ? "none" : paused ? "paused" : "playing",
+    durationSec: toDisplaySeconds(duration),
+    positionSec: toDisplaySeconds(time),
+    onPlay: () => setPaused(false),
+    onPause: () => setPaused(true),
+    onSeek: (timeSec) => setTime(timeSec * 1000),
+    onSeekBy: (deltaSec) => skipBy(deltaSec * 1000),
+  });
 
   return (
     <div

@@ -3,9 +3,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation } from "convex/react";
 import { api } from "@convex/_generated/api";
+import { useMediaSession } from "@/hooks/useMediaSession";
 import { fetchSources, type StreamSource } from "@/lib/streamApi";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { IOS_PLAYBACK_ERROR_HINT, isIosDevice, prepareBrowserSources } from "@/lib/iosPlayback";
+import { formatWatchSessionTitle, playMediaElement } from "@/lib/mediaSession";
 import type { MediaType } from "@/lib/types";
 import { ExternalPlayerMenu } from "../shared/ExternalPlayerMenu";
 import { PlayerErrorOverlay } from "../shared/PlayerErrorOverlay";
@@ -18,6 +20,7 @@ type NativeVideoPlayerProps = {
   movieId: number;
   mediaType: MediaType;
   title: string;
+  artworkUrl?: string | null;
   imdbId: string;
   season?: number;
   episode?: number;
@@ -32,6 +35,7 @@ export function NativeVideoPlayer({
   movieId,
   mediaType,
   title,
+  artworkUrl,
   imdbId,
   season,
   episode,
@@ -53,6 +57,9 @@ export function NativeVideoPlayer({
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [clipboardCopied, setClipboardCopied] = useState(false);
   const [iosCodecWarning, setIosCodecWarning] = useState<string | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [positionSec, setPositionSec] = useState(0);
+  const [durationSec, setDurationSec] = useState(0);
 
   const upsertProgress = useMutation(api.watchHistory.upsertProgress);
   const saveProgressRef = useRef<DebouncedSaveProgress | null>(null);
@@ -153,10 +160,11 @@ export function NativeVideoPlayer({
     setPlaybackError(null);
     loadedUrlRef.current = absolutePlaybackUrl;
     initialProgressAppliedRef.current = false;
+    setPlaying(false);
+    setPositionSec(0);
+    setDurationSec(0);
     video.src = absolutePlaybackUrl;
-    void video.play().catch(() => {
-      // Autoplay may be blocked until user interaction.
-    });
+    void playMediaElement(video);
   }, [absolutePlaybackUrl]);
 
   useEffect(() => {
@@ -165,6 +173,53 @@ export function NativeVideoPlayer({
       saveProgress?.cancel();
     };
   }, []);
+
+  const sessionTitle = formatWatchSessionTitle(
+    title,
+    mediaType === "tv" ? "tv" : "movie",
+    season,
+    episode,
+  );
+  const hasActiveStream = Boolean(absolutePlaybackUrl) && !showSourcePicker;
+
+  useMediaSession({
+    title: sessionTitle,
+    artist: mediaType === "tv" ? title : "Movie",
+    album: mediaType === "tv" && season != null ? `Season ${season}` : title,
+    artworkUrl,
+    enabled: hasActiveStream,
+    playbackState: !hasActiveStream ? "none" : playing ? "playing" : "paused",
+    durationSec: durationSec > 0 ? durationSec : undefined,
+    positionSec,
+    onPlay: () => {
+      const video = videoRef.current;
+      if (video) {
+        void playMediaElement(video);
+      }
+    },
+    onPause: () => {
+      videoRef.current?.pause();
+    },
+    onSeek: (timeSec) => {
+      const video = videoRef.current;
+      if (!video) {
+        return;
+      }
+      video.currentTime = Math.max(0, Math.min(video.duration || 0, timeSec));
+      setPositionSec(video.currentTime);
+    },
+    onSeekBy: (deltaSec) => {
+      const video = videoRef.current;
+      if (!video) {
+        return;
+      }
+      video.currentTime = Math.max(
+        0,
+        Math.min(video.duration || 0, video.currentTime + deltaSec),
+      );
+      setPositionSec(video.currentTime);
+    },
+  });
 
   const handleSelectSource = useCallback(
     (source: StreamSource) => {
@@ -271,19 +326,28 @@ export function NativeVideoPlayer({
           controls
           playsInline
           preload="metadata"
+          onPlay={() => setPlaying(true)}
+          onPause={() => setPlaying(false)}
           onLoadedMetadata={() => {
             const video = videoRef.current;
-            if (!video || initialProgressAppliedRef.current || initialProgressSeconds <= 0) {
+            if (!video) {
               return;
             }
-            video.currentTime = initialProgressSeconds;
-            initialProgressAppliedRef.current = true;
+            setDurationSec(video.duration || 0);
+            if (!initialProgressAppliedRef.current && initialProgressSeconds > 0) {
+              // Seek before relying on the earlier play() so resume does not abort playback.
+              video.currentTime = initialProgressSeconds;
+              initialProgressAppliedRef.current = true;
+              setPositionSec(initialProgressSeconds);
+              void playMediaElement(video);
+            }
           }}
           onTimeUpdate={() => {
             const video = videoRef.current;
             if (!video || video.currentTime <= 0) {
               return;
             }
+            setPositionSec(video.currentTime);
             saveProgressRef.current?.(Math.floor(video.currentTime));
           }}
           onError={handlePlaybackError}

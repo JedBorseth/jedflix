@@ -177,6 +177,8 @@ export function ListenPage() {
         {resolveState.status === "ready" && files.length > 0 ? (
           <AudioPlaylistPlayer
             title={book.title}
+            artist={author || book.authors.join(", ") || undefined}
+            artworkUrl={book.coverFullUrl ?? book.coverUrl}
             files={files}
             packKind={resolveState.stream?.packKind}
             initialFileIndex={savedProgress?.fileIndex ?? 0}

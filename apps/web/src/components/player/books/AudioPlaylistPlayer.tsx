@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState } from "react";
+import { useMediaSession } from "@/hooks/useMediaSession";
 import { mapMediaElementError } from "@/components/player/shared/playbackErrors";
+import { playMediaElement } from "@/lib/mediaSession";
 import type { PackKind, StreamFile } from "@/lib/streamApi";
 
 type AudioPlaylistPlayerProps = {
   title: string;
+  artist?: string;
+  artworkUrl?: string | null;
   files: StreamFile[];
   packKind?: PackKind;
   initialFileIndex?: number;
@@ -38,8 +42,30 @@ function packLabel(packKind: PackKind | undefined, count: number) {
   return `${count} files`;
 }
 
+function applyInitialSeek(
+  audio: HTMLAudioElement,
+  options: {
+    fileIndex: number;
+    initialFileIndex: number;
+    initialPositionSec: number;
+    seekAppliedRef: { current: boolean };
+  },
+) {
+  if (
+    options.seekAppliedRef.current ||
+    options.fileIndex !== options.initialFileIndex ||
+    options.initialPositionSec <= 0
+  ) {
+    return;
+  }
+  audio.currentTime = options.initialPositionSec;
+  options.seekAppliedRef.current = true;
+}
+
 export function AudioPlaylistPlayer({
   title,
+  artist,
+  artworkUrl,
   files,
   packKind,
   initialFileIndex = 0,
@@ -56,8 +82,13 @@ export function AudioPlaylistPlayer({
   const [rate, setRate] = useState(1);
   const [playbackError, setPlaybackError] = useState<string>();
   const seekAppliedRef = useRef(false);
+  const playIntentRef = useRef(false);
 
   const currentFile = files[fileIndex];
+  const chapterLabel =
+    files.length > 1
+      ? `${fileIndex + 1}. ${currentFile?.filename ?? "Chapter"}`
+      : currentFile?.filename;
 
   useEffect(() => {
     seekAppliedRef.current = false;
@@ -87,7 +118,27 @@ export function AudioPlaylistPlayer({
     return () => window.clearInterval(interval);
   }, [fileIndex, onProgress]);
 
+  async function startPlayback(audio: HTMLAudioElement) {
+    playIntentRef.current = true;
+    setPlaying(true);
+    applyInitialSeek(audio, {
+      fileIndex,
+      initialFileIndex,
+      initialPositionSec,
+      seekAppliedRef,
+    });
+    const error = await playMediaElement(audio);
+    if (error) {
+      setPlaybackError(`Could not start playback: ${error.message}`);
+      playIntentRef.current = false;
+      setPlaying(false);
+      return;
+    }
+    setPlaybackError(undefined);
+  }
+
   function playFile(index: number, autoplay: boolean) {
+    playIntentRef.current = autoplay;
     setFileIndex(index);
     setPlaying(autoplay);
   }
@@ -98,16 +149,9 @@ export function AudioPlaylistPlayer({
       return;
     }
     if (audio.paused) {
-      void audio.play().catch((error: unknown) => {
-        setPlaybackError(
-          error instanceof Error
-            ? `Could not start playback: ${error.message}`
-            : mapMediaElementError(audio),
-        );
-        setPlaying(false);
-      });
-      setPlaying(true);
+      void startPlayback(audio);
     } else {
+      playIntentRef.current = false;
       audio.pause();
       setPlaying(false);
     }
@@ -119,7 +163,55 @@ export function AudioPlaylistPlayer({
       return;
     }
     audio.currentTime = Math.max(0, Math.min(audio.duration || 0, audio.currentTime + delta));
+    setCurrent(audio.currentTime);
   }
+
+  function seekTo(timeSec: number) {
+    const audio = audioRef.current;
+    if (!audio) {
+      return;
+    }
+    const next = Math.max(0, Math.min(audio.duration || 0, timeSec));
+    audio.currentTime = next;
+    setCurrent(next);
+  }
+
+  useMediaSession({
+    title,
+    artist: artist || "Audiobook",
+    album: chapterLabel || title,
+    artworkUrl,
+    enabled: Boolean(currentFile),
+    playbackState: playing ? "playing" : "paused",
+    durationSec: duration > 0 ? duration : undefined,
+    positionSec: current,
+    playbackRate: rate,
+    onPlay: () => {
+      const audio = audioRef.current;
+      if (audio) {
+        void startPlayback(audio);
+      }
+    },
+    onPause: () => {
+      playIntentRef.current = false;
+      audioRef.current?.pause();
+      setPlaying(false);
+    },
+    onSeek: seekTo,
+    onSeekBy: skip,
+    onPreviousTrack: () => {
+      if (fileIndex > 0) {
+        playFile(fileIndex - 1, true);
+      } else {
+        seekTo(0);
+      }
+    },
+    onNextTrack: () => {
+      if (fileIndex < files.length - 1) {
+        playFile(fileIndex + 1, true);
+      }
+    },
+  });
 
   if (!currentFile) {
     return <p className="text-zinc-400">No audio files in this pack.</p>;
@@ -133,6 +225,7 @@ export function AudioPlaylistPlayer({
             {packLabel(packKind, files.length)}
           </p>
           <h1 className="mt-1 text-2xl font-semibold text-white">{title}</h1>
+          {artist ? <p className="mt-1 text-sm text-zinc-300">{artist}</p> : null}
           <p className="mt-1 text-sm text-zinc-400">{currentFile.filename}</p>
           {currentFile.mimeType ? (
             <p className="mt-1 text-xs text-zinc-600">{currentFile.mimeType}</p>
@@ -155,28 +248,41 @@ export function AudioPlaylistPlayer({
           key={currentFile.url}
           preload="metadata"
           playsInline
-          onPlay={() => setPlaying(true)}
+          onPlay={() => {
+            playIntentRef.current = true;
+            setPlaying(true);
+            setPlaybackError(undefined);
+          }}
           onPause={() => setPlaying(false)}
           onTimeUpdate={(event) => setCurrent(event.currentTarget.currentTime)}
           onLoadedMetadata={(event) => {
-            setDuration(event.currentTarget.duration);
+            const audio = event.currentTarget;
+            setDuration(audio.duration);
             setPlaybackError(undefined);
-            if (!seekAppliedRef.current && fileIndex === initialFileIndex && initialPositionSec > 0) {
-              event.currentTarget.currentTime = initialPositionSec;
-              seekAppliedRef.current = true;
+            // Seek before any follow-up play() so we don't abort an in-flight play
+            // from the user's Play click (that race surfaced as "operation was aborted").
+            applyInitialSeek(audio, {
+              fileIndex,
+              initialFileIndex,
+              initialPositionSec,
+              seekAppliedRef,
+            });
+            if (!playIntentRef.current) {
+              return;
             }
-            if (playing) {
-              void event.currentTarget.play().catch((error: unknown) => {
-                setPlaybackError(
-                  error instanceof Error
-                    ? `Could not start playback: ${error.message}`
-                    : mapMediaElementError(event.currentTarget),
-                );
+            void playMediaElement(audio).then((error) => {
+              if (error) {
+                setPlaybackError(`Could not start playback: ${error.message}`);
+                playIntentRef.current = false;
                 setPlaying(false);
-              });
-            }
+                return;
+              }
+              setPlaying(true);
+              setPlaybackError(undefined);
+            });
           }}
           onError={(event) => {
+            playIntentRef.current = false;
             setPlaying(false);
             setPlaybackError(mapMediaElementError(event.currentTarget));
           }}
@@ -185,6 +291,7 @@ export function AudioPlaylistPlayer({
             if (fileIndex < files.length - 1) {
               playFile(fileIndex + 1, true);
             } else {
+              playIntentRef.current = false;
               setPlaying(false);
             }
           }}
