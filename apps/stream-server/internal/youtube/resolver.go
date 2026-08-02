@@ -194,7 +194,8 @@ func (r *Resolver) commonArgs() []string {
 }
 
 func detectJSRuntime() string {
-	for _, name := range []string{"deno", "node", "bun"} {
+	// Prefer bun (already used by the monorepo / stream-server image).
+	for _, name := range []string{"bun", "node", "deno"} {
 		if _, err := exec.LookPath(name); err == nil {
 			return name
 		}
