@@ -2,6 +2,7 @@ import {
   ChevronDownIcon,
   ListBulletIcon,
   PauseIcon,
+  PersonIcon,
   PlayIcon,
   TrackNextIcon,
   TrackPreviousIcon,
@@ -10,6 +11,7 @@ import { useDrag } from "@use-gesture/react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
+import { useOptionalParty } from "@/components/party/partyContext";
 import { useMusicPlayer } from "@/components/player/music/MusicPlayerContext";
 import { MusicQueuePanel } from "@/components/player/music/MusicQueuePanel";
 import { getAlbumDetailPath, getArtistPath } from "@/lib/spotify";
@@ -48,6 +50,7 @@ export function MusicPlayerBar() {
     queue,
     queueIndex,
   } = useMusicPlayer();
+  const party = useOptionalParty();
 
   const [swipeOffset, setSwipeOffset] = useState({ x: 0, y: 0 });
 
@@ -153,6 +156,24 @@ export function MusicPlayerBar() {
           </button>
 
           <div className="flex items-center gap-1">
+            {party ? (
+              <button
+                type="button"
+                className={cn(
+                  "relative rounded-full p-2 text-zinc-300 hover:bg-zinc-800 hover:text-white",
+                  party.party && "text-emerald-400",
+                )}
+                onClick={() => party.setPanelOpen(true)}
+                aria-label={party.party ? "Party mode settings" : "Start party mode"}
+              >
+                <PersonIcon className="h-5 w-5" />
+                {party.party ? (
+                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-medium text-black">
+                    {party.party.members.length}
+                  </span>
+                ) : null}
+              </button>
+            ) : null}
             <button
               type="button"
               className="hidden rounded-full p-2 text-zinc-300 hover:bg-zinc-800 hover:text-white sm:inline-flex"
@@ -298,6 +319,24 @@ export function MusicPlayerBar() {
               </div>
 
               <div className="relative flex items-center justify-center gap-6 pb-1">
+                {party ? (
+                  <button
+                    type="button"
+                    className={cn(
+                      "absolute left-0 inline-flex h-11 w-11 items-center justify-center rounded-full border border-zinc-700 bg-zinc-900/90 text-white hover:bg-zinc-800",
+                      party.party && "border-emerald-500/60 text-emerald-300",
+                    )}
+                    onClick={() => party.setPanelOpen(true)}
+                    aria-label={party.party ? "Party mode settings" : "Start party mode"}
+                  >
+                    <PersonIcon className="h-5 w-5" />
+                    {party.party ? (
+                      <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-medium text-black">
+                        {party.party.members.length}
+                      </span>
+                    ) : null}
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className="rounded-full p-3 text-zinc-200 hover:bg-zinc-900"

@@ -30,6 +30,6 @@
       "@convex/*": ["../../convex/*"]
     }
   },
-  "include": ["src"],
+  "include": ["src", "../../convex/*.ts"],
   "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"]
 }

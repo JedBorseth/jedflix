@@ -4,6 +4,7 @@ import { AlbumCard } from "@/components/browse/AlbumCard";
 import { ArtistCard } from "@/components/browse/ArtistCard";
 import { RecentlyPlayedMusicGrid } from "@/components/browse/RecentlyPlayedMusicGrid";
 import { Navbar } from "@/components/layout/Navbar";
+import { PartyStatusButton } from "@/components/party/PartyStatusButton";
 import { PosterRowSkeleton } from "@/components/ui/skeleton";
 import type { MusicBrowseResponse, MusicCatalogRow } from "@/lib/spotify";
 import { getMusicBrowse } from "@/lib/spotify";
@@ -46,6 +47,10 @@ export function MusicPage() {
     <div className="min-h-screen bg-zinc-950 text-white">
       <Navbar searchMode="music" />
       <div className="pt-navbar space-y-8 pb-36 md:pb-32">
+        <div className="px-4 md:px-12">
+          <PartyStatusButton />
+        </div>
+
         {recentTracks.length > 0 ? (
           <RecentlyPlayedMusicGrid tracks={recentTracks} />
         ) : null}

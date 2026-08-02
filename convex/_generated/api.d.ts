@@ -9,9 +9,15 @@
  */
 
 import type * as auth from "../auth.js";
+import type * as env from "../env.js";
 import type * as http from "../http.js";
 import type * as myList from "../myList.js";
+import type * as party from "../party.js";
+import type * as partyModel from "../partyModel.js";
+import type * as partySync from "../partySync.js";
 import type * as reviews from "../reviews.js";
+import type * as spotify from "../spotify.js";
+import type * as spotifyApi from "../spotifyApi.js";
 import type * as userSettings from "../userSettings.js";
 import type * as users from "../users.js";
 import type * as watchHistory from "../watchHistory.js";
@@ -24,9 +30,15 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
+  env: typeof env;
   http: typeof http;
   myList: typeof myList;
+  party: typeof party;
+  partyModel: typeof partyModel;
+  partySync: typeof partySync;
   reviews: typeof reviews;
+  spotify: typeof spotify;
+  spotifyApi: typeof spotifyApi;
   userSettings: typeof userSettings;
   users: typeof users;
   watchHistory: typeof watchHistory;

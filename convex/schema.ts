@@ -6,6 +6,7 @@ import {
   mediaTypeValidator,
   streamModeValidator,
 } from "@jedflix/shared";
+import { partyTrackValidator } from "./partyModel";
 
 export default defineSchema({
   ...authTables,
@@ -58,4 +59,94 @@ export default defineSchema({
     externalPlayer: v.optional(externalPlayerValidator),
     updatedAt: v.number(),
   }).index("by_user", ["userId"]),
+
+  // --- Party mode -----------------------------------------------------------
+
+  /** A user's linked Spotify account. Tokens never leave the Convex backend. */
+  spotifyAccounts: defineTable({
+    userId: v.id("users"),
+    spotifyUserId: v.string(),
+    displayName: v.string(),
+    // "premium" | "free" | "open". Playback control requires premium.
+    product: v.optional(v.string()),
+    imageUrl: v.optional(v.string()),
+    accessToken: v.string(),
+    refreshToken: v.string(),
+    expiresAt: v.number(),
+    scope: v.string(),
+    updatedAt: v.number(),
+  }).index("by_user", ["userId"]),
+
+  /** Single-use CSRF state for the Spotify authorization-code flow. */
+  spotifyOauthStates: defineTable({
+    state: v.string(),
+    userId: v.id("users"),
+    redirectPath: v.string(),
+    expiresAt: v.number(),
+  }).index("by_state", ["state"]),
+
+  /** Stable party identity. Playback lives in partyPlayback to keep churn off this doc. */
+  parties: defineTable({
+    code: v.string(),
+    hostUserId: v.id("users"),
+    closedAt: v.optional(v.number()),
+    // Guards against duplicate Spotify poll loops after restarts.
+    pollRunning: v.boolean(),
+    pollGeneration: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_code", ["code"])
+    .index("by_host", ["hostUserId"]),
+
+  /** High-churn playback state: one row per party. */
+  partyPlayback: defineTable({
+    partyId: v.id("parties"),
+    track: v.optional(partyTrackValidator),
+    // Index into partyQueue.tracks, or -1 when the track came from outside the queue.
+    queueIndex: v.number(),
+    isPlaying: v.boolean(),
+    // Monotonic; lets a scheduled Spotify push detect that it has been superseded.
+    revision: v.number(),
+    // "member:<clientId>" or "spotify:<accountId>" — used to skip echoes.
+    updatedBy: v.string(),
+    updatedAt: v.number(),
+  }).index("by_party", ["partyId"]),
+
+  /** Party queue, rewritten only when a client replaces the whole queue. */
+  partyQueue: defineTable({
+    partyId: v.id("parties"),
+    tracks: v.array(partyTrackValidator),
+    updatedAt: v.number(),
+  }).index("by_party", ["partyId"]),
+
+  /** One row per connected client (browser/device) in a party. */
+  partyMembers: defineTable({
+    partyId: v.id("parties"),
+    userId: v.id("users"),
+    clientId: v.string(),
+    deviceLabel: v.string(),
+    lastSeenAt: v.number(),
+    joinedAt: v.number(),
+  })
+    .index("by_party", ["partyId"])
+    .index("by_party_and_client", ["partyId", "clientId"])
+    .index("by_user_and_client", ["userId", "clientId"]),
+
+  /** A Spotify account mirroring a party, plus the Connect device it drives. */
+  partySpotifyTargets: defineTable({
+    partyId: v.id("parties"),
+    accountId: v.id("spotifyAccounts"),
+    userId: v.id("users"),
+    deviceId: v.optional(v.string()),
+    deviceName: v.optional(v.string()),
+    enabled: v.boolean(),
+    lastPushedTrackId: v.optional(v.string()),
+    lastPushedAt: v.number(),
+    lastObservedTrackId: v.optional(v.string()),
+    lastError: v.optional(v.string()),
+    updatedAt: v.number(),
+  })
+    .index("by_party", ["partyId"])
+    .index("by_party_and_account", ["partyId", "accountId"])
+    .index("by_user", ["userId"]),
 });

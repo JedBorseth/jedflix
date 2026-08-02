@@ -27,6 +27,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useOptionalParty } from "@/components/party/partyContext";
+import { SpotifyConnectCard } from "@/components/party/SpotifyConnectCard";
 import { useUserSettings } from "@/hooks/useUserSettings";
 import { validateLetterboxdUsername } from "@/lib/letterboxd";
 import {
@@ -39,6 +41,7 @@ import type { DeviceType, ExternalPlayer } from "@/lib/userSettings";
 
 export function SettingsPage() {
   const navigate = useNavigate();
+  const party = useOptionalParty();
   const {
     realDebridApiKey,
     externalPlayer,
@@ -293,6 +296,35 @@ export function SettingsPage() {
               ) : null}
             </CardContent>
           </Card>
+
+          <SpotifyConnectCard />
+
+          {party ? (
+            <Card className="border-zinc-800 bg-zinc-900/60 text-white">
+              <CardHeader>
+                <CardTitle>Party mode</CardTitle>
+                <CardDescription className="text-zinc-400">
+                  Sync music playback across your devices and mirror it onto connected Spotify
+                  accounts.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {party.party ? (
+                  <p className="text-sm text-zinc-300">
+                    In party{" "}
+                    <span className="font-mono tracking-[0.2em] text-white">
+                      {party.party.code}
+                    </span>{" "}
+                    with {party.party.members.length} device
+                    {party.party.members.length === 1 ? "" : "s"}.
+                  </p>
+                ) : null}
+                <Button type="button" onClick={() => party.setPanelOpen(true)}>
+                  {party.party ? "Manage party" : "Start or join a party"}
+                </Button>
+              </CardContent>
+            </Card>
+          ) : null}
 
           <Card className="border-zinc-800 bg-zinc-900/60 text-white">
             <CardHeader>
