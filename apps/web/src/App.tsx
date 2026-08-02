@@ -10,6 +10,7 @@ import { AlbumDetailPage } from "@/pages/AlbumDetailPage";
 import { AuthorPage } from "@/pages/AuthorPage";
 import { BrowsePage } from "@/pages/BrowsePage";
 import { ComingSoonPage } from "@/pages/ComingSoonPage";
+import { FeaturesComingSoonPage } from "@/pages/FeaturesComingSoonPage";
 import { MovieDetailPage } from "@/pages/MovieDetailPage";
 import { MusicArtistPage } from "@/pages/MusicArtistPage";
 import { MusicPage } from "@/pages/MusicPage";
@@ -73,6 +74,11 @@ const router = createBrowserRouter([
       { path: "/shows", element: <BrowsePage mediaType="tv" /> },
       { path: "/audiobooks", element: <AudiobooksPage /> },
       { path: "/music", element: <MusicPage />, errorElement: <RouteErrorPage /> },
+      {
+        path: "/coming-soon",
+        element: <FeaturesComingSoonPage />,
+        errorElement: <RouteErrorPage />,
+      },
       {
         path: "/video-games",
         element: (

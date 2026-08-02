@@ -3,6 +3,7 @@ import { useSyncExternalStore } from "react";
 import { AlbumCard } from "@/components/browse/AlbumCard";
 import { ArtistCard } from "@/components/browse/ArtistCard";
 import { RecentlyPlayedMusicGrid } from "@/components/browse/RecentlyPlayedMusicGrid";
+import { AppLink } from "@/components/layout/AppLink";
 import { Navbar } from "@/components/layout/Navbar";
 import { PartyStatusButton } from "@/components/party/PartyStatusButton";
 import { PosterRowSkeleton } from "@/components/ui/skeleton";
@@ -47,8 +48,14 @@ export function MusicPage() {
     <div className="min-h-screen bg-zinc-950 text-white">
       <Navbar searchMode="music" />
       <div className="pt-navbar space-y-8 pb-36 md:pb-32">
-        <div className="px-4 md:px-12">
+        <div className="flex flex-wrap items-center gap-2 px-4 md:px-12">
           <PartyStatusButton />
+          <AppLink
+            to="/coming-soon"
+            className="inline-flex items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900/70 px-3 py-1.5 text-sm text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-white"
+          >
+            Coming soon
+          </AppLink>
         </div>
 
         {recentTracks.length > 0 ? (
