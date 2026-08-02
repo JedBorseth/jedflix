@@ -27,6 +27,11 @@ export type UseMediaSessionOptions = {
   onPreviousTrack?: () => void;
   onNextTrack?: () => void;
   onStop?: () => void;
+  /**
+   * When true, skip ±10s seek handlers so the OS shows next/previous track
+   * controls (preferred for music on iOS lock screen / Control Center).
+   */
+  preferTrackSkip?: boolean;
 };
 
 /**
@@ -50,6 +55,7 @@ export function useMediaSession({
   onPreviousTrack,
   onNextTrack,
   onStop,
+  preferTrackSkip = false,
 }: UseMediaSessionOptions) {
   const handlersRef = useRef({
     onPlay,
@@ -140,19 +146,21 @@ export function useMediaSession({
     bind("stop", () => {
       handlersRef.current.onStop?.() ?? handlersRef.current.onPause?.();
     });
-    bind("seekbackward", (details) => {
-      const offset = details.seekOffset ?? 10;
-      handlersRef.current.onSeekBy?.(-offset);
-    });
-    bind("seekforward", (details) => {
-      const offset = details.seekOffset ?? 10;
-      handlersRef.current.onSeekBy?.(offset);
-    });
-    bind("seekto", (details) => {
-      if (typeof details.seekTime === "number") {
-        handlersRef.current.onSeek?.(details.seekTime);
-      }
-    });
+    if (!preferTrackSkip) {
+      bind("seekbackward", (details) => {
+        const offset = details.seekOffset ?? 10;
+        handlersRef.current.onSeekBy?.(-offset);
+      });
+      bind("seekforward", (details) => {
+        const offset = details.seekOffset ?? 10;
+        handlersRef.current.onSeekBy?.(offset);
+      });
+      bind("seekto", (details) => {
+        if (typeof details.seekTime === "number") {
+          handlersRef.current.onSeek?.(details.seekTime);
+        }
+      });
+    }
     bind("previoustrack", () => {
       handlersRef.current.onPreviousTrack?.();
     });
@@ -163,5 +171,5 @@ export function useMediaSession({
     return () => {
       clearMediaSession();
     };
-  }, [enabled]);
+  }, [enabled, preferTrackSkip]);
 }

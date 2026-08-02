@@ -62,7 +62,7 @@ export const catalogQueryKeys = {
     all: ["spotify"] as const,
     browse: () => ["spotify", "browse"] as const,
     album: (albumId: string) => ["spotify", "album", albumId] as const,
-    artist: (artistId: string) => ["spotify", "artist", artistId] as const,
+    artist: (artistId: string) => ["spotify", "artist", "v2", artistId] as const,
     search: (query: string) => ["spotify", "search", query] as const,
   },
 } as const;

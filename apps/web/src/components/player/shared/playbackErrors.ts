@@ -80,3 +80,33 @@ export function mapMediaElementError(media: HTMLMediaElement | null): string {
   }
   return `${base} ${detail}`;
 }
+
+/** When HTML audio gets JSON from the stream-server, surface the server message instead of "no supported sources". */
+export async function resolveStreamServerAudioError(
+  media: HTMLMediaElement,
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  const base = mapMediaElementError(media);
+  const src = media.currentSrc || media.src;
+  if (!src || media.error?.code !== 4) {
+    return base;
+  }
+
+  try {
+    const response = await fetchImpl(src);
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!contentType.includes("json")) {
+      return base;
+    }
+    const payload = (await response.json()) as { error?: string };
+    if (!payload.error) {
+      return base;
+    }
+    if (/yt-dlp is not installed/i.test(payload.error)) {
+      return "Music playback requires yt-dlp on the stream-server. Install locally with: brew install yt-dlp";
+    }
+    return payload.error;
+  } catch {
+    return base;
+  }
+}

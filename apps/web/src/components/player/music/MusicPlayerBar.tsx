@@ -1,4 +1,5 @@
 import {
+  ChevronDownIcon,
   ListBulletIcon,
   PauseIcon,
   PlayIcon,
@@ -6,10 +7,12 @@ import {
   TrackPreviousIcon,
 } from "@radix-ui/react-icons";
 import { useDrag } from "@use-gesture/react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
 import { useMusicPlayer } from "@/components/player/music/MusicPlayerContext";
 import { MusicQueuePanel } from "@/components/player/music/MusicQueuePanel";
+import { getAlbumDetailPath, getArtistPath } from "@/lib/spotify";
 import { cn } from "@/lib/utils";
 
 function formatClock(sec: number) {
@@ -26,6 +29,7 @@ const SWIPE_DISTANCE = 72;
 const SWIPE_VELOCITY = 0.35;
 
 export function MusicPlayerBar() {
+  const navigate = useNavigate();
   const {
     current,
     playing,
@@ -45,21 +49,12 @@ export function MusicPlayerBar() {
     queueIndex,
   } = useMusicPlayer();
 
-  const swipeSurfaceRef = useRef<HTMLDivElement>(null);
   const [swipeOffset, setSwipeOffset] = useState({ x: 0, y: 0 });
 
+  // Bind gestures only to the cover/handle zone — never the full overlay.
+  // Full-surface useDrag + touch-none + preventScroll blocks taps on iOS.
   const bindSwipe = useDrag(
-    ({ down, movement: [mx, my], velocity: [vx, vy], last, cancel, event }) => {
-      const target = event?.target;
-      if (
-        target instanceof Element &&
-        (target.closest("[data-no-swipe]") || target.closest('input[type="range"]'))
-      ) {
-        cancel?.();
-        setSwipeOffset({ x: 0, y: 0 });
-        return;
-      }
-
+    ({ down, movement: [mx, my], velocity: [vx, vy], last }) => {
       if (down && !last) {
         const absX = Math.abs(mx);
         const absY = Math.abs(my);
@@ -96,7 +91,6 @@ export function MusicPlayerBar() {
       filterTaps: true,
       threshold: 12,
       pointer: { touch: true },
-      preventScroll: true,
     },
   );
 
@@ -107,15 +101,34 @@ export function MusicPlayerBar() {
   const artist = current.artists.filter(Boolean).join(", ");
   const progressMax = duration > 0 ? duration : 1;
   const swipeOpacity = Math.max(0.35, 1 - swipeOffset.y / 320);
+  const albumPath = current.albumId ? getAlbumDetailPath({ id: current.albumId }) : null;
+  const artistEntries = current.artists
+    .map((name, index) => ({
+      name,
+      id: current.artistIds?.[index]?.trim() || undefined,
+    }))
+    .filter((entry) => entry.name);
+
+  function openArtist(artistId: string) {
+    setExpanded(false);
+    setQueueOpen(false);
+    navigate(getArtistPath(artistId));
+  }
+
+  function openAlbum() {
+    if (!albumPath) {
+      return;
+    }
+    setExpanded(false);
+    setQueueOpen(false);
+    navigate(albumPath);
+  }
 
   return (
     <>
       <FullscreenScrollLock enabled={expanded} />
       <div
-        className={cn(
-          "fixed inset-x-0 z-40 border-t border-zinc-800 bg-zinc-950/95 backdrop-blur-md",
-          "bottom-[calc(4.25rem+env(safe-area-inset-bottom))] md:bottom-0",
-        )}
+        className="relative z-40 border-t border-zinc-800 bg-zinc-950/95 backdrop-blur-md"
         role="region"
         aria-label="Now playing"
       >
@@ -180,126 +193,156 @@ export function MusicPlayerBar() {
 
       {expanded ? (
         <div
-          ref={swipeSurfaceRef}
-          className="fixed inset-0 z-[60] flex flex-col overflow-hidden overscroll-none bg-zinc-950 text-white touch-none"
+          className="fixed inset-0 z-[60] flex flex-col overflow-hidden overscroll-none bg-zinc-950 text-white"
           style={{
             transform: `translate(${swipeOffset.x * 0.35}px, ${swipeOffset.y * 0.55}px)`,
             opacity: swipeOpacity,
-            transition: swipeOffset.x === 0 && swipeOffset.y === 0 ? "transform 180ms ease, opacity 180ms ease" : undefined,
+            transition:
+              swipeOffset.x === 0 && swipeOffset.y === 0
+                ? "transform 180ms ease, opacity 180ms ease"
+                : undefined,
           }}
-          {...bindSwipe()}
         >
           <div
-            className="absolute inset-0 opacity-40 blur-3xl"
+            className="pointer-events-none absolute inset-0 opacity-40 blur-3xl"
             style={{
               backgroundImage: `url(${current.imageUrl})`,
               backgroundSize: "cover",
               backgroundPosition: "center",
             }}
           />
-          <div className="absolute inset-0 bg-gradient-to-b from-black/70 via-zinc-950/90 to-zinc-950" />
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/70 via-zinc-950/90 to-zinc-950" />
 
-          <div className="relative z-10 flex items-center justify-between px-4 pb-2 pt-[calc(0.75rem+env(safe-area-inset-top))] md:px-8">
+          <div className="relative z-10 flex shrink-0 items-center justify-center px-4 pb-1 pt-[calc(0.5rem+env(safe-area-inset-top))] md:px-8">
             <button
               type="button"
-              className="rounded-md px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-900 hover:text-white"
-              data-no-swipe
+              className="rounded-full p-2 text-zinc-300 hover:bg-zinc-900 hover:text-white"
               onClick={() => setExpanded(false)}
+              aria-label="Minimize player"
             >
-              Close
+              <ChevronDownIcon className="h-6 w-6" />
             </button>
-            <div className="flex flex-col items-center">
-              <div className="mb-2 h-1 w-10 rounded-full bg-zinc-600" aria-hidden />
-              <p className="text-xs uppercase tracking-widest text-zinc-500">Now playing</p>
-            </div>
-            <span className="w-16" />
           </div>
 
-          <div className="relative z-10 mx-auto flex w-full max-w-lg flex-1 flex-col items-center justify-center gap-8 px-6 pb-[calc(5.5rem+env(safe-area-inset-bottom))]">
-            <ProgressiveCoverImage
-              src={current.imageUrl}
-              alt={current.albumName}
-              className="aspect-square w-full max-w-sm rounded-lg object-cover shadow-2xl"
-            />
-
-            <div className="w-full text-center">
-              <h1 className="text-2xl font-semibold">{current.title}</h1>
-              <p className="mt-1 text-zinc-300">{artist}</p>
-              <p className="mt-1 text-sm text-zinc-500">{current.albumName}</p>
-              {error ? <p className="mt-3 text-sm text-red-300">{error}</p> : null}
-              {loading && !error ? (
-                <p className="mt-3 text-sm text-zinc-400">Resolving YouTube audio…</p>
-              ) : null}
-            </div>
-
-            <div className="w-full" data-no-swipe>
-              <input
-                type="range"
-                min={0}
-                max={progressMax}
-                step={0.5}
-                value={Math.min(currentTime, progressMax)}
-                onChange={(event) => seek(Number(event.target.value))}
-                className="w-full accent-red-600"
-                aria-label="Seek"
-              />
-              <div className="mt-1 flex justify-between text-xs text-zinc-500">
-                <span>{formatClock(currentTime)}</span>
-                <span>{formatClock(duration)}</span>
+          <div className="relative z-10 mx-auto flex min-h-0 w-full max-w-lg flex-1 flex-col px-6 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+            {/* Swipe zone: handle + cover — shrinks to fit short viewports */}
+            <div
+              className="flex min-h-0 w-full flex-1 touch-none flex-col items-center justify-center gap-3"
+              {...bindSwipe()}
+            >
+              <div className="flex min-h-0 w-full flex-1 items-center justify-center">
+                <div className="aspect-square h-full max-h-[24rem] max-w-full">
+                  <ProgressiveCoverImage
+                    src={current.imageUrl}
+                    alt={current.albumName}
+                    className="h-full w-full rounded-lg object-cover shadow-2xl"
+                  />
+                </div>
               </div>
             </div>
 
-            <div className="flex items-center gap-6" data-no-swipe>
-              <button
-                type="button"
-                className="rounded-full p-3 text-zinc-200 hover:bg-zinc-900"
-                onClick={previous}
-                aria-label="Previous track"
-              >
-                <TrackPreviousIcon className="h-7 w-7" />
-              </button>
-              <button
-                type="button"
-                className="rounded-full bg-white p-4 text-black hover:bg-zinc-200"
-                onClick={toggle}
-                aria-label={playing ? "Pause" : "Play"}
-              >
-                {playing ? <PauseIcon className="h-8 w-8" /> : <PlayIcon className="h-8 w-8" />}
-              </button>
-              <button
-                type="button"
-                className="rounded-full p-3 text-zinc-200 hover:bg-zinc-900 disabled:opacity-40"
-                onClick={next}
-                aria-label="Next track"
-                disabled={queueIndex >= queue.length - 1}
-              >
-                <TrackNextIcon className="h-7 w-7" />
-              </button>
-            </div>
-          </div>
+            <div className="mt-4 w-full shrink-0 space-y-4">
+              <div className="min-w-0 text-left">
+                {albumPath ? (
+                  <button
+                    type="button"
+                    className="block w-full truncate text-left text-xl font-semibold hover:underline sm:text-2xl"
+                    onClick={openAlbum}
+                  >
+                    {current.title}
+                  </button>
+                ) : (
+                  <h1 className="truncate text-xl font-semibold sm:text-2xl">{current.title}</h1>
+                )}
+                <p className="mt-1 truncate text-zinc-300">
+                  {artistEntries.length > 0
+                    ? artistEntries.map((entry, index) => (
+                        <span key={`${entry.name}-${index}`}>
+                          {index > 0 ? <span className="text-zinc-500">, </span> : null}
+                          {entry.id ? (
+                            <button
+                              type="button"
+                              className="hover:underline"
+                              onClick={() => openArtist(entry.id!)}
+                            >
+                              {entry.name}
+                            </button>
+                          ) : (
+                            entry.name
+                          )}
+                        </span>
+                      ))
+                    : artist}
+                </p>
+                {error ? <p className="mt-2 text-sm text-red-300">{error}</p> : null}
+                {loading && !error ? (
+                  <p className="mt-2 text-sm text-zinc-400">Resolving YouTube audio…</p>
+                ) : null}
+              </div>
 
-          <div
-            className="absolute bottom-[calc(1rem+env(safe-area-inset-bottom))] right-4 z-20 md:right-8"
-            data-no-swipe
-          >
-            <button
-              type="button"
-              className={cn(
-                "inline-flex items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900/90 px-4 py-2.5 text-sm text-white shadow-lg backdrop-blur hover:bg-zinc-800",
-                queueOpen && "border-red-500/60 text-red-300",
-              )}
-              onClick={() => setQueueOpen(!queueOpen)}
-              aria-label={queueOpen ? "Close queue" : "Open queue"}
-              aria-expanded={queueOpen}
-            >
-              <ListBulletIcon className="h-4 w-4" />
-              Queue
-              {queue.length > 1 ? (
-                <span className="rounded-full bg-zinc-800 px-1.5 text-xs text-zinc-300">
-                  {queue.length}
-                </span>
-              ) : null}
-            </button>
+              <div className="w-full">
+                <input
+                  type="range"
+                  min={0}
+                  max={progressMax}
+                  step={0.5}
+                  value={Math.min(currentTime, progressMax)}
+                  onChange={(event) => seek(Number(event.target.value))}
+                  className="w-full accent-red-600"
+                  aria-label="Seek"
+                />
+                <div className="mt-1 flex justify-between text-xs text-zinc-500">
+                  <span>{formatClock(currentTime)}</span>
+                  <span>{formatClock(duration)}</span>
+                </div>
+              </div>
+
+              <div className="relative flex items-center justify-center gap-6 pb-1">
+                <button
+                  type="button"
+                  className="rounded-full p-3 text-zinc-200 hover:bg-zinc-900"
+                  onClick={previous}
+                  aria-label="Previous track"
+                >
+                  <TrackPreviousIcon className="h-7 w-7" />
+                </button>
+                <button
+                  type="button"
+                  className="rounded-full bg-white p-4 text-black hover:bg-zinc-200"
+                  onClick={toggle}
+                  aria-label={playing ? "Pause" : "Play"}
+                >
+                  {playing ? <PauseIcon className="h-8 w-8" /> : <PlayIcon className="h-8 w-8" />}
+                </button>
+                <button
+                  type="button"
+                  className="rounded-full p-3 text-zinc-200 hover:bg-zinc-900 disabled:opacity-40"
+                  onClick={next}
+                  aria-label="Next track"
+                  disabled={queueIndex >= queue.length - 1}
+                >
+                  <TrackNextIcon className="h-7 w-7" />
+                </button>
+
+                <button
+                  type="button"
+                  className={cn(
+                    "absolute right-0 inline-flex h-11 w-11 items-center justify-center rounded-full border border-zinc-700 bg-zinc-900/90 text-white hover:bg-zinc-800",
+                    queueOpen && "border-red-500/60 text-red-300",
+                  )}
+                  onClick={() => setQueueOpen(!queueOpen)}
+                  aria-label={queueOpen ? "Close queue" : "Open queue"}
+                  aria-expanded={queueOpen}
+                >
+                  <ListBulletIcon className="h-5 w-5" />
+                  {queue.length - queueIndex > 1 ? (
+                    <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-medium text-white">
+                      {queue.length - queueIndex}
+                    </span>
+                  ) : null}
+                </button>
+              </div>
+            </div>
           </div>
 
           <MusicQueuePanel />

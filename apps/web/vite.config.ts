@@ -5,6 +5,8 @@ import path from "path";
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  // Load VITE_* vars from repo root .env.local (same file Docker/production uses).
+  envDir: path.resolve(__dirname, "../.."),
   plugins: [
     react(),
     VitePWA({

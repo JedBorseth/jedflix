@@ -4,13 +4,21 @@ import { AlbumCard } from "@/components/browse/AlbumCard";
 import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
 import { AppLink } from "@/components/layout/AppLink";
 import { Navbar } from "@/components/layout/Navbar";
+import { useMusicPlayer } from "@/components/player/music/MusicPlayerContext";
 import { Button } from "@/components/ui/button";
 import { DetailPageSkeleton } from "@/components/ui/skeleton";
-import { getArtistDetails, normalizeSpotifyId } from "@/lib/spotify";
+import {
+  formatTrackDuration,
+  getArtistDetails,
+  normalizeSpotifyId,
+  type TopTrackItem,
+} from "@/lib/spotify";
 import { catalogQueryKeys } from "@/lib/queryClient";
+import { cn } from "@/lib/utils";
 
 export function MusicArtistPage() {
   const { artistId } = useParams<{ artistId: string }>();
+  const musicPlayer = useMusicPlayer();
   const normalizedId = normalizeSpotifyId(artistId ?? null);
 
   const artistQuery = useQuery({
@@ -51,10 +59,27 @@ export function MusicArtistPage() {
     );
   }
 
+  const topTracks = (artist.topTracks ?? []).slice(0, 10);
+  const albums = artist.albums ?? [];
+  const discography = artist.discography ?? [];
+  const activeTrackId = musicPlayer.current?.id;
+
+  function playTopFrom(index: number) {
+    if (topTracks.length === 0) {
+      return;
+    }
+    const queue = topTracks.map(topTrackToQueueTrack);
+    const start = queue[Math.min(Math.max(index, 0), queue.length - 1)];
+    if (!start) {
+      return;
+    }
+    musicPlayer.playTrack(start, queue);
+  }
+
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
       <Navbar searchMode="music" />
-      <main className="pt-navbar mx-auto max-w-6xl px-4 pb-24 md:px-12 md:pb-16">
+      <main className="pt-navbar mx-auto max-w-6xl px-4 pb-36 md:px-12 md:pb-32">
         <div className="mb-10 flex flex-col items-center gap-8 md:flex-row md:items-start">
           <ProgressiveCoverImage
             src={artist.imageUrl}
@@ -77,16 +102,79 @@ export function MusicArtistPage() {
                 {artist.genres.slice(0, 6).join(" · ")}
               </p>
             ) : null}
-            <p className="text-sm text-zinc-400">Playback coming soon.</p>
+            {topTracks.length > 0 ? (
+              <Button type="button" onClick={() => playTopFrom(0)} className="w-fit">
+                Play popular
+              </Button>
+            ) : null}
           </div>
         </div>
 
-        {artist.albums.length > 0 ? (
-          <section>
+        {topTracks.length > 0 ? (
+          <section className="mb-10">
+            <h2 className="mb-4 text-xl font-semibold">Popular</h2>
+            <ol className="divide-y divide-zinc-900 rounded-lg border border-zinc-900">
+              {topTracks.map((track, index) => {
+                const isActive = activeTrackId === track.id;
+                return (
+                  <li key={track.id || `${track.name}-${index}`}>
+                    <button
+                      type="button"
+                      onClick={() => playTopFrom(index)}
+                      className={cn(
+                        "flex w-full items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-zinc-900/80",
+                        isActive && "bg-zinc-900 text-white",
+                      )}
+                    >
+                      <span className="w-8 shrink-0 text-center text-sm text-zinc-500">
+                        {isActive && musicPlayer.playing ? "▶" : index + 1}
+                      </span>
+                      <ProgressiveCoverImage
+                        src={track.imageUrl}
+                        alt=""
+                        className="h-10 w-10 shrink-0 rounded object-cover"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p
+                          className={cn(
+                            "truncate text-sm",
+                            isActive ? "text-red-400" : "text-white",
+                          )}
+                        >
+                          {track.name}
+                        </p>
+                        <p className="truncate text-xs text-zinc-500">
+                          {track.albumName || track.artists.join(", ")}
+                        </p>
+                      </div>
+                      <span className="shrink-0 text-xs text-zinc-500">
+                        {formatTrackDuration(track.durationMs)}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
+          </section>
+        ) : null}
+
+        {albums.length > 0 ? (
+          <section className="mb-10">
             <h2 className="mb-4 text-xl font-semibold">Albums & singles</h2>
             <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2 scrollbar-hide">
-              {artist.albums.map((album) => (
+              {albums.map((album) => (
                 <AlbumCard key={album.id} album={album} />
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        {discography.length > 0 ? (
+          <section>
+            <h2 className="mb-4 text-xl font-semibold">Discography</h2>
+            <div className="flex flex-wrap gap-3">
+              {discography.map((album) => (
+                <AlbumCard key={`disc-${album.id}`} album={album} />
               ))}
             </div>
           </section>
@@ -94,4 +182,17 @@ export function MusicArtistPage() {
       </main>
     </div>
   );
+}
+
+function topTrackToQueueTrack(track: TopTrackItem) {
+  return {
+    id: track.id,
+    title: track.name,
+    artists: track.artists,
+    artistIds: track.artistIds,
+    albumName: track.albumName || "Unknown album",
+    albumId: track.albumId || undefined,
+    imageUrl: track.imageUrl,
+    durationMs: track.durationMs,
+  };
 }

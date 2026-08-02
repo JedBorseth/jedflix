@@ -22,11 +22,14 @@ const (
 	defaultAuthURL    = "https://accounts.spotify.com/api/token"
 	fallbackImage     = "https://placehold.co/640x640/18181b/a1a1aa?text=No+Cover"
 	// Development Mode caps GET /search (and several list endpoints) at limit=10.
-	defaultLimit       = 10
-	catalogPageCount   = 2 // 2 × 10 ≈ 20 items per shelf
-	maxDetailCacheSize = 400
-	maxArtistCacheSize = 200
-	tokenRefreshSkew   = 60 * time.Second
+	defaultLimit         = 10
+	catalogPageCount     = 2 // 2 × 10 ≈ 20 items per shelf
+	featuredAlbumLimit   = 10
+	discographyMaxPages  = 5 // 5 × 10 = up to 50 releases
+	maxDetailCacheSize   = 400
+	maxArtistCacheSize   = 200
+	tokenRefreshSkew     = 60 * time.Second
+	defaultMarket        = "US"
 )
 
 var spotifyIDPattern = regexp.MustCompile(`^[a-zA-Z0-9]{22}$`)
@@ -89,6 +92,7 @@ type spotifyTrackPayload struct {
 	DurationMs  int                `json:"duration_ms"`
 	Explicit    bool               `json:"explicit"`
 	Artists     []spotifyArtistRef `json:"artists"`
+	Album       *spotifyAlbumPayload `json:"album"`
 }
 
 type spotifyAlbumPayload struct {
@@ -126,10 +130,19 @@ type searchResponsePayload struct {
 	Artists *struct {
 		Items []spotifyArtistPayload `json:"items"`
 	} `json:"artists"`
+	Tracks *struct {
+		Items []spotifyTrackPayload `json:"items"`
+	} `json:"tracks"`
 }
 
 type artistAlbumsResponse struct {
 	Items []spotifyAlbumPayload `json:"items"`
+	Next  string                `json:"next"`
+	Total int                   `json:"total"`
+}
+
+type artistTopTracksResponse struct {
+	Tracks []spotifyTrackPayload `json:"tracks"`
 }
 
 func NewClient(cfg config.Config) *Client {
@@ -375,14 +388,40 @@ func (c *Client) GetArtist(ctx context.Context, artistID string) (*ArtistDetails
 		return nil, ErrNotFound
 	}
 
-	albums, err := c.fetchArtistAlbums(ctx, artistID, defaultLimit)
+	topTracks, err := c.resolveArtistTopTracks(ctx, artistID, artist.Name, nil)
 	if err != nil {
-		albums = nil
+		topTracks = []TopTrack{}
+	}
+	if topTracks == nil {
+		topTracks = []TopTrack{}
 	}
 
+	discography, err := c.fetchArtistAlbums(ctx, artistID, discographyMaxPages*defaultLimit)
+	if err != nil {
+		discography = []Album{}
+	}
+	if discography == nil {
+		discography = []Album{}
+	}
+
+	// If API top-tracks / search failed, build Popular from album track lists.
+	if len(topTracks) == 0 && len(discography) > 0 {
+		topTracks = c.topTracksFromAlbums(ctx, artistID, discography, featuredAlbumLimit)
+	}
+
+	albums := discography
+	if len(albums) > featuredAlbumLimit {
+		albums = albums[:featuredAlbumLimit]
+	}
+	// Copy featured slice so cache mutations don't share backing array unexpectedly.
+	featured := make([]Album, len(albums))
+	copy(featured, albums)
+
 	details := ArtistDetails{
-		Artist: artist,
-		Albums: albums,
+		Artist:      artist,
+		TopTracks:   topTracks,
+		Albums:      featured,
+		Discography: discography,
 	}
 	c.storeArtist(details)
 	return &details, nil
@@ -595,29 +634,230 @@ func (c *Client) searchArtists(ctx context.Context, query string, maxItems int) 
 	return artists, nil
 }
 
-func (c *Client) fetchArtistAlbums(ctx context.Context, artistID string, limit int) ([]Album, error) {
+func (c *Client) resolveArtistTopTracks(ctx context.Context, artistID, artistName string, _ []Album) ([]TopTrack, error) {
+	tracks, err := c.fetchArtistTopTracksAPI(ctx, artistID)
+	if err == nil && len(tracks) > 0 {
+		return tracks, nil
+	}
+	// Development Mode often returns 403 for /artists/{id}/top-tracks.
+	searched, searchErr := c.searchArtistTopTracks(ctx, artistID, artistName, featuredAlbumLimit)
+	if searchErr == nil && len(searched) > 0 {
+		return searched, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return tracks, searchErr
+}
+
+func (c *Client) fetchArtistTopTracksAPI(ctx context.Context, artistID string) ([]TopTrack, error) {
+	params := url.Values{}
+	params.Set("market", defaultMarket)
+	var payload artistTopTracksResponse
+	if err := c.getJSON(ctx, "/artists/"+url.PathEscape(artistID)+"/top-tracks?"+params.Encode(), &payload); err != nil {
+		return nil, err
+	}
+	return mapTopTracks(payload.Tracks), nil
+}
+
+func (c *Client) searchArtistTopTracks(ctx context.Context, artistID, artistName string, limit int) ([]TopTrack, error) {
 	if limit <= 0 || limit > defaultLimit {
 		limit = defaultLimit
 	}
+	name := strings.TrimSpace(artistName)
+	if name == "" {
+		return nil, fmt.Errorf("%w: missing artist name for top track search", ErrBadRequest)
+	}
 	params := url.Values{}
-	params.Set("include_groups", "album,single")
+	params.Set("q", name)
+	params.Set("type", "track")
 	params.Set("limit", strconv.Itoa(limit))
-	var payload artistAlbumsResponse
-	if err := c.getJSON(ctx, "/artists/"+url.PathEscape(artistID)+"/albums?"+params.Encode(), &payload); err != nil {
+	params.Set("market", defaultMarket)
+
+	var payload searchResponsePayload
+	if err := c.getJSON(ctx, "/search?"+params.Encode(), &payload); err != nil {
 		return nil, err
 	}
+	if payload.Tracks == nil || len(payload.Tracks.Items) == 0 {
+		return []TopTrack{}, nil
+	}
+
 	seen := make(map[string]struct{})
-	albums := make([]Album, 0, len(payload.Items))
-	for _, item := range payload.Items {
-		album := mapAlbum(item)
-		if album.ID == "" {
+	tracks := make([]TopTrack, 0, limit)
+	for _, item := range payload.Tracks.Items {
+		if item.ID == "" {
 			continue
 		}
-		if _, ok := seen[album.ID]; ok {
+		if _, ok := seen[item.ID]; ok {
 			continue
 		}
-		seen[album.ID] = struct{}{}
-		albums = append(albums, album)
+		belongsToArtist := false
+		for _, artist := range item.Artists {
+			if artist.ID == artistID {
+				belongsToArtist = true
+				break
+			}
+		}
+		if !belongsToArtist {
+			continue
+		}
+		seen[item.ID] = struct{}{}
+		mapped := mapTopTracks([]spotifyTrackPayload{item})
+		if len(mapped) == 0 {
+			continue
+		}
+		tracks = append(tracks, mapped[0])
+		if len(tracks) >= limit {
+			break
+		}
+	}
+	return tracks, nil
+}
+
+func (c *Client) topTracksFromAlbums(ctx context.Context, artistID string, albums []Album, limit int) []TopTrack {
+	if limit <= 0 {
+		limit = featuredAlbumLimit
+	}
+	seen := make(map[string]struct{})
+	tracks := make([]TopTrack, 0, limit)
+	for _, summary := range albums {
+		if len(tracks) >= limit {
+			break
+		}
+		album, err := c.GetAlbum(ctx, summary.ID)
+		if err != nil || album == nil {
+			continue
+		}
+		imageURL := album.ImageURL
+		if imageURL == "" {
+			imageURL = fallbackImage
+		}
+		for _, track := range album.Tracks {
+			if track.ID == "" {
+				continue
+			}
+			if _, ok := seen[track.ID]; ok {
+				continue
+			}
+			if len(track.ArtistIDs) > 0 {
+				belongs := false
+				for _, id := range track.ArtistIDs {
+					if id == artistID {
+						belongs = true
+						break
+					}
+				}
+				if !belongs {
+					continue
+				}
+			}
+			seen[track.ID] = struct{}{}
+			tracks = append(tracks, TopTrack{
+				ID:          track.ID,
+				Name:        track.Name,
+				Artists:     track.Artists,
+				ArtistIDs:   track.ArtistIDs,
+				TrackNumber: track.TrackNumber,
+				DiscNumber:  track.DiscNumber,
+				DurationMs:  track.DurationMs,
+				Explicit:    track.Explicit,
+				AlbumID:     album.ID,
+				AlbumName:   album.Name,
+				ImageURL:    imageURL,
+			})
+			if len(tracks) >= limit {
+				break
+			}
+		}
+	}
+	return tracks
+}
+
+func mapTopTracks(items []spotifyTrackPayload) []TopTrack {
+	tracks := make([]TopTrack, 0, len(items))
+	for _, item := range items {
+		if item.ID == "" && item.Name == "" {
+			continue
+		}
+		artists := make([]string, 0, len(item.Artists))
+		artistIDs := make([]string, 0, len(item.Artists))
+		for _, artist := range item.Artists {
+			if artist.Name == "" {
+				continue
+			}
+			artists = append(artists, artist.Name)
+			artistIDs = append(artistIDs, artist.ID)
+		}
+		disc := item.DiscNumber
+		if disc <= 0 {
+			disc = 1
+		}
+		albumID := ""
+		albumName := ""
+		imageURL := fallbackImage
+		if item.Album != nil {
+			albumID = item.Album.ID
+			albumName = item.Album.Name
+			imageURL = pickImage(item.Album.Images)
+		}
+		tracks = append(tracks, TopTrack{
+			ID:          item.ID,
+			Name:        item.Name,
+			Artists:     artists,
+			ArtistIDs:   artistIDs,
+			TrackNumber: item.TrackNumber,
+			DiscNumber:  disc,
+			DurationMs:  item.DurationMs,
+			Explicit:    item.Explicit,
+			AlbumID:     albumID,
+			AlbumName:   albumName,
+			ImageURL:    imageURL,
+		})
+	}
+	return tracks
+}
+
+func (c *Client) fetchArtistAlbums(ctx context.Context, artistID string, maxItems int) ([]Album, error) {
+	if maxItems <= 0 {
+		maxItems = featuredAlbumLimit
+	}
+	seen := make(map[string]struct{})
+	albums := make([]Album, 0, maxItems)
+
+	for offset := 0; len(albums) < maxItems; offset += defaultLimit {
+		params := url.Values{}
+		params.Set("include_groups", "album,single,compilation")
+		params.Set("limit", strconv.Itoa(defaultLimit))
+		params.Set("offset", strconv.Itoa(offset))
+		params.Set("market", defaultMarket)
+
+		var payload artistAlbumsResponse
+		if err := c.getJSON(ctx, "/artists/"+url.PathEscape(artistID)+"/albums?"+params.Encode(), &payload); err != nil {
+			if len(albums) > 0 {
+				return albums, nil
+			}
+			return nil, err
+		}
+		if len(payload.Items) == 0 {
+			break
+		}
+		for _, item := range payload.Items {
+			album := mapAlbum(item)
+			if album.ID == "" {
+				continue
+			}
+			if _, ok := seen[album.ID]; ok {
+				continue
+			}
+			seen[album.ID] = struct{}{}
+			albums = append(albums, album)
+			if len(albums) >= maxItems {
+				break
+			}
+		}
+		if len(payload.Items) < defaultLimit || payload.Next == "" {
+			break
+		}
 	}
 	return albums, nil
 }
@@ -797,10 +1037,13 @@ func mapTracks(payload *struct {
 			continue
 		}
 		artists := make([]string, 0, len(item.Artists))
+		artistIDs := make([]string, 0, len(item.Artists))
 		for _, artist := range item.Artists {
-			if artist.Name != "" {
-				artists = append(artists, artist.Name)
+			if artist.Name == "" {
+				continue
 			}
+			artists = append(artists, artist.Name)
+			artistIDs = append(artistIDs, artist.ID)
 		}
 		disc := item.DiscNumber
 		if disc <= 0 {
@@ -810,6 +1053,7 @@ func mapTracks(payload *struct {
 			ID:          item.ID,
 			Name:        item.Name,
 			Artists:     artists,
+			ArtistIDs:   artistIDs,
 			TrackNumber: item.TrackNumber,
 			DiscNumber:  disc,
 			DurationMs:  item.DurationMs,

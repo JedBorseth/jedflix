@@ -11,6 +11,8 @@ import { dropIndexFromDrag } from "@/lib/musicQueue";
 import { cn } from "@/lib/utils";
 
 const ROW_HEIGHT = 64;
+const DISMISS_DISTANCE = 80;
+const DISMISS_VELOCITY = 0.4;
 
 type QueueRowProps = {
   track: MusicQueueTrack;
@@ -131,80 +133,125 @@ export function MusicQueuePanel() {
     removeFromQueue,
   } = useMusicPlayer();
   const listRef = useRef<HTMLUListElement>(null);
-  const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
+  const [draggingVisualIndex, setDraggingVisualIndex] = useState<number | null>(null);
   const [dragOffsetY, setDragOffsetY] = useState(0);
-  const [dropIndex, setDropIndex] = useState<number | null>(null);
+  const [dropVisualIndex, setDropVisualIndex] = useState<number | null>(null);
+  const [sheetOffsetY, setSheetOffsetY] = useState(0);
+
+  // Show current + upcoming only; keep earlier tracks in queue for Previous.
+  const visibleQueue = queue.slice(queueIndex);
+  const visibleCount = visibleQueue.length;
+
+  const toQueueIndex = (visualIndex: number) => queueIndex + visualIndex;
+
+  const bindSheetDismiss = useDrag(
+    ({ down, movement: [, my], velocity: [, vy], last }) => {
+      const offset = Math.max(0, my);
+      if (down && !last) {
+        setSheetOffsetY(offset);
+        return;
+      }
+      if (!last) {
+        return;
+      }
+      setSheetOffsetY(0);
+      if (offset > DISMISS_DISTANCE || vy > DISMISS_VELOCITY) {
+        setQueueOpen(false);
+      }
+    },
+    {
+      axis: "y",
+      filterTaps: true,
+      pointer: { touch: true },
+    },
+  );
 
   if (!queueOpen) {
     return null;
   }
 
   return (
-    <div
-      className="absolute inset-x-0 bottom-0 z-30 flex max-h-[70%] flex-col rounded-t-2xl border border-zinc-800 bg-zinc-950/95 shadow-2xl backdrop-blur-md"
-      onPointerDown={(event) => event.stopPropagation()}
-      role="dialog"
-      aria-label="Play queue"
-    >
-      <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
-        <div>
-          <p className="text-sm font-medium text-white">Queue</p>
-          <p className="text-xs text-zinc-500">
-            {queue.length} {queue.length === 1 ? "song" : "songs"}
-          </p>
-        </div>
-        <button
-          type="button"
-          className="rounded-md px-3 py-1.5 text-sm text-zinc-300 hover:bg-zinc-900 hover:text-white"
-          onClick={() => setQueueOpen(false)}
-        >
-          Done
-        </button>
-      </div>
+    <div className="absolute inset-0 z-30 flex flex-col justify-end">
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/50"
+        aria-label="Close queue"
+        onClick={() => setQueueOpen(false)}
+      />
 
-      {draggingIndex !== null && dropIndex !== null && dropIndex !== draggingIndex ? (
-        <div
-          className="pointer-events-none absolute left-3 right-3 z-10 h-0.5 bg-red-500"
-          style={{ top: `${48 + dropIndex * ROW_HEIGHT}px` }}
-          aria-hidden
-        />
-      ) : null}
-
-      <ul
-        ref={listRef}
-        className="overflow-y-auto overscroll-contain touch-pan-y pb-[env(safe-area-inset-bottom)]"
+      <div
+        className="relative z-10 flex max-h-[70%] flex-col rounded-t-2xl border border-zinc-800 bg-zinc-950/95 shadow-2xl backdrop-blur-md"
+        style={{
+          transform: sheetOffsetY > 0 ? `translateY(${sheetOffsetY}px)` : undefined,
+          transition: sheetOffsetY === 0 ? "transform 180ms ease" : undefined,
+        }}
+        role="dialog"
+        aria-label="Play queue"
       >
-        {queue.map((track, index) => (
-          <QueueRow
-            key={`${track.id}-${index}`}
-            track={track}
-            index={index}
-            isCurrent={index === queueIndex}
-            isDragging={draggingIndex === index}
-            dragOffsetY={draggingIndex === index ? dragOffsetY : 0}
-            onDragStart={(from) => {
-              setDraggingIndex(from);
-              setDropIndex(from);
-              setDragOffsetY(0);
-            }}
-            onDragMove={(from, movementY) => {
-              setDragOffsetY(movementY);
-              setDropIndex(dropIndexFromDrag(from, movementY, ROW_HEIGHT, queue.length));
-            }}
-            onDragEnd={(from, movementY) => {
-              const to = dropIndexFromDrag(from, movementY, ROW_HEIGHT, queue.length);
-              if (to !== from) {
-                reorderQueue(from, to);
-              }
-              setDraggingIndex(null);
-              setDropIndex(null);
-              setDragOffsetY(0);
-            }}
-            onPlay={playQueueIndex}
-            onRemove={removeFromQueue}
+        <div
+          className="flex touch-none flex-col items-center border-b border-zinc-800 px-4 pb-3 pt-2"
+          {...bindSheetDismiss()}
+        >
+          <div className="mb-2 h-1 w-10 rounded-full bg-zinc-600" aria-hidden />
+          <div className="w-full text-left">
+            <p className="text-sm font-medium text-white">Queue</p>
+            <p className="text-xs text-zinc-500">
+              {visibleCount} {visibleCount === 1 ? "song" : "songs"}
+            </p>
+          </div>
+        </div>
+
+        {draggingVisualIndex !== null &&
+        dropVisualIndex !== null &&
+        dropVisualIndex !== draggingVisualIndex ? (
+          <div
+            className="pointer-events-none absolute left-3 right-3 z-10 h-0.5 bg-red-500"
+            style={{ top: `${48 + dropVisualIndex * ROW_HEIGHT}px` }}
+            aria-hidden
           />
-        ))}
-      </ul>
+        ) : null}
+
+        <ul
+          ref={listRef}
+          className="overflow-y-auto overscroll-contain touch-pan-y pb-[env(safe-area-inset-bottom)]"
+        >
+          {visibleQueue.map((track, visualIndex) => {
+            const queueIdx = toQueueIndex(visualIndex);
+            return (
+              <QueueRow
+                key={`${track.id}-${queueIdx}`}
+                track={track}
+                index={visualIndex}
+                isCurrent={visualIndex === 0}
+                isDragging={draggingVisualIndex === visualIndex}
+                dragOffsetY={draggingVisualIndex === visualIndex ? dragOffsetY : 0}
+                onDragStart={(from) => {
+                  setDraggingVisualIndex(from);
+                  setDropVisualIndex(from);
+                  setDragOffsetY(0);
+                }}
+                onDragMove={(from, movementY) => {
+                  setDragOffsetY(movementY);
+                  setDropVisualIndex(
+                    dropIndexFromDrag(from, movementY, ROW_HEIGHT, visibleCount),
+                  );
+                }}
+                onDragEnd={(from, movementY) => {
+                  const to = dropIndexFromDrag(from, movementY, ROW_HEIGHT, visibleCount);
+                  if (to !== from) {
+                    reorderQueue(toQueueIndex(from), toQueueIndex(to));
+                  }
+                  setDraggingVisualIndex(null);
+                  setDropVisualIndex(null);
+                  setDragOffsetY(0);
+                }}
+                onPlay={(from) => playQueueIndex(toQueueIndex(from))}
+                onRemove={(from) => removeFromQueue(toQueueIndex(from))}
+              />
+            );
+          })}
+        </ul>
+      </div>
     </div>
   );
 }

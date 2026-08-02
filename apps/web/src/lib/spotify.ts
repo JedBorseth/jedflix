@@ -6,6 +6,7 @@ import {
   type SpotifyBrowseResponse,
   type SpotifyCatalogRow,
   type SpotifySearchResponse,
+  type SpotifyTopTrack,
   type SpotifyTrack,
 } from "@jedflix/stream-client";
 
@@ -17,6 +18,7 @@ export type MusicBrowseResponse = SpotifyBrowseResponse;
 export type MusicCatalogRow = SpotifyCatalogRow;
 export type MusicSearchResults = SpotifySearchResponse;
 export type TrackItem = SpotifyTrack;
+export type TopTrackItem = SpotifyTopTrack;
 
 const streamClient = createStreamClient({
   apiBase: import.meta.env.VITE_STREAM_API_URL ?? "/stream-api",

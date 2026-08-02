@@ -123,6 +123,16 @@ bun run dev
 
 This starts Vite, Convex, and the Go stream-server.
 
+### Music playback (local dev)
+
+Spotify → YouTube audio uses **yt-dlp** on the stream-server (bundled in the production Docker image). Install it locally:
+
+```bash
+brew install yt-dlp
+```
+
+If YouTube blocks resolves from your IP, export a Netscape cookie file and set `YTDLP_COOKIES_FILE` in root `.env.local` (same as production).
+
 ## Project structure
 
 See the monorepo layout above. Web UI components under `apps/web/src/components/player/stremio/` are derived from [Stremio Web](https://github.com/Stremio/stremio-web) (GPL-2.0).

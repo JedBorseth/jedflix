@@ -150,10 +150,17 @@ export type SpotifyTrack = {
   id: string;
   name: string;
   artists: string[];
+  artistIds?: string[];
   trackNumber: number;
   discNumber: number;
   durationMs: number;
   explicit: boolean;
+};
+
+export type SpotifyTopTrack = SpotifyTrack & {
+  albumId: string;
+  albumName: string;
+  imageUrl: string;
 };
 
 export type SpotifyAlbum = {
@@ -182,7 +189,9 @@ export type SpotifyArtist = {
 };
 
 export type SpotifyArtistDetails = SpotifyArtist & {
+  topTracks: SpotifyTopTrack[];
   albums: SpotifyAlbum[];
+  discography: SpotifyAlbum[];
 };
 
 export type SpotifyCatalogRow = {
@@ -585,7 +594,9 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
     const payload = (await response.json()) as SpotifyArtistDetails;
     return {
       ...normalizeSpotifyArtist(payload),
+      topTracks: (payload.topTracks ?? []).map(normalizeSpotifyTopTrack),
       albums: (payload.albums ?? []).map(normalizeSpotifyAlbum),
+      discography: (payload.discography ?? []).map(normalizeSpotifyAlbum),
     };
   }
 
@@ -711,10 +722,20 @@ function normalizeSpotifyTrack(track: SpotifyTrack): SpotifyTrack {
   return {
     ...track,
     artists: track.artists ?? [],
+    artistIds: track.artistIds ?? [],
     trackNumber: track.trackNumber ?? 0,
     discNumber: track.discNumber ?? 1,
     durationMs: track.durationMs ?? 0,
     explicit: Boolean(track.explicit),
+  };
+}
+
+function normalizeSpotifyTopTrack(track: SpotifyTopTrack): SpotifyTopTrack {
+  return {
+    ...normalizeSpotifyTrack(track),
+    albumId: track.albumId ?? "",
+    albumName: track.albumName ?? "",
+    imageUrl: track.imageUrl ?? "",
   };
 }
 

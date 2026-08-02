@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/jedborseth/jeds-movies/stream-server/internal/abb"
 	"github.com/jedborseth/jeds-movies/stream-server/internal/api"
@@ -57,9 +59,26 @@ func main() {
 
 	youtubeResolver := youtube.NewResolver()
 	server := api.NewServer(cfg, resolverService, letterboxdClient, openLibraryClient, spotifyClient, youtubeResolver)
-	log.Printf("stream-server listening on %s", cfg.Addr)
-	if err := http.ListenAndServe(cfg.Addr, server.Router()); err != nil {
-		log.Println(err)
+	httpServer := &http.Server{
+		Addr:    cfg.Addr,
+		Handler: server.Router(),
+	}
+
+	go func() {
+		log.Printf("stream-server listening on %s", cfg.Addr)
+		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Println(err)
+			os.Exit(1)
+		}
+	}()
+
+	<-ctx.Done()
+	log.Println("stream-server shutting down")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		log.Printf("stream-server shutdown error: %v", err)
 		os.Exit(1)
 	}
 }

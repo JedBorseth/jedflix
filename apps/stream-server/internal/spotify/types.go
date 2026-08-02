@@ -13,10 +13,26 @@ type Track struct {
 	ID          string   `json:"id"`
 	Name        string   `json:"name"`
 	Artists     []string `json:"artists"`
+	ArtistIDs   []string `json:"artistIds"`
 	TrackNumber int      `json:"trackNumber"`
 	DiscNumber  int      `json:"discNumber"`
 	DurationMs  int      `json:"durationMs"`
 	Explicit    bool     `json:"explicit"`
+}
+
+// TopTrack is a popular track with enough album context for playback.
+type TopTrack struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Artists     []string `json:"artists"`
+	ArtistIDs   []string `json:"artistIds"`
+	TrackNumber int      `json:"trackNumber"`
+	DiscNumber  int      `json:"discNumber"`
+	DurationMs  int      `json:"durationMs"`
+	Explicit    bool     `json:"explicit"`
+	AlbumID     string   `json:"albumId"`
+	AlbumName   string   `json:"albumName"`
+	ImageURL    string   `json:"imageUrl"`
 }
 
 type Album struct {
@@ -46,7 +62,9 @@ type Artist struct {
 
 type ArtistDetails struct {
 	Artist
-	Albums []Album `json:"albums"`
+	TopTracks   []TopTrack `json:"topTracks"`
+	Albums      []Album    `json:"albums"`
+	Discography []Album    `json:"discography"`
 }
 
 type CatalogRow struct {

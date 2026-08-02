@@ -30,14 +30,17 @@ export function RootLayout() {
   const showMusicChrome = shouldShowMusicChrome(pathname);
 
   return (
-    <OnboardingGate>
-      <MusicPlayerProvider>
+    <MusicPlayerProvider>
+      <OnboardingGate>
         <ScreenKeepAwake />
         <ScrollToTopOnNavigate />
         <Outlet />
-        {showMusicChrome ? <MusicPlayerBar /> : null}
-        {showBottomNav ? <MobileBottomNav /> : null}
-      </MusicPlayerProvider>
-    </OnboardingGate>
+        {/* Stack player + nav so they sit flush with no gap */}
+        <div className="fixed inset-x-0 bottom-0 z-50 flex flex-col">
+          {showMusicChrome ? <MusicPlayerBar /> : null}
+          {showBottomNav ? <MobileBottomNav /> : null}
+        </div>
+      </OnboardingGate>
+    </MusicPlayerProvider>
   );
 }

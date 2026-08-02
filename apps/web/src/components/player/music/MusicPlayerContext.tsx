@@ -6,10 +6,11 @@ import {
   useMemo,
   useRef,
   useState,
+  type Context,
   type ReactNode,
 } from "react";
 import { useMediaSession } from "@/hooks/useMediaSession";
-import { mapMediaElementError } from "@/components/player/shared/playbackErrors";
+import { mapMediaElementError, resolveStreamServerAudioError } from "@/components/player/shared/playbackErrors";
 import { playMediaElement } from "@/lib/mediaSession";
 import { remapIndexAfterReorder, reorderItems } from "@/lib/musicQueue";
 import { getYoutubeAudioUrl, type TrackItem } from "@/lib/spotify";
@@ -23,6 +24,7 @@ export type MusicQueueTrack = {
   id: string;
   title: string;
   artists: string[];
+  artistIds?: string[];
   albumName: string;
   albumId?: string;
   imageUrl: string;
@@ -48,6 +50,7 @@ type MusicPlayerContextValue = {
       name: string;
       imageUrl: string;
       artists: string[];
+      artistIds?: string[];
     },
     startIndex?: number,
   ) => void;
@@ -65,7 +68,16 @@ type MusicPlayerContextValue = {
   clear: () => void;
 };
 
-const MusicPlayerContext = createContext<MusicPlayerContextValue | null>(null);
+// Survive Vite HMR — createContext() on every hot reload otherwise breaks Provider identity.
+const MUSIC_PLAYER_CONTEXT_KEY = "__jedflixMusicPlayerContext__";
+type MusicPlayerGlobal = typeof globalThis & {
+  [MUSIC_PLAYER_CONTEXT_KEY]?: Context<MusicPlayerContextValue | null>;
+};
+const musicPlayerGlobal = globalThis as MusicPlayerGlobal;
+const MusicPlayerContext =
+  musicPlayerGlobal[MUSIC_PLAYER_CONTEXT_KEY] ??
+  (musicPlayerGlobal[MUSIC_PLAYER_CONTEXT_KEY] =
+    createContext<MusicPlayerContextValue | null>(null));
 
 function artistLabel(artists: string[]): string {
   return artists.filter(Boolean).join(", ") || "Unknown artist";
@@ -73,12 +85,22 @@ function artistLabel(artists: string[]): string {
 
 function toQueueTrack(
   track: TrackItem,
-  album: { id: string; name: string; imageUrl: string; artists: string[] },
+  album: {
+    id: string;
+    name: string;
+    imageUrl: string;
+    artists: string[];
+    artistIds?: string[];
+  },
 ): MusicQueueTrack {
+  const artists = track.artists.length > 0 ? track.artists : album.artists;
+  const artistIds =
+    track.artistIds && track.artistIds.length > 0 ? track.artistIds : album.artistIds;
   return {
     id: track.id || `${album.id}-${track.discNumber}-${track.trackNumber}-${track.name}`,
     title: track.name,
-    artists: track.artists.length > 0 ? track.artists : album.artists,
+    artists,
+    artistIds,
     albumName: album.name,
     albumId: album.id,
     imageUrl: album.imageUrl,
@@ -112,6 +134,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       id: track.id,
       title: track.title,
       artists: track.artists,
+      artistIds: track.artistIds,
       albumName: track.albumName,
       albumId: track.albumId,
       imageUrl: track.imageUrl,
@@ -162,7 +185,13 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const playAlbumTracks = useCallback(
     (
       tracks: TrackItem[],
-      album: { id: string; name: string; imageUrl: string; artists: string[] },
+      album: {
+        id: string;
+        name: string;
+        imageUrl: string;
+        artists: string[];
+        artistIds?: string[];
+      },
       startIndex = 0,
     ) => {
       const list = tracks.map((track) => toQueueTrack(track, album));
@@ -377,11 +406,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     positionSec: currentTime,
     onPlay: play,
     onPause: pause,
-    onSeek: seek,
-    onSeekBy: (delta) => seek(currentTime + delta),
     onPreviousTrack: previous,
     onNextTrack: next,
     onStop: pause,
+    preferTrackSkip: true,
   });
 
   const value = useMemo<MusicPlayerContextValue>(
@@ -479,7 +507,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           playIntentRef.current = false;
           setPlaying(false);
           setLoading(false);
-          setError(mapMediaElementError(event.currentTarget));
+          void resolveStreamServerAudioError(event.currentTarget).then(setError);
         }}
         onEnded={() => {
           if (queueIndex < queue.length - 1) {

@@ -45,12 +45,10 @@ export function MusicPage() {
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
       <Navbar searchMode="music" />
-      <div className="pt-navbar space-y-8 pb-36 md:pb-24">
-        <div className="px-4 md:px-12">
-          <h1 className="text-2xl font-bold md:text-3xl">Music</h1>
-        </div>
-
-        {recentTracks.length > 0 ? <RecentlyPlayedMusicGrid tracks={recentTracks} /> : null}
+      <div className="pt-navbar space-y-8 pb-36 md:pb-32">
+        {recentTracks.length > 0 ? (
+          <RecentlyPlayedMusicGrid tracks={recentTracks} />
+        ) : null}
 
         {error ? (
           <div className="px-4 md:px-12">
@@ -66,7 +64,9 @@ export function MusicPage() {
         ) : (
           (rows ?? []).map((row) => (
             <section key={row.key} className="px-4 md:px-12">
-              <h2 className="mb-3 text-lg font-semibold text-white md:text-xl">{row.title}</h2>
+              <h2 className="mb-3 text-lg font-semibold text-white md:text-xl">
+                {row.title}
+              </h2>
               <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2 scrollbar-hide">
                 {row.kind === "artists"
                   ? (row.artists ?? []).map((artist) => (
@@ -87,7 +87,9 @@ export function MusicPage() {
 function CatalogRowSkeleton({ title }: { title: string }) {
   return (
     <section className="px-4 md:px-12">
-      <h2 className="mb-3 text-lg font-semibold text-white md:text-xl">{title}</h2>
+      <h2 className="mb-3 text-lg font-semibold text-white md:text-xl">
+        {title}
+      </h2>
       <PosterRowSkeleton />
     </section>
   );

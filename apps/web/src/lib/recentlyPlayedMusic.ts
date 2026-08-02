@@ -6,6 +6,7 @@ export type RecentMusicTrack = {
   id: string;
   title: string;
   artists: string[];
+  artistIds?: string[];
   albumName: string;
   albumId?: string;
   imageUrl: string;

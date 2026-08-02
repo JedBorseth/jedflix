@@ -19,6 +19,7 @@ export function RecentlyPlayedMusicGrid({ tracks }: RecentlyPlayedMusicGridProps
       id: item.id,
       title: item.title,
       artists: item.artists,
+      artistIds: item.artistIds,
       albumName: item.albumName,
       albumId: item.albumId,
       imageUrl: item.imageUrl,
