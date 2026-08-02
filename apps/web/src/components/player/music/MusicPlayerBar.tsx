@@ -1,7 +1,15 @@
-import { PauseIcon, PlayIcon, TrackNextIcon, TrackPreviousIcon } from "@radix-ui/react-icons";
-import { useEffect } from "react";
+import {
+  ListBulletIcon,
+  PauseIcon,
+  PlayIcon,
+  TrackNextIcon,
+  TrackPreviousIcon,
+} from "@radix-ui/react-icons";
+import { useDrag } from "@use-gesture/react";
+import { useEffect, useRef, useState } from "react";
 import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
 import { useMusicPlayer } from "@/components/player/music/MusicPlayerContext";
+import { MusicQueuePanel } from "@/components/player/music/MusicQueuePanel";
 import { cn } from "@/lib/utils";
 
 function formatClock(sec: number) {
@@ -14,12 +22,16 @@ function formatClock(sec: number) {
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
+const SWIPE_DISTANCE = 72;
+const SWIPE_VELOCITY = 0.35;
+
 export function MusicPlayerBar() {
   const {
     current,
     playing,
     loading,
     expanded,
+    queueOpen,
     currentTime,
     duration,
     error,
@@ -28,9 +40,65 @@ export function MusicPlayerBar() {
     previous,
     seek,
     setExpanded,
+    setQueueOpen,
     queue,
     queueIndex,
   } = useMusicPlayer();
+
+  const swipeSurfaceRef = useRef<HTMLDivElement>(null);
+  const [swipeOffset, setSwipeOffset] = useState({ x: 0, y: 0 });
+
+  const bindSwipe = useDrag(
+    ({ down, movement: [mx, my], velocity: [vx, vy], last, cancel, event }) => {
+      const target = event?.target;
+      if (
+        target instanceof Element &&
+        (target.closest("[data-no-swipe]") || target.closest('input[type="range"]'))
+      ) {
+        cancel?.();
+        setSwipeOffset({ x: 0, y: 0 });
+        return;
+      }
+
+      if (down && !last) {
+        const absX = Math.abs(mx);
+        const absY = Math.abs(my);
+        if (absY >= absX) {
+          setSwipeOffset({ x: 0, y: Math.max(0, my) });
+        } else {
+          setSwipeOffset({ x: mx, y: 0 });
+        }
+        return;
+      }
+
+      if (!last) {
+        return;
+      }
+
+      const absX = Math.abs(mx);
+      const absY = Math.abs(my);
+      setSwipeOffset({ x: 0, y: 0 });
+
+      if (absY > absX && my > SWIPE_DISTANCE && (vy > SWIPE_VELOCITY || my > 140)) {
+        setExpanded(false);
+        return;
+      }
+
+      if (absX > absY && absX > SWIPE_DISTANCE && (vx > SWIPE_VELOCITY || absX > 140)) {
+        if (mx < 0) {
+          next();
+        } else {
+          previous();
+        }
+      }
+    },
+    {
+      filterTaps: true,
+      threshold: 12,
+      pointer: { touch: true },
+      preventScroll: true,
+    },
+  );
 
   if (!current) {
     return null;
@@ -38,6 +106,7 @@ export function MusicPlayerBar() {
 
   const artist = current.artists.filter(Boolean).join(", ");
   const progressMax = duration > 0 ? duration : 1;
+  const swipeOpacity = Math.max(0.35, 1 - swipeOffset.y / 320);
 
   return (
     <>
@@ -110,7 +179,16 @@ export function MusicPlayerBar() {
       </div>
 
       {expanded ? (
-        <div className="fixed inset-0 z-[60] flex flex-col overflow-hidden overscroll-none bg-zinc-950 text-white">
+        <div
+          ref={swipeSurfaceRef}
+          className="fixed inset-0 z-[60] flex flex-col overflow-hidden overscroll-none bg-zinc-950 text-white touch-none"
+          style={{
+            transform: `translate(${swipeOffset.x * 0.35}px, ${swipeOffset.y * 0.55}px)`,
+            opacity: swipeOpacity,
+            transition: swipeOffset.x === 0 && swipeOffset.y === 0 ? "transform 180ms ease, opacity 180ms ease" : undefined,
+          }}
+          {...bindSwipe()}
+        >
           <div
             className="absolute inset-0 opacity-40 blur-3xl"
             style={{
@@ -125,15 +203,19 @@ export function MusicPlayerBar() {
             <button
               type="button"
               className="rounded-md px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-900 hover:text-white"
+              data-no-swipe
               onClick={() => setExpanded(false)}
             >
               Close
             </button>
-            <p className="text-xs uppercase tracking-widest text-zinc-500">Now playing</p>
+            <div className="flex flex-col items-center">
+              <div className="mb-2 h-1 w-10 rounded-full bg-zinc-600" aria-hidden />
+              <p className="text-xs uppercase tracking-widest text-zinc-500">Now playing</p>
+            </div>
             <span className="w-16" />
           </div>
 
-          <div className="relative z-10 mx-auto flex w-full max-w-lg flex-1 flex-col items-center justify-center gap-8 px-6 pb-[calc(2rem+env(safe-area-inset-bottom))]">
+          <div className="relative z-10 mx-auto flex w-full max-w-lg flex-1 flex-col items-center justify-center gap-8 px-6 pb-[calc(5.5rem+env(safe-area-inset-bottom))]">
             <ProgressiveCoverImage
               src={current.imageUrl}
               alt={current.albumName}
@@ -150,7 +232,7 @@ export function MusicPlayerBar() {
               ) : null}
             </div>
 
-            <div className="w-full">
+            <div className="w-full" data-no-swipe>
               <input
                 type="range"
                 min={0}
@@ -167,7 +249,7 @@ export function MusicPlayerBar() {
               </div>
             </div>
 
-            <div className="flex items-center gap-6">
+            <div className="flex items-center gap-6" data-no-swipe>
               <button
                 type="button"
                 className="rounded-full p-3 text-zinc-200 hover:bg-zinc-900"
@@ -195,6 +277,32 @@ export function MusicPlayerBar() {
               </button>
             </div>
           </div>
+
+          <div
+            className="absolute bottom-[calc(1rem+env(safe-area-inset-bottom))] right-4 z-20 md:right-8"
+            data-no-swipe
+          >
+            <button
+              type="button"
+              className={cn(
+                "inline-flex items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900/90 px-4 py-2.5 text-sm text-white shadow-lg backdrop-blur hover:bg-zinc-800",
+                queueOpen && "border-red-500/60 text-red-300",
+              )}
+              onClick={() => setQueueOpen(!queueOpen)}
+              aria-label={queueOpen ? "Close queue" : "Open queue"}
+              aria-expanded={queueOpen}
+            >
+              <ListBulletIcon className="h-4 w-4" />
+              Queue
+              {queue.length > 1 ? (
+                <span className="rounded-full bg-zinc-800 px-1.5 text-xs text-zinc-300">
+                  {queue.length}
+                </span>
+              ) : null}
+            </button>
+          </div>
+
+          <MusicQueuePanel />
         </div>
       ) : null}
     </>
@@ -209,21 +317,15 @@ function FullscreenScrollLock({ enabled }: { enabled: boolean }) {
     const { body, documentElement } = document;
     const previousBodyOverflow = body.style.overflow;
     const previousHtmlOverflow = documentElement.style.overflow;
-    const previousBodyTouchAction = body.style.touchAction;
+    const previousBodyOverscroll = body.style.overscrollBehavior;
     body.style.overflow = "hidden";
     documentElement.style.overflow = "hidden";
-    body.style.touchAction = "none";
-    const prevent = (event: TouchEvent) => {
-      event.preventDefault();
-    };
-    document.addEventListener("touchmove", prevent, { passive: false });
+    body.style.overscrollBehavior = "none";
     return () => {
       body.style.overflow = previousBodyOverflow;
       documentElement.style.overflow = previousHtmlOverflow;
-      body.style.touchAction = previousBodyTouchAction;
-      document.removeEventListener("touchmove", prevent);
+      body.style.overscrollBehavior = previousBodyOverscroll;
     };
   }, [enabled]);
   return null;
 }
-

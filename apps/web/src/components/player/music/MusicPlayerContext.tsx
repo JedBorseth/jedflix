@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -10,8 +11,13 @@ import {
 import { useMediaSession } from "@/hooks/useMediaSession";
 import { mapMediaElementError } from "@/components/player/shared/playbackErrors";
 import { playMediaElement } from "@/lib/mediaSession";
+import { remapIndexAfterReorder, reorderItems } from "@/lib/musicQueue";
 import { getYoutubeAudioUrl, type TrackItem } from "@/lib/spotify";
 import { recordRecentlyPlayedMusic } from "@/lib/recentlyPlayedMusic";
+import {
+  prefetchYoutubeAudioTracks,
+  upcomingTracksForPrefetch,
+} from "@/lib/youtubeAudioPrefetch";
 
 export type MusicQueueTrack = {
   id: string;
@@ -30,16 +36,24 @@ type MusicPlayerContextValue = {
   playing: boolean;
   loading: boolean;
   expanded: boolean;
+  queueOpen: boolean;
   currentTime: number;
   duration: number;
   error: string | null;
   playTrack: (track: MusicQueueTrack, queue?: MusicQueueTrack[]) => void;
-  playAlbumTracks: (tracks: TrackItem[], album: {
-    id: string;
-    name: string;
-    imageUrl: string;
-    artists: string[];
-  }, startIndex?: number) => void;
+  playAlbumTracks: (
+    tracks: TrackItem[],
+    album: {
+      id: string;
+      name: string;
+      imageUrl: string;
+      artists: string[];
+    },
+    startIndex?: number,
+  ) => void;
+  playQueueIndex: (index: number) => void;
+  reorderQueue: (fromIndex: number, toIndex: number) => void;
+  removeFromQueue: (index: number) => void;
   toggle: () => void;
   pause: () => void;
   play: () => void;
@@ -47,6 +61,7 @@ type MusicPlayerContextValue = {
   previous: () => void;
   seek: (timeSec: number) => void;
   setExpanded: (expanded: boolean) => void;
+  setQueueOpen: (open: boolean) => void;
   clear: () => void;
 };
 
@@ -74,11 +89,13 @@ function toQueueTrack(
 export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const playIntentRef = useRef(false);
+  const prefetchedIdsRef = useRef<Set<string>>(new Set());
   const [queue, setQueue] = useState<MusicQueueTrack[]>([]);
   const [queueIndex, setQueueIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [queueOpen, setQueueOpen] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -133,8 +150,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         0,
         list.findIndex((item) => item.id === track.id),
       );
+      prefetchedIdsRef.current = new Set([track.id]);
       setQueue(list);
       setQueueIndex(index >= 0 ? index : 0);
+      setQueueOpen(false);
       loadAndPlay(list[index >= 0 ? index : 0] ?? track);
     },
     [loadAndPlay],
@@ -151,11 +170,78 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         return;
       }
       const index = Math.min(Math.max(startIndex, 0), list.length - 1);
+      const startTrack = list[index];
+      if (!startTrack) {
+        return;
+      }
+      prefetchedIdsRef.current = new Set([startTrack.id]);
       setQueue(list);
       setQueueIndex(index);
-      loadAndPlay(list[index]!);
+      setQueueOpen(false);
+      loadAndPlay(startTrack);
     },
     [loadAndPlay],
+  );
+
+  const playQueueIndex = useCallback(
+    (index: number) => {
+      const track = queue[index];
+      if (!track) {
+        return;
+      }
+      setQueueIndex(index);
+      loadAndPlay(track);
+    },
+    [loadAndPlay, queue],
+  );
+
+  const reorderQueue = useCallback((fromIndex: number, toIndex: number) => {
+    setQueue((prev) => reorderItems(prev, fromIndex, toIndex));
+    setQueueIndex((currentIndex) =>
+      remapIndexAfterReorder(currentIndex, fromIndex, toIndex),
+    );
+  }, []);
+
+  const removeFromQueue = useCallback(
+    (index: number) => {
+      if (index < 0 || index >= queue.length) {
+        return;
+      }
+      if (queue.length === 1) {
+        playIntentRef.current = false;
+        const audio = audioRef.current;
+        if (audio) {
+          audio.pause();
+          audio.removeAttribute("src");
+          audio.load();
+        }
+        setQueue([]);
+        setQueueIndex(0);
+        setPlaying(false);
+        setLoading(false);
+        setExpanded(false);
+        setQueueOpen(false);
+        setCurrentTime(0);
+        setDuration(0);
+        setError(null);
+        setStreamSrc(null);
+        return;
+      }
+
+      const removingCurrent = index === queueIndex;
+      const nextQueue = queue.filter((_, i) => i !== index);
+      const nextIndex =
+        index < queueIndex ? queueIndex - 1 : Math.min(queueIndex, nextQueue.length - 1);
+      setQueue(nextQueue);
+      setQueueIndex(nextIndex);
+      if (removingCurrent) {
+        const track = nextQueue[nextIndex];
+        if (track) {
+          loadAndPlay(track);
+        }
+      }
+    },
+    [loadAndPlay, queue, queueIndex],
   );
 
   const pause = useCallback(() => {
@@ -226,15 +312,18 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     loadAndPlay(track);
   }, [loadAndPlay, queue, queueIndex]);
 
-  const seek = useCallback((timeSec: number) => {
-    const audio = audioRef.current;
-    if (!audio) {
-      return;
-    }
-    const nextTime = Math.max(0, Math.min(audio.duration || duration || 0, timeSec));
-    audio.currentTime = nextTime;
-    setCurrentTime(nextTime);
-  }, [duration]);
+  const seek = useCallback(
+    (timeSec: number) => {
+      const audio = audioRef.current;
+      if (!audio) {
+        return;
+      }
+      const nextTime = Math.max(0, Math.min(audio.duration || duration || 0, timeSec));
+      audio.currentTime = nextTime;
+      setCurrentTime(nextTime);
+    },
+    [duration],
+  );
 
   const clear = useCallback(() => {
     playIntentRef.current = false;
@@ -244,16 +333,38 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       audio.removeAttribute("src");
       audio.load();
     }
+    prefetchedIdsRef.current = new Set();
     setQueue([]);
     setQueueIndex(0);
     setPlaying(false);
     setLoading(false);
     setExpanded(false);
+    setQueueOpen(false);
     setCurrentTime(0);
     setDuration(0);
     setError(null);
     setStreamSrc(null);
   }, []);
+
+  const handleSetExpanded = useCallback((nextExpanded: boolean) => {
+    setExpanded(nextExpanded);
+    if (!nextExpanded) {
+      setQueueOpen(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const upcoming = upcomingTracksForPrefetch(queue, queueIndex, 2);
+    if (upcoming.length === 0) {
+      return;
+    }
+    const controller = new AbortController();
+    void prefetchYoutubeAudioTracks(upcoming, {
+      signal: controller.signal,
+      alreadyPrefetched: prefetchedIdsRef.current,
+    });
+    return () => controller.abort();
+  }, [queue, queueIndex]);
 
   useMediaSession({
     title: current?.title ?? "",
@@ -281,18 +392,23 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       playing,
       loading,
       expanded,
+      queueOpen,
       currentTime,
       duration,
       error,
       playTrack,
       playAlbumTracks,
+      playQueueIndex,
+      reorderQueue,
+      removeFromQueue,
       toggle,
       pause,
       play,
       next,
       previous,
       seek,
-      setExpanded,
+      setExpanded: handleSetExpanded,
+      setQueueOpen,
       clear,
     }),
     [
@@ -302,16 +418,21 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       duration,
       error,
       expanded,
+      handleSetExpanded,
       loading,
       next,
       pause,
       play,
       playAlbumTracks,
+      playQueueIndex,
       playTrack,
       playing,
       previous,
       queue,
       queueIndex,
+      queueOpen,
+      removeFromQueue,
+      reorderQueue,
       seek,
       toggle,
     ],
