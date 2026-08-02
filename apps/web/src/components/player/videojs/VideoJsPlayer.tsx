@@ -1,17 +1,25 @@
 import debounce from "lodash.debounce";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useMutation } from "convex/react";
+import { useQuery } from "@tanstack/react-query";
 import { api } from "@convex/_generated/api";
 import { useMediaSession } from "@/hooks/useMediaSession";
 import { useScreenOrientationLock } from "@/hooks/useScreenOrientationLock";
 import { formatWatchSessionTitle } from "@/lib/mediaSession";
+import { catalogQueryKeys } from "@/lib/queryClient";
 import { fetchSources, type StreamSource } from "@/lib/streamApi";
 import { prepareBrowserSources } from "@/lib/iosPlayback";
+import { getTvSeasons, getWatchPath } from "@/lib/tmdb";
 import type { MediaType } from "@/lib/types";
 import { PlayerErrorOverlay } from "../shared/PlayerErrorOverlay";
 import { ExternalPlayerMenu } from "../shared/ExternalPlayerMenu";
 import { isFallbackError, MAX_AUTO_FALLBACKS } from "../shared/playbackErrors";
+import { ResolveProgressHint } from "../shared/ResolveProgressHint";
+import {
+  isInNextEpisodeWindow,
+  resolveNextEpisode,
+} from "../shared/resolveNextEpisode";
 import { ControlBar } from "../stremio/ControlBar";
 import { toDisplaySeconds } from "../stremio/time";
 import { StreamSourcePicker } from "../stremio/StreamSourcePicker";
@@ -46,7 +54,9 @@ export function VideoJsPlayer({
   initialProgressSeconds = 0,
   backPath,
 }: VideoJsPlayerProps) {
-  const { videoRef, state, load, unload, setPaused, setTime, events } = useVideoJs();
+  const navigate = useNavigate();
+  const { containerRef, state, load, unload, setPaused, setTime, setVolume, setMuted, events } =
+    useVideoJs();
   const [controlsHidden, setControlsHidden] = useState(false);
   const hideControlsTimeoutRef = useRef<number | null>(null);
   const [sources, setSources] = useState<StreamSource[]>([]);
@@ -74,6 +84,22 @@ export function VideoJsPlayer({
       });
     }, 10000) as DebouncedSaveProgress;
   }
+
+  const seasonsQuery = useQuery({
+    queryKey: catalogQueryKeys.tmdb.seasons(movieId),
+    queryFn: () => getTvSeasons(movieId),
+    enabled: mediaType === "tv" && Number.isFinite(movieId),
+  });
+
+  const nextEpisode = useMemo(() => {
+    if (mediaType !== "tv" || season == null || episode == null || !seasonsQuery.data) {
+      return null;
+    }
+    return resolveNextEpisode(seasonsQuery.data, season, episode);
+  }, [episode, mediaType, season, seasonsQuery.data]);
+
+  const showNextEpisode =
+    nextEpisode !== null && isInNextEpisodeWindow(state.time ?? 0, state.duration ?? 0);
 
   const baseRequest = useMemo(
     () => ({
@@ -277,10 +303,12 @@ export function VideoJsPlayer({
   const paused = state.paused ?? false;
   const time = state.time ?? 0;
   const duration = state.duration ?? 0;
+  const volume = state.volume;
+  const muted = state.muted;
   const buffering = Boolean(state.buffering) || resolving;
   const resolveFailed = resolveState.status === "failed";
   const failed = resolveFailed || playbackError !== null;
-  const forceControlsVisible = paused || showSourcePicker || buffering || failed;
+  const forceControlsVisible = paused || showSourcePicker || buffering || failed || showNextEpisode;
   const hideOverlay = controlsHidden && !forceControlsVisible;
   const isPlaying = !forceControlsVisible && loadedUrlRef.current !== null;
 
@@ -329,7 +357,7 @@ export function VideoJsPlayer({
   }, [buffering, failed, paused, setPaused, showControls, showSourcePicker]);
 
   const handleVideoLayerKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLButtonElement>) => {
+    (event: KeyboardEvent<HTMLDivElement>) => {
       if (event.key !== "Enter" && event.key !== " ") {
         return;
       }
@@ -347,6 +375,24 @@ export function VideoJsPlayer({
     },
     [duration, setTime, showControls, time],
   );
+
+  const handleMuteToggle = useCallback(() => {
+    if (muted) {
+      setMuted(false);
+      if (volume === 0) {
+        setVolume(1);
+      }
+      return;
+    }
+    setMuted(true);
+  }, [muted, setMuted, setVolume, volume]);
+
+  const goToNextEpisode = useCallback(() => {
+    if (!nextEpisode) {
+      return;
+    }
+    navigate(getWatchPath("tv", movieId, nextEpisode.season, nextEpisode.episode));
+  }, [movieId, navigate, nextEpisode]);
 
   const sessionTitle = formatWatchSessionTitle(
     title,
@@ -378,23 +424,18 @@ export function VideoJsPlayer({
       onTouchMove={onActivity}
       onTouchStart={onActivity}
     >
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         className="player-video-layer"
         aria-label={paused ? "Play video" : "Pause video"}
         onClick={togglePlayPause}
         onKeyDown={handleVideoLayerKeyDown}
       >
         <div className="player-video-container">
-          <div data-vjs-player className="h-full w-full">
-            <video
-              ref={videoRef}
-              className="video-js vjs-default-skin video-js-player"
-              playsInline
-            />
-          </div>
+          <div ref={containerRef} className="h-full w-full" />
         </div>
-      </button>
+      </div>
 
       {showSourcePicker ? (
         <StreamSourcePicker
@@ -417,7 +458,15 @@ export function VideoJsPlayer({
       {buffering ? (
         <div className="player-buffering">
           <div className="player-spinner" />
-          <p>{fallbackProgress ?? resolveState.progress ?? "Buffering..."}</p>
+          {resolving ? (
+            <ResolveProgressHint
+              active
+              progress={fallbackProgress ?? resolveState.progress}
+              className="flex flex-col items-center"
+            />
+          ) : (
+            <p>{fallbackProgress ?? resolveState.progress ?? "Buffering..."}</p>
+          )}
           {resolving && selectedSource ? (
             <p className="max-w-md px-4 text-center text-sm text-zinc-400">
               Resolving {selectedSource.title}
@@ -463,11 +512,20 @@ export function VideoJsPlayer({
             paused={paused}
             time={time}
             duration={duration}
+            volume={volume}
+            muted={muted}
             onPlayRequested={() => setPaused(false)}
             onPauseRequested={() => setPaused(true)}
             onSeekRequested={(nextTime) => setTime(nextTime)}
             onSkipBackward={() => skipBy(-15_000)}
             onSkipForward={() => skipBy(15_000)}
+            onVolumeChange={setVolume}
+            onMuteToggle={handleMuteToggle}
+            nextEpisode={
+              showNextEpisode && nextEpisode
+                ? { label: nextEpisode.label, onClick: goToNextEpisode }
+                : null
+            }
           />
         ) : null}
       </div>

@@ -5,6 +5,7 @@ import { Link, useParams } from "react-router-dom";
 import { api } from "@convex/_generated/api";
 import { AudioPlaylistPlayer } from "@/components/player/books/AudioPlaylistPlayer";
 import { BookSourcePicker } from "@/components/player/books/BookSourcePicker";
+import { ResolveProgressHint } from "@/components/player/shared/ResolveProgressHint";
 import { useStreamResolve } from "@/components/player/stremio/useStreamResolve";
 import { Button } from "@/components/ui/button";
 import { useUserSettings } from "@/hooks/useUserSettings";
@@ -190,7 +191,10 @@ export function ListenPage() {
             {selected && resolveState.status === "downloading" ? (
               <div className="rounded-lg border border-zinc-800 bg-zinc-900/70 p-4 text-center text-sm text-zinc-300">
                 <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-zinc-600 border-t-white" />
-                {resolveState.progress ?? "Resolving with Real Debrid..."}
+                <ResolveProgressHint
+                  active
+                  progress={resolveState.progress ?? "Resolving with Real Debrid..."}
+                />
                 <p className="mt-2 text-xs text-zinc-500">
                   Multi-file packs may take longer while every audio file is unrestricted.
                 </p>

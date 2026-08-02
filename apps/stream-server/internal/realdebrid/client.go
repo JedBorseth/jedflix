@@ -48,11 +48,12 @@ func (e *APIError) Error() string {
 }
 
 type TorrentInfo struct {
-	ID     string        `json:"id"`
-	Status string        `json:"status"`
-	Hash   string        `json:"hash"`
-	Files  []TorrentFile `json:"files"`
-	Links  []string      `json:"links"`
+	ID       string        `json:"id"`
+	Status   string        `json:"status"`
+	Hash     string        `json:"hash"`
+	Progress float64       `json:"progress"`
+	Files    []TorrentFile `json:"files"`
+	Links    []string      `json:"links"`
 }
 
 type TorrentListItem struct {
@@ -154,7 +155,13 @@ func (c *Client) WaitForFileList(ctx context.Context, torrentID string, timeout 
 	}
 }
 
-func (c *Client) WaitReady(ctx context.Context, torrentID string, timeout time.Duration, initial *TorrentInfo) (*TorrentInfo, error) {
+func (c *Client) WaitReady(
+	ctx context.Context,
+	torrentID string,
+	timeout time.Duration,
+	initial *TorrentInfo,
+	onProgress func(string),
+) (*TorrentInfo, error) {
 	deadline := time.Now().Add(timeout)
 	info := initial
 	for {
@@ -177,6 +184,14 @@ func (c *Client) WaitReady(ctx context.Context, torrentID string, timeout time.D
 			return info, nil
 		case "error", "magnet_error", "virus", "dead":
 			return nil, fmt.Errorf("real-debrid torrent failed: %s", info.Status)
+		}
+		if onProgress != nil {
+			status := strings.ReplaceAll(info.Status, "_", " ")
+			if info.Progress > 0 {
+				onProgress(fmt.Sprintf("Downloading on Real Debrid… %.0f%% (%s)", info.Progress, status))
+			} else {
+				onProgress(fmt.Sprintf("Waiting for Real Debrid… (%s)", status))
+			}
 		}
 		info = nil
 		// Poll slower to stay under RD's 250 req/min limit across fallbacks.

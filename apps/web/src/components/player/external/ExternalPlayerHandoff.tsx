@@ -13,6 +13,7 @@ import type { ExternalPlayer } from "@/lib/userSettings";
 import type { MediaType } from "@/lib/types";
 import { PlayerErrorOverlay } from "../shared/PlayerErrorOverlay";
 import { isFallbackError, MAX_AUTO_FALLBACKS } from "../shared/playbackErrors";
+import { ResolveProgressHint } from "../shared/ResolveProgressHint";
 import { StreamSourcePicker } from "../stremio/StreamSourcePicker";
 import { useStreamResolve } from "../stremio/useStreamResolve";
 import "../stremio/player.css";
@@ -261,7 +262,11 @@ export function ExternalPlayerHandoff({
       {resolving ? (
         <div className="player-buffering">
           <div className="player-spinner" />
-          <p>{fallbackProgress ?? resolveState.progress ?? "Resolving stream..."}</p>
+          <ResolveProgressHint
+            active
+            progress={fallbackProgress ?? resolveState.progress ?? "Resolving stream..."}
+            className="flex flex-col items-center"
+          />
           {selectedSource ? (
             <p className="max-w-md px-4 text-center text-sm text-zinc-400">
               Preparing {selectedSource.title} for {playerLabel}

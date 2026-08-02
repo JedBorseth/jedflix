@@ -12,6 +12,8 @@ export type VideoState = {
   time: number | null;
   duration: number | null;
   buffering: boolean | null;
+  volume: number;
+  muted: boolean;
 };
 
 const initialState: VideoState = {
@@ -19,6 +21,8 @@ const initialState: VideoState = {
   time: null,
   duration: null,
   buffering: null,
+  volume: 1,
+  muted: false,
 };
 
 type LoadArgs = {
@@ -31,7 +35,7 @@ type LoadArgs = {
 type EventHandler = (...args: unknown[]) => void;
 
 export function useVideoJs() {
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<Player | null>(null);
   const listenersRef = useRef<Map<string, Set<EventHandler>>>(new Map());
   const [state, setState] = useState<VideoState>(initialState);
@@ -54,12 +58,19 @@ export function useVideoJs() {
   }, []);
 
   useEffect(() => {
-    const element = videoRef.current;
-    if (!element) {
+    const container = containerRef.current;
+    if (!container) {
       return;
     }
 
-    const player = videojs(element, {
+    // Create the <video> imperatively so Video.js dispose() does not remove
+    // React-managed DOM nodes (Strict Mode / HMR remounts).
+    const video = document.createElement("video");
+    video.className = "video-js vjs-default-skin video-js-player";
+    video.setAttribute("playsinline", "");
+    container.appendChild(video);
+
+    const player = videojs(video, {
       controls: false,
       autoplay: false,
       preload: "auto",
@@ -77,12 +88,17 @@ export function useVideoJs() {
     playerRef.current = player;
 
     const syncState = () => {
-      setState({
+      if (player.isDisposed()) {
+        return;
+      }
+      setState((current) => ({
         paused: player.paused(),
         time: toPlayerTimeMs(player.currentTime() ?? 0),
         duration: toPlayerTimeMs(player.duration() ?? 0),
         buffering: player.readyState() < 3 && !player.paused(),
-      });
+        volume: player.volume() ?? current.volume,
+        muted: Boolean(player.muted()),
+      }));
     };
 
     const onError = () => {
@@ -98,6 +114,7 @@ export function useVideoJs() {
     player.on("loadedmetadata", syncState);
     player.on("play", syncState);
     player.on("pause", syncState);
+    player.on("volumechange", syncState);
     player.on("waiting", () => setState((current) => ({ ...current, buffering: true })));
     player.on("canplay", () => setState((current) => ({ ...current, buffering: false })));
 
@@ -106,12 +123,13 @@ export function useVideoJs() {
         player.dispose();
       }
       playerRef.current = null;
+      container.replaceChildren();
     };
   }, [emit]);
 
   const load = useCallback((args: LoadArgs) => {
     const player = playerRef.current;
-    if (!player) {
+    if (!player || player.isDisposed()) {
       return;
     }
 
@@ -124,6 +142,9 @@ export function useVideoJs() {
     const shouldAutoplay = args.autoplay ?? true;
 
     const applyStart = () => {
+      if (player.isDisposed()) {
+        return;
+      }
       if (startSeconds > 0) {
         player.currentTime(startSeconds);
       }
@@ -173,13 +194,39 @@ export function useVideoJs() {
     player.currentTime(timeMs / 1000);
   }, []);
 
+  const setVolume = useCallback((volume: number) => {
+    const player = playerRef.current;
+    const nextVolume = Math.min(1, Math.max(0, volume));
+    if (player && !player.isDisposed()) {
+      player.volume(nextVolume);
+      if (nextVolume > 0 && player.muted()) {
+        player.muted(false);
+      }
+    }
+    setState((current) => ({
+      ...current,
+      volume: nextVolume,
+      muted: nextVolume > 0 ? false : current.muted,
+    }));
+  }, []);
+
+  const setMuted = useCallback((muted: boolean) => {
+    const player = playerRef.current;
+    if (player && !player.isDisposed()) {
+      player.muted(muted);
+    }
+    setState((current) => ({ ...current, muted }));
+  }, []);
+
   return {
-    videoRef,
+    containerRef,
     state,
     load,
     unload,
     setPaused,
     setTime,
+    setVolume,
+    setMuted,
     events: { on, off },
   };
 }

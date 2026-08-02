@@ -1,17 +1,25 @@
 import debounce from "lodash.debounce";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useMutation } from "convex/react";
+import { useQuery } from "@tanstack/react-query";
 import { api } from "@convex/_generated/api";
 import { useMediaSession } from "@/hooks/useMediaSession";
 import { fetchSources, type StreamSource } from "@/lib/streamApi";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { IOS_PLAYBACK_ERROR_HINT, isIosDevice, prepareBrowserSources } from "@/lib/iosPlayback";
 import { formatWatchSessionTitle, playMediaElement } from "@/lib/mediaSession";
+import { catalogQueryKeys } from "@/lib/queryClient";
+import { getTvSeasons, getWatchPath } from "@/lib/tmdb";
 import type { MediaType } from "@/lib/types";
 import { ExternalPlayerMenu } from "../shared/ExternalPlayerMenu";
 import { PlayerErrorOverlay } from "../shared/PlayerErrorOverlay";
 import { isFallbackError, MAX_AUTO_FALLBACKS } from "../shared/playbackErrors";
+import { ResolveProgressHint } from "../shared/ResolveProgressHint";
+import {
+  isInNextEpisodeWindow,
+  resolveNextEpisode,
+} from "../shared/resolveNextEpisode";
 import { StreamSourcePicker } from "../stremio/StreamSourcePicker";
 import { useStreamResolve } from "../stremio/useStreamResolve";
 import "../stremio/player.css";
@@ -43,6 +51,7 @@ export function NativeVideoPlayer({
   initialProgressSeconds = 0,
   backPath,
 }: NativeVideoPlayerProps) {
+  const navigate = useNavigate();
   const videoRef = useRef<HTMLVideoElement>(null);
   const loadedUrlRef = useRef<string | null>(null);
   const initialProgressAppliedRef = useRef(false);
@@ -76,6 +85,24 @@ export function NativeVideoPlayer({
       });
     }, 10000) as DebouncedSaveProgress;
   }
+
+  const seasonsQuery = useQuery({
+    queryKey: catalogQueryKeys.tmdb.seasons(movieId),
+    queryFn: () => getTvSeasons(movieId),
+    enabled: mediaType === "tv" && Number.isFinite(movieId),
+  });
+
+  const nextEpisode = useMemo(() => {
+    if (mediaType !== "tv" || season == null || episode == null || !seasonsQuery.data) {
+      return null;
+    }
+    return resolveNextEpisode(seasonsQuery.data, season, episode);
+  }, [episode, mediaType, season, seasonsQuery.data]);
+
+  const showNextEpisode =
+    nextEpisode !== null &&
+    !showSourcePicker &&
+    isInNextEpisodeWindow(positionSec * 1000, durationSec * 1000);
 
   const baseRequest = useMemo(
     () => ({
@@ -381,7 +408,15 @@ export function NativeVideoPlayer({
       {buffering ? (
         <div className="player-buffering">
           <div className="player-spinner" />
-          <p>{fallbackProgress ?? resolveState.progress ?? "Buffering..."}</p>
+          {resolving ? (
+            <ResolveProgressHint
+              active
+              progress={fallbackProgress ?? resolveState.progress}
+              className="flex flex-col items-center"
+            />
+          ) : (
+            <p>{fallbackProgress ?? resolveState.progress ?? "Buffering..."}</p>
+          )}
           {resolving && selectedSource ? (
             <p className="max-w-md px-4 text-center text-sm text-zinc-400">
               Resolving {selectedSource.title}
@@ -446,6 +481,23 @@ export function NativeVideoPlayer({
             />
           </div>
         </div>
+        {showNextEpisode && nextEpisode ? (
+          <div className="player-control-bar pointer-events-auto">
+            <div className="player-next-episode-row">
+              <button
+                type="button"
+                className="player-next-episode-button"
+                onClick={() => {
+                  navigate(
+                    getWatchPath("tv", movieId, nextEpisode.season, nextEpisode.episode),
+                  );
+                }}
+              >
+                {nextEpisode.label}
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );
