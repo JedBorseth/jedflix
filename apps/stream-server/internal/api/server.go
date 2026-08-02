@@ -155,6 +155,8 @@ func writeResolveError(w http.ResponseWriter, err error) {
 			status = http.StatusUnavailableForLegalReasons
 		case "rate_limited":
 			status = http.StatusTooManyRequests
+		case "magnet_error", "abb_magnet":
+			status = http.StatusBadRequest
 		}
 		writeJSON(w, status, map[string]string{"error": resolveErr.Message, "code": resolveErr.Code})
 		return

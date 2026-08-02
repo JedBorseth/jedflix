@@ -8,7 +8,8 @@ export function isFallbackError(errorCode?: string): boolean {
     errorCode === "no_video_file" ||
     errorCode === "title_mismatch" ||
     errorCode === "size_limit" ||
-    errorCode === "no_links"
+    errorCode === "no_links" ||
+    errorCode === "magnet_error"
   );
 }
 
@@ -31,4 +32,51 @@ export function mapVideoJsError(code?: number | null): string {
     default:
       return "This stream could not be played. Try another compatible source or an external player.";
   }
+}
+
+/** Expand terse browser/network errors (esp. Safari "Load failed") into actionable text. */
+export function formatStreamFailure(error: unknown, fallback = "Failed to resolve stream"): string {
+  if (!(error instanceof Error)) {
+    return fallback;
+  }
+
+  const message = error.message.trim() || fallback;
+  const lower = message.toLowerCase();
+
+  if (
+    lower === "load failed" ||
+    lower === "failed to fetch" ||
+    lower === "networkerror when attempting to fetch resource." ||
+    (error.name === "TypeError" && /load failed|fetch/i.test(message))
+  ) {
+    return (
+      "Network request failed while talking to the stream server " +
+      `(browser said: "${message}"). This is often a mobile timeout or dropped connection during Real Debrid resolve — wait a moment and try again, or pick another source.`
+    );
+  }
+
+  if (error.name === "AbortError" || lower.includes("aborted") || lower.includes("cancelled")) {
+    return `Resolve was cancelled before finishing (${message}).`;
+  }
+
+  return message;
+}
+
+export function mapMediaElementError(media: HTMLMediaElement | null): string {
+  const mediaError = media?.error;
+  if (!mediaError) {
+    return "Playback failed for an unknown reason.";
+  }
+  const base = mapVideoJsError(mediaError.code);
+  const detail = mediaError.message?.trim();
+  if (!detail) {
+    return `${base} (media error code ${mediaError.code}).`;
+  }
+  if (/^load failed$/i.test(detail)) {
+    return (
+      `${base} The browser could not load the media URL ` +
+      `(Safari often reports this as "Load failed" for network, CORS, or unsupported audio formats). Try another source.`
+    );
+  }
+  return `${base} ${detail}`;
 }

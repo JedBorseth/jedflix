@@ -277,8 +277,11 @@ func (s *Service) resolveVideo(ctx context.Context, token, magnet string, req Re
 	torrentID = id
 	cleanupTorrent = true
 
-	info, err := rd.GetTorrentInfo(resolveCtx, torrentID)
+	info, err := rd.WaitForFileList(resolveCtx, torrentID, timeout)
 	if err != nil {
+		if resolveCtx.Err() != nil {
+			return nil, &ResolveError{Code: "timeout", Message: "Real Debrid timed out while fetching torrent metadata. Try another source."}
+		}
 		return nil, mapRDError(err)
 	}
 
@@ -361,8 +364,11 @@ func (s *Service) resolveBook(ctx context.Context, token, magnet string, req Res
 	torrentID = id
 	cleanupTorrent = true
 
-	info, err := rd.GetTorrentInfo(resolveCtx, torrentID)
+	info, err := rd.WaitForFileList(resolveCtx, torrentID, timeout)
 	if err != nil {
+		if resolveCtx.Err() != nil {
+			return nil, &ResolveError{Code: "timeout", Message: "Real Debrid timed out while fetching torrent metadata. Try another source."}
+		}
 		return nil, mapRDError(err)
 	}
 
@@ -375,7 +381,7 @@ func (s *Service) resolveBook(ctx context.Context, token, magnet string, req Res
 	if len(mediaFiles) == 0 {
 		return nil, &ResolveError{
 			Code:    "title_mismatch",
-			Message: fmt.Sprintf("No %s files found in this torrent. Try another source.", req.Type),
+			Message: fmt.Sprintf("No %s files found in this torrent (%d files total). Try another source.", req.Type, len(info.Files)),
 		}
 	}
 
@@ -488,10 +494,27 @@ func mapRDError(err error) error {
 		return resolveErr
 	}
 	msg := err.Error()
-	if strings.Contains(strings.ToLower(msg), "timed out") {
+	lower := strings.ToLower(msg)
+	if strings.Contains(lower, "timed out") {
 		return &ResolveError{Code: "timeout", Message: "Real Debrid torrent timed out."}
 	}
-	return err
+	if strings.Contains(lower, "magnet_error") {
+		return &ResolveError{
+			Code:    "magnet_error",
+			Message: "Real Debrid could not resolve this magnet (bad hash or unreachable trackers). Try another source.",
+		}
+	}
+	if strings.Contains(lower, "torrent failed: dead") || strings.Contains(lower, "torrent failed: error") {
+		return &ResolveError{
+			Code:    "no_links",
+			Message: "Real Debrid marked this torrent as failed/dead. Try another source.",
+		}
+	}
+	if strings.Contains(lower, "torrent failed: virus") {
+		return &ResolveError{Code: "infringing_file", Message: "Real Debrid blocked this torrent (virus flag). Try another source."}
+	}
+	// Surface raw RD API details instead of a generic gateway failure.
+	return &ResolveError{Code: "no_links", Message: msg}
 }
 
 func toSources(releases []search.Release) []Source {

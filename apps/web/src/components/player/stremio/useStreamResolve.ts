@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { formatStreamFailure } from "@/components/player/shared/playbackErrors";
 import { RealDebridError, resolveRealDebridStream } from "@/lib/realDebrid";
 import {
   getPlaybackUrl,
@@ -60,7 +61,7 @@ export function useStreamResolve(request: ResolveRequest | null, source: StreamS
     async function run(currentRequest: NonNullable<typeof request>) {
       setState({
         status: "downloading",
-        progress: "Resolving selected stream",
+        progress: "Resolving selected stream with Real Debrid…",
         requestKey: currentRequestKey,
       });
       try {
@@ -89,10 +90,12 @@ export function useStreamResolve(request: ResolveRequest | null, source: StreamS
         });
       } catch (error) {
         if (!cancelled) {
+          const code = error instanceof RealDebridError ? error.code : undefined;
+          const message = formatStreamFailure(error);
           setState({
             status: "failed",
-            error: error instanceof Error ? error.message : "Failed to resolve stream",
-            errorCode: error instanceof RealDebridError ? error.code : undefined,
+            error: code ? `${message} [${code}]` : message,
+            errorCode: code,
             requestKey: currentRequestKey,
           });
         }
@@ -112,7 +115,7 @@ export function useStreamResolve(request: ResolveRequest | null, source: StreamS
   if (state.requestKey !== requestKey) {
     return {
       status: "downloading",
-      progress: "Resolving selected stream",
+      progress: "Resolving selected stream with Real Debrid…",
       requestKey,
     };
   }

@@ -101,14 +101,14 @@ export function AudiobookDetailPage() {
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
       <Navbar searchMode="books" />
-      <section className="relative min-h-[60vh]">
+      <section className="relative min-h-[60vh] overflow-hidden">
         <ProgressiveCoverImage
           src={displayBook.coverUrl}
           fullSrc={displayBook.coverFullUrl}
           alt=""
-          className="absolute inset-0 h-full w-full object-cover blur-2xl"
+          className="absolute inset-0 h-full w-full scale-105 object-cover blur-2xl"
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/85 to-black/50" />
+        <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/90 to-black/60" />
 
         <div className="pt-navbar relative z-10 mx-auto flex max-w-6xl flex-col gap-8 px-4 pb-16 md:flex-row md:items-start md:px-12">
           <ProgressiveCoverImage
@@ -181,7 +181,7 @@ export function AudiobookDetailPage() {
       </section>
 
       {related.length > 0 ? (
-        <section className="px-4 pb-12 md:px-12">
+        <section className="relative z-10 bg-zinc-950 px-4 pb-12 md:px-12">
           <h2 className="mb-3 text-lg font-semibold text-white md:text-xl">Related books</h2>
           <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2 scrollbar-hide">
             {related.map((item) => (
@@ -191,7 +191,11 @@ export function AudiobookDetailPage() {
         </section>
       ) : null}
 
-      {normalizedId ? <MediaReviews mediaType="audiobook" workId={normalizedId} /> : null}
+      {normalizedId ? (
+        <div className="relative z-10 bg-zinc-950">
+          <MediaReviews mediaType="audiobook" workId={normalizedId} />
+        </div>
+      ) : null}
     </div>
   );
 }

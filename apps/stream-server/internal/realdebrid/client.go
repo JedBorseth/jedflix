@@ -121,6 +121,39 @@ func (c *Client) DeleteTorrent(ctx context.Context, torrentID string) error {
 	return c.delete(ctx, "/torrents/delete/"+torrentID)
 }
 
+// WaitForFileList polls until Real Debrid has finished magnet conversion and
+// exposed the torrent file list (status waiting_files_selection / downloaded).
+func (c *Client) WaitForFileList(ctx context.Context, torrentID string, timeout time.Duration) (*TorrentInfo, error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("real-debrid torrent %s timed out waiting for file list", torrentID)
+		}
+
+		info, err := c.GetTorrentInfo(ctx, torrentID)
+		if err != nil {
+			return nil, err
+		}
+		switch info.Status {
+		case "error", "magnet_error", "virus", "dead":
+			return nil, fmt.Errorf("real-debrid torrent failed: %s", info.Status)
+		case "waiting_files_selection", "downloaded":
+			if len(info.Files) > 0 {
+				return info, nil
+			}
+		default:
+			// magnet_conversion / queued / downloading — files may already be present
+			if len(info.Files) > 0 && info.Status != "magnet_conversion" {
+				return info, nil
+			}
+		}
+		time.Sleep(2 * time.Second)
+	}
+}
+
 func (c *Client) WaitReady(ctx context.Context, torrentID string, timeout time.Duration, initial *TorrentInfo) (*TorrentInfo, error) {
 	deadline := time.Now().Add(timeout)
 	info := initial

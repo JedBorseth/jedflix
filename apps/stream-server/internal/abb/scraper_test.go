@@ -60,6 +60,7 @@ func TestParsePostHTMLInfoHash(t *testing.T) {
 	html := `<html><body>
     <h1>Project Hail Mary - Andy Weir</h1>
     <table>
+      <tr><td>Tracker:</td><td>udp://tracker.opentrackr.org:1337/announce</td></tr>
       <tr><td>Info Hash:</td><td>ad5fae5ffda056f9f45131045d140326bbafc4dc</td></tr>
     </table>
   </body></html>`
@@ -68,9 +69,14 @@ func TestParsePostHTMLInfoHash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "magnet:?xt=urn:btih:ad5fae5ffda056f9f45131045d140326bbafc4dc"
-	if post.Magnet != want {
-		t.Fatalf("expected %q, got %q", want, post.Magnet)
+	if !strings.HasPrefix(post.Magnet, "magnet:?xt=urn:btih:ad5fae5ffda056f9f45131045d140326bbafc4dc") {
+		t.Fatalf("unexpected magnet prefix: %q", post.Magnet)
+	}
+	if !strings.Contains(post.Magnet, "tr=") {
+		t.Fatalf("expected tracker in magnet, got %q", post.Magnet)
+	}
+	if !strings.Contains(post.Magnet, "dn=") {
+		t.Fatalf("expected display name in magnet, got %q", post.Magnet)
 	}
 }
 

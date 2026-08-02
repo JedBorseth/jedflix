@@ -17,7 +17,9 @@ export type RealDebridErrorCode =
   | "no_links"
   | "rate_limited"
   | "cancelled"
-  | "invalid_request";
+  | "invalid_request"
+  | "magnet_error"
+  | "abb_magnet";
 
 export class RealDebridError extends Error {
   code: RealDebridErrorCode;
@@ -88,9 +90,9 @@ function normalizeErrorCode(code: string): RealDebridErrorCode {
     case "rate_limited":
     case "cancelled":
     case "invalid_request":
-      return code;
+    case "magnet_error":
     case "abb_magnet":
-      return "invalid_request";
+      return code;
     default:
       return "no_links";
   }

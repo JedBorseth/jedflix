@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { mapMediaElementError } from "@/components/player/shared/playbackErrors";
 import type { PackKind, StreamFile } from "@/lib/streamApi";
 
 type AudioPlaylistPlayerProps = {
@@ -53,6 +54,7 @@ export function AudioPlaylistPlayer({
   const [current, setCurrent] = useState(initialPositionSec);
   const [duration, setDuration] = useState(0);
   const [rate, setRate] = useState(1);
+  const [playbackError, setPlaybackError] = useState<string>();
   const seekAppliedRef = useRef(false);
 
   const currentFile = files[fileIndex];
@@ -60,6 +62,7 @@ export function AudioPlaylistPlayer({
   useEffect(() => {
     seekAppliedRef.current = false;
     setCurrent(fileIndex === initialFileIndex ? initialPositionSec : 0);
+    setPlaybackError(undefined);
   }, [fileIndex, initialFileIndex, initialPositionSec, currentFile?.url]);
 
   useEffect(() => {
@@ -95,7 +98,14 @@ export function AudioPlaylistPlayer({
       return;
     }
     if (audio.paused) {
-      void audio.play();
+      void audio.play().catch((error: unknown) => {
+        setPlaybackError(
+          error instanceof Error
+            ? `Could not start playback: ${error.message}`
+            : mapMediaElementError(audio),
+        );
+        setPlaying(false);
+      });
       setPlaying(true);
     } else {
       audio.pause();
@@ -124,25 +134,51 @@ export function AudioPlaylistPlayer({
           </p>
           <h1 className="mt-1 text-2xl font-semibold text-white">{title}</h1>
           <p className="mt-1 text-sm text-zinc-400">{currentFile.filename}</p>
+          {currentFile.mimeType ? (
+            <p className="mt-1 text-xs text-zinc-600">{currentFile.mimeType}</p>
+          ) : null}
         </div>
+
+        {playbackError ? (
+          <div className="rounded-md border border-red-900/50 bg-red-950/40 p-3 text-sm text-red-200">
+            <p className="font-medium">Playback error</p>
+            <p className="mt-1 break-words text-red-100/90">{playbackError}</p>
+            <p className="mt-2 text-xs text-red-200/70">
+              File: {currentFile.filename}
+              {currentFile.url ? ` · ${currentFile.url.slice(0, 64)}…` : null}
+            </p>
+          </div>
+        ) : null}
 
         <audio
           ref={audioRef}
           key={currentFile.url}
-          src={currentFile.url}
           preload="metadata"
+          playsInline
           onPlay={() => setPlaying(true)}
           onPause={() => setPlaying(false)}
           onTimeUpdate={(event) => setCurrent(event.currentTarget.currentTime)}
           onLoadedMetadata={(event) => {
             setDuration(event.currentTarget.duration);
+            setPlaybackError(undefined);
             if (!seekAppliedRef.current && fileIndex === initialFileIndex && initialPositionSec > 0) {
               event.currentTarget.currentTime = initialPositionSec;
               seekAppliedRef.current = true;
             }
             if (playing) {
-              void event.currentTarget.play();
+              void event.currentTarget.play().catch((error: unknown) => {
+                setPlaybackError(
+                  error instanceof Error
+                    ? `Could not start playback: ${error.message}`
+                    : mapMediaElementError(event.currentTarget),
+                );
+                setPlaying(false);
+              });
             }
+          }}
+          onError={(event) => {
+            setPlaying(false);
+            setPlaybackError(mapMediaElementError(event.currentTarget));
           }}
           onEnded={() => {
             onProgress?.({ fileIndex, positionSec: Math.floor(duration || current) });
@@ -152,7 +188,9 @@ export function AudioPlaylistPlayer({
               setPlaying(false);
             }
           }}
-        />
+        >
+          <source src={currentFile.url} type={currentFile.mimeType || undefined} />
+        </audio>
 
         <div className="flex items-center justify-center gap-3">
           <button

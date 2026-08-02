@@ -22,6 +22,7 @@ var (
 	magnetRE   = regexp.MustCompile(`(?i)magnet:\?xt=urn:btih:[a-zA-Z0-9]+[^\s"'<>]*`)
 	infoHashRE = regexp.MustCompile(`(?is)Info\s*Hash:\s*</t[dh]>\s*<t[dh][^>]*>\s*([a-fA-F0-9]{40})\s*</t[dh]>`)
 	hexHashRE  = regexp.MustCompile(`\b([a-fA-F0-9]{40})\b`)
+	trackerRE  = regexp.MustCompile(`(?i)\b(?:udp|http|https)://[^\s<>"']+`)
 )
 
 const browserUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
@@ -356,15 +357,118 @@ func extractMagnet(html string, doc *goquery.Document) string {
 	}
 
 	magnet = strings.TrimSpace(magnet)
+	trackers := extractTrackers(html, doc)
+	title := strings.TrimSpace(doc.Find("h1").First().Text())
+
 	if strings.HasPrefix(magnet, "magnet:") {
-		return magnet
+		return enrichMagnet(magnet, title, trackers)
 	}
 
 	// ABB no longer exposes magnet: links publicly — build one from the Info Hash table.
 	if hash := extractInfoHash(html, doc); hash != "" {
-		return "magnet:?xt=urn:btih:" + strings.ToLower(hash)
+		return buildMagnet(hash, title, trackers)
 	}
 	return ""
+}
+
+func extractTrackers(html string, doc *goquery.Document) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, 12)
+
+	add := func(raw string) {
+		tr := strings.TrimSpace(htmlUnescape(raw))
+		if tr == "" || !trackerRE.MatchString(tr) {
+			return
+		}
+		// Keep only announce-style tracker URLs when possible.
+		if !strings.Contains(strings.ToLower(tr), "announce") && !strings.HasPrefix(strings.ToLower(tr), "udp://") {
+			return
+		}
+		if _, ok := seen[tr]; ok {
+			return
+		}
+		seen[tr] = struct{}{}
+		out = append(out, tr)
+	}
+
+	doc.Find("tr").Each(func(_ int, row *goquery.Selection) {
+		label := strings.ToLower(strings.TrimSpace(row.Find("td").First().Text()))
+		if !strings.Contains(label, "tracker") {
+			return
+		}
+		add(row.Find("td").Eq(1).Text())
+	})
+
+	if len(out) == 0 {
+		for _, match := range trackerRE.FindAllString(html, -1) {
+			add(match)
+		}
+	}
+
+	if len(out) > 15 {
+		out = out[:15]
+	}
+	return out
+}
+
+func buildMagnet(hash, title string, trackers []string) string {
+	var b strings.Builder
+	b.WriteString("magnet:?xt=urn:btih:")
+	b.WriteString(strings.ToLower(strings.TrimSpace(hash)))
+	if title = strings.TrimSpace(title); title != "" && title != "Unknown" {
+		b.WriteString("&dn=")
+		b.WriteString(url.QueryEscape(title))
+	}
+	for _, tr := range trackers {
+		b.WriteString("&tr=")
+		b.WriteString(url.QueryEscape(tr))
+	}
+	return b.String()
+}
+
+func enrichMagnet(magnet, title string, trackers []string) string {
+	if !strings.Contains(magnet, "&tr=") && len(trackers) > 0 {
+		hash := hashFromMagnet(magnet)
+		if hash != "" {
+			return buildMagnet(hash, title, trackers)
+		}
+	}
+	if title != "" && title != "Unknown" && !strings.Contains(magnet, "&dn=") {
+		magnet += "&dn=" + url.QueryEscape(title)
+	}
+	return magnet
+}
+
+func hashFromMagnet(magnet string) string {
+	lower := strings.ToLower(magnet)
+	const prefix = "urn:btih:"
+	idx := strings.Index(lower, prefix)
+	if idx < 0 {
+		return ""
+	}
+	rest := magnet[idx+len(prefix):]
+	end := len(rest)
+	for i := 0; i < len(rest); i++ {
+		c := rest[i]
+		if (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') {
+			continue
+		}
+		end = i
+		break
+	}
+	return rest[:end]
+}
+
+func htmlUnescape(value string) string {
+	replacer := strings.NewReplacer(
+		"&amp;", "&",
+		"&#38;", "&",
+		"&lt;", "<",
+		"&gt;", ">",
+		"&#39;", "'",
+		"&quot;", `"`,
+	)
+	return replacer.Replace(value)
 }
 
 func extractInfoHash(html string, doc *goquery.Document) string {
