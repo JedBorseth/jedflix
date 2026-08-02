@@ -62,8 +62,19 @@ export function AudioPlaylistPlayer({
   useEffect(() => {
     seekAppliedRef.current = false;
     setCurrent(fileIndex === initialFileIndex ? initialPositionSec : 0);
+    setDuration(0);
     setPlaybackError(undefined);
   }, [fileIndex, initialFileIndex, initialPositionSec, currentFile?.url]);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || !currentFile?.url) {
+      return;
+    }
+    // Set src on the element itself — nested <source> is less reliable in Safari for RD URLs.
+    audio.src = currentFile.url;
+    audio.load();
+  }, [currentFile?.url]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -126,35 +137,36 @@ export function AudioPlaylistPlayer({
   }
 
   return (
-    <div className="mx-auto grid w-full max-w-5xl gap-6 md:grid-cols-[minmax(0,1fr)_280px]">
-      <div className="space-y-5 rounded-lg border border-zinc-800 bg-zinc-900/70 p-4 md:p-6">
-        <div>
-          <p className="text-xs uppercase tracking-wide text-zinc-500">
-            {packLabel(packKind, files.length)}
-          </p>
-          <h1 className="mt-1 text-2xl font-semibold text-white">{title}</h1>
-          <p className="mt-1 text-sm text-zinc-400">{currentFile.filename}</p>
-          {currentFile.mimeType ? (
-            <p className="mt-1 text-xs text-zinc-600">{currentFile.mimeType}</p>
-          ) : null}
-        </div>
+    <div className="mx-auto flex w-full max-w-3xl flex-col items-center gap-6">
+      <div className="w-full rounded-2xl border border-zinc-800 bg-gradient-to-b from-zinc-900 to-zinc-950 p-6 text-center shadow-[0_20px_60px_rgba(0,0,0,0.35)] md:p-10">
+        <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+          {packLabel(packKind, files.length)}
+        </p>
+        <h1 className="mt-3 text-balance text-3xl font-semibold tracking-tight text-white md:text-4xl">
+          {title}
+        </h1>
+        <p className="mt-2 truncate text-sm text-zinc-400">{currentFile.filename}</p>
 
         {playbackError ? (
-          <div className="rounded-md border border-red-900/50 bg-red-950/40 p-3 text-sm text-red-200">
+          <div className="mt-5 rounded-lg border border-red-900/50 bg-red-950/40 p-3 text-left text-sm text-red-200">
             <p className="font-medium">Playback error</p>
             <p className="mt-1 break-words text-red-100/90">{playbackError}</p>
-            <p className="mt-2 text-xs text-red-200/70">
-              File: {currentFile.filename}
-              {currentFile.url ? ` · ${currentFile.url.slice(0, 64)}…` : null}
-            </p>
+            <a
+              href={currentFile.url}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-3 inline-block text-xs text-red-300 underline"
+            >
+              Open / download this file directly
+            </a>
           </div>
         ) : null}
 
         <audio
           ref={audioRef}
-          key={currentFile.url}
           preload="metadata"
           playsInline
+          controls={false}
           onPlay={() => setPlaying(true)}
           onPause={() => setPlaying(false)}
           onTimeUpdate={(event) => setCurrent(event.currentTarget.currentTime)}
@@ -188,51 +200,51 @@ export function AudioPlaylistPlayer({
               setPlaying(false);
             }
           }}
-        >
-          <source src={currentFile.url} type={currentFile.mimeType || undefined} />
-        </audio>
+        />
 
-        <div className="flex items-center justify-center gap-3">
+        <div className="mt-8 flex items-center justify-center gap-3">
           <button
             type="button"
-            className="rounded-md border border-zinc-700 px-3 py-2 text-sm text-white disabled:opacity-40"
+            className="rounded-full border border-zinc-700 px-3 py-2 text-sm text-white disabled:opacity-40"
             disabled={fileIndex <= 0}
             onClick={() => playFile(fileIndex - 1, true)}
+            aria-label="Previous file"
           >
             Prev
           </button>
           <button
             type="button"
-            className="rounded-md border border-zinc-700 px-3 py-2 text-sm text-white"
+            className="rounded-full border border-zinc-700 px-3 py-2 text-sm text-white"
             onClick={() => skip(-30)}
           >
-            -30s
+            −30s
           </button>
           <button
             type="button"
-            className="rounded-full bg-white px-5 py-3 text-sm font-semibold text-black"
+            className="rounded-full bg-white px-8 py-3.5 text-sm font-semibold text-black shadow-lg shadow-black/30 transition hover:bg-zinc-100"
             onClick={toggle}
           >
             {playing ? "Pause" : "Play"}
           </button>
           <button
             type="button"
-            className="rounded-md border border-zinc-700 px-3 py-2 text-sm text-white"
+            className="rounded-full border border-zinc-700 px-3 py-2 text-sm text-white"
             onClick={() => skip(30)}
           >
             +30s
           </button>
           <button
             type="button"
-            className="rounded-md border border-zinc-700 px-3 py-2 text-sm text-white disabled:opacity-40"
+            className="rounded-full border border-zinc-700 px-3 py-2 text-sm text-white disabled:opacity-40"
             disabled={fileIndex >= files.length - 1}
             onClick={() => playFile(fileIndex + 1, true)}
+            aria-label="Next file"
           >
             Next
           </button>
         </div>
 
-        <div>
+        <div className="mx-auto mt-6 max-w-xl">
           <input
             type="range"
             min={0}
@@ -254,8 +266,8 @@ export function AudioPlaylistPlayer({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm text-zinc-400">Speed</span>
+        <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+          <span className="text-sm text-zinc-500">Speed</span>
           {[0.75, 1, 1.25, 1.5, 1.75, 2].map((value) => (
             <button
               key={value}
@@ -263,7 +275,7 @@ export function AudioPlaylistPlayer({
               className={`rounded-md px-2.5 py-1 text-xs ${
                 rate === value
                   ? "bg-red-600 text-white"
-                  : "border border-zinc-700 text-zinc-300"
+                  : "border border-zinc-700 text-zinc-300 hover:border-zinc-500"
               }`}
               onClick={() => setRate(value)}
             >
@@ -271,20 +283,29 @@ export function AudioPlaylistPlayer({
             </button>
           ))}
         </div>
+
+        <a
+          href={currentFile.url}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-5 inline-block text-xs text-zinc-600 underline hover:text-zinc-400"
+        >
+          Open file URL
+        </a>
       </div>
 
       {files.length > 1 ? (
-        <aside className="rounded-lg border border-zinc-800 bg-zinc-900/70 p-3">
-          <h2 className="mb-2 text-sm font-semibold text-white">
+        <aside className="w-full rounded-xl border border-zinc-800 bg-zinc-900/70 p-4">
+          <h2 className="mb-3 text-center text-sm font-semibold text-white">
             {packKind === "series" ? "Books" : "Chapters"}
           </h2>
-          <ul className="max-h-[60vh] space-y-1 overflow-y-auto">
+          <ul className="mx-auto max-h-[40vh] max-w-xl space-y-1 overflow-y-auto">
             {files.map((file) => (
               <li key={`${file.fileId}-${file.index}`}>
                 <button
                   type="button"
                   onClick={() => playFile(file.index, true)}
-                  className={`w-full rounded-md px-2 py-2 text-left text-xs ${
+                  className={`w-full rounded-md px-3 py-2 text-left text-xs ${
                     file.index === fileIndex
                       ? "bg-red-950/50 text-white"
                       : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"

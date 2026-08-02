@@ -48,11 +48,15 @@ func (e *APIError) Error() string {
 }
 
 type TorrentInfo struct {
-	ID     string        `json:"id"`
-	Status string        `json:"status"`
-	Hash   string        `json:"hash"`
-	Files  []TorrentFile `json:"files"`
-	Links  []string      `json:"links"`
+	ID       string        `json:"id"`
+	Status   string        `json:"status"`
+	Hash     string        `json:"hash"`
+	Progress float64       `json:"progress"`
+	Speed    int64         `json:"speed"`
+	Seeders  int           `json:"seeders"`
+	Bytes    int64         `json:"bytes"`
+	Files    []TorrentFile `json:"files"`
+	Links    []string      `json:"links"`
 }
 
 type TorrentListItem struct {
@@ -155,6 +159,18 @@ func (c *Client) WaitForFileList(ctx context.Context, torrentID string, timeout 
 }
 
 func (c *Client) WaitReady(ctx context.Context, torrentID string, timeout time.Duration, initial *TorrentInfo) (*TorrentInfo, error) {
+	return c.WaitReadyWithProgress(ctx, torrentID, timeout, initial, nil)
+}
+
+// WaitReadyWithProgress polls until the torrent is downloaded, optionally
+// reporting human-readable progress (percent, seeders, speed) on each tick.
+func (c *Client) WaitReadyWithProgress(
+	ctx context.Context,
+	torrentID string,
+	timeout time.Duration,
+	initial *TorrentInfo,
+	onProgress func(string),
+) (*TorrentInfo, error) {
 	deadline := time.Now().Add(timeout)
 	info := initial
 	for {
@@ -172,6 +188,9 @@ func (c *Client) WaitReady(ctx context.Context, torrentID string, timeout time.D
 				return nil, err
 			}
 		}
+		if onProgress != nil {
+			onProgress(FormatTorrentProgress(info))
+		}
 		switch info.Status {
 		case "downloaded":
 			return info, nil
@@ -181,6 +200,41 @@ func (c *Client) WaitReady(ctx context.Context, torrentID string, timeout time.D
 		info = nil
 		// Poll slower to stay under RD's 250 req/min limit across fallbacks.
 		time.Sleep(4 * time.Second)
+	}
+}
+
+// FormatTorrentProgress builds a short status line for the listen/read download UI.
+func FormatTorrentProgress(info *TorrentInfo) string {
+	if info == nil {
+		return "Waiting for Real Debrid download…"
+	}
+	status := strings.ReplaceAll(info.Status, "_", " ")
+	if status == "" {
+		status = "downloading"
+	}
+	parts := []string{fmt.Sprintf("Real Debrid: %s", status)}
+	if info.Progress > 0 || info.Status == "downloading" || info.Status == "downloaded" {
+		parts = append(parts, fmt.Sprintf("%.0f%%", info.Progress))
+	}
+	if info.Seeders > 0 {
+		parts = append(parts, fmt.Sprintf("%d seeders", info.Seeders))
+	} else if info.Status == "downloading" || info.Status == "magnet_conversion" {
+		parts = append(parts, "0 seeders")
+	}
+	if info.Speed > 0 {
+		parts = append(parts, formatByteRate(info.Speed))
+	}
+	return strings.Join(parts, " · ")
+}
+
+func formatByteRate(bytesPerSec int64) string {
+	switch {
+	case bytesPerSec >= 1024*1024:
+		return fmt.Sprintf("%.1f MB/s", float64(bytesPerSec)/(1024*1024))
+	case bytesPerSec >= 1024:
+		return fmt.Sprintf("%.0f KB/s", float64(bytesPerSec)/1024)
+	default:
+		return fmt.Sprintf("%d B/s", bytesPerSec)
 	}
 }
 

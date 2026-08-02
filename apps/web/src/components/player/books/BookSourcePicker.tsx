@@ -18,6 +18,16 @@ function matchPercent(score?: number): string | null {
   return `${Math.max(0, Math.round((1 - score) * 100))}% match`;
 }
 
+function formatSize(sizeGb?: number): string | null {
+  if (sizeGb === undefined) {
+    return null;
+  }
+  if (sizeGb < 1) {
+    return `${Math.max(1, Math.round(sizeGb * 1024))} MB`;
+  }
+  return `${sizeGb.toFixed(2)} GB`;
+}
+
 export function BookSourcePicker({
   sources,
   loading,
@@ -33,9 +43,9 @@ export function BookSourcePicker({
       <div className="mb-4">
         <h2 className="text-lg font-semibold text-white">Choose a source</h2>
         <p className="mt-1 text-sm text-zinc-400">
-          Results from AudiobookBay, ranked by title match. Pick one to resolve through Real
-          Debrid — packs with multiple {mediaLabel === "audiobook" ? "audio files" : "ebook files"}{" "}
-          are supported.
+          Results from AudiobookBay, ranked by title match. Prefer smaller files when possible —
+          seeders (when listed) and Real Debrid download speed matter more than size for{" "}
+          {mediaLabel === "audiobook" ? "listening" : "reading"}.
         </p>
       </div>
 
@@ -75,6 +85,7 @@ export function BookSourcePicker({
       <ul className="max-h-[50vh] space-y-2 overflow-y-auto">
         {sources.map((source) => {
           const match = matchPercent(source.matchScore);
+          const size = formatSize(source.sizeGb);
           const selected = source.id === selectedId;
           return (
             <li key={source.id}>
@@ -94,8 +105,22 @@ export function BookSourcePicker({
                     <span className="shrink-0 text-xs text-zinc-400">{match}</span>
                   ) : null}
                 </div>
+                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-zinc-400">
+                  {size ? <span>{size}</span> : null}
+                  {source.seeders !== undefined ? (
+                    <span
+                      className={
+                        source.seeders === 0 ? "text-amber-400" : "text-emerald-400/90"
+                      }
+                    >
+                      {source.seeders} seeders
+                    </span>
+                  ) : (
+                    <span className="text-zinc-600">Seeders shown after RD starts</span>
+                  )}
+                </div>
                 {source.info ? (
-                  <p className="mt-1 line-clamp-2 text-xs text-zinc-500">{source.info}</p>
+                  <p className="mt-1 line-clamp-2 text-xs text-zinc-600">{source.info}</p>
                 ) : null}
               </button>
             </li>

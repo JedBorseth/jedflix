@@ -187,7 +187,7 @@ func (s *Service) listBookSources(req Request) ([]Source, error) {
 	sources := make([]Source, 0, len(ranked))
 	for index, result := range ranked {
 		score := result.Score
-		sources = append(sources, Source{
+		source := Source{
 			ID:         fmt.Sprintf("abb_%d", index),
 			Title:      result.Title,
 			Magnet:     "",
@@ -195,7 +195,16 @@ func (s *Service) listBookSources(req Request) ([]Source, error) {
 			Info:       result.Info,
 			MatchScore: &score,
 			Cached:     false,
-		})
+		}
+		if result.SizeBytes > 0 {
+			sizeGB := float64(result.SizeBytes) / (1024 * 1024 * 1024)
+			source.SizeGB = &sizeGB
+		}
+		if result.Seeders != nil {
+			seeders := *result.Seeders
+			source.Seeders = &seeders
+		}
+		sources = append(sources, source)
 	}
 
 	// Prefetch magnets for the top hits so resolve can hit Real Debrid immediately.
@@ -393,7 +402,7 @@ func (s *Service) resolveVideo(
 	}
 
 	report("Waiting for Real Debrid download…")
-	info, err = rd.WaitReady(resolveCtx, torrentID, timeout, nil)
+	info, err = rd.WaitReadyWithProgress(resolveCtx, torrentID, timeout, nil, report)
 	if err != nil {
 		if resolveCtx.Err() != nil {
 			return nil, &ResolveError{Code: "timeout", Message: "Real Debrid torrent timed out."}
@@ -410,6 +419,7 @@ func (s *Service) resolveVideo(
 		return nil, mapRDError(err)
 	}
 
+	cleanupTorrent = false
 	return &StreamResult{
 		URL:       unrestricted.Download,
 		DirectURL: unrestricted.Download,
@@ -507,7 +517,7 @@ func (s *Service) resolveBook(
 	}
 
 	report("Waiting for Real Debrid download…")
-	info, err = rd.WaitReady(resolveCtx, torrentID, timeout, nil)
+	info, err = rd.WaitReadyWithProgress(resolveCtx, torrentID, timeout, nil, report)
 	if err != nil {
 		if resolveCtx.Err() != nil {
 			return nil, &ResolveError{Code: "timeout", Message: "Real Debrid torrent timed out."}
@@ -563,6 +573,9 @@ func (s *Service) resolveBook(
 
 	packKind := realdebrid.ClassifyPack(selectedOrdered)
 	first := streamFiles[0]
+	// Keep the torrent on RD after a successful unrestrict so download links stay
+	// valid and users can see the completed transfer in their RD dashboard.
+	cleanupTorrent = false
 	return &StreamResult{
 		URL:       first.URL,
 		DirectURL: first.URL,
