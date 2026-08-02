@@ -64,15 +64,18 @@ type RowConfig struct {
 	Query string
 }
 
+// Queries use plain keywords / search filters. Development Mode no longer
+// supports /browse/new-releases, and genre:"…" album filters often return empty.
 var DefaultCatalogRows = []RowConfig{
-	{Title: "Pop", Key: "pop-albums", Kind: "albums", Query: `genre:"pop"`},
-	{Title: "Popular Artists", Key: "popular-artists", Kind: "artists", Query: `genre:"pop"`},
-	{Title: "Hip-Hop", Key: "hiphop-albums", Kind: "albums", Query: `genre:"hip-hop"`},
-	{Title: "Hip-Hop Artists", Key: "hiphop-artists", Kind: "artists", Query: `genre:"hip-hop"`},
-	{Title: "Rock", Key: "rock-albums", Kind: "albums", Query: `genre:"rock"`},
-	{Title: "Rock Artists", Key: "rock-artists", Kind: "artists", Query: `genre:"rock"`},
-	{Title: "Electronic", Key: "electronic-albums", Kind: "albums", Query: `genre:"electronic"`},
-	{Title: "R&B Artists", Key: "rnb-artists", Kind: "artists", Query: `genre:"r&b"`},
-	{Title: "Indie", Key: "indie-albums", Kind: "albums", Query: `genre:"indie"`},
-	{Title: "Jazz Artists", Key: "jazz-artists", Kind: "artists", Query: `genre:"jazz"`},
+	{Title: "New Releases", Key: "new-releases", Kind: "albums", Query: "tag:new"},
+	{Title: "Pop", Key: "pop-albums", Kind: "albums", Query: "pop"},
+	{Title: "Popular Artists", Key: "popular-artists", Kind: "artists", Query: "pop"},
+	{Title: "Hip-Hop", Key: "hiphop-albums", Kind: "albums", Query: "hip hop"},
+	{Title: "Hip-Hop Artists", Key: "hiphop-artists", Kind: "artists", Query: "hip hop"},
+	{Title: "Rock", Key: "rock-albums", Kind: "albums", Query: "rock"},
+	{Title: "Rock Artists", Key: "rock-artists", Kind: "artists", Query: "rock"},
+	{Title: "Electronic", Key: "electronic-albums", Kind: "albums", Query: "electronic"},
+	{Title: "R&B Artists", Key: "rnb-artists", Kind: "artists", Query: "r&b"},
+	{Title: "Indie", Key: "indie-albums", Kind: "albums", Query: "indie"},
+	{Title: "Jazz Artists", Key: "jazz-artists", Kind: "artists", Query: "jazz"},
 }

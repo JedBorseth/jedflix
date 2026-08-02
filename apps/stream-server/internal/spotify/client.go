@@ -18,10 +18,12 @@ import (
 )
 
 const (
-	defaultAPIBaseURL  = "https://api.spotify.com/v1"
-	defaultAuthURL     = "https://accounts.spotify.com/api/token"
-	fallbackImage      = "https://placehold.co/640x640/18181b/a1a1aa?text=No+Cover"
-	defaultLimit       = 20
+	defaultAPIBaseURL = "https://api.spotify.com/v1"
+	defaultAuthURL    = "https://accounts.spotify.com/api/token"
+	fallbackImage     = "https://placehold.co/640x640/18181b/a1a1aa?text=No+Cover"
+	// Development Mode caps GET /search (and several list endpoints) at limit=10.
+	defaultLimit       = 10
+	catalogPageCount   = 2 // 2 × 10 ≈ 20 items per shelf
 	maxDetailCacheSize = 400
 	maxArtistCacheSize = 200
 	tokenRefreshSkew   = 60 * time.Second
@@ -102,12 +104,6 @@ type spotifyArtistPayload struct {
 	Followers  struct {
 		Total int `json:"total"`
 	} `json:"followers"`
-}
-
-type newReleasesResponse struct {
-	Albums struct {
-		Items []spotifyAlbumPayload `json:"items"`
-	} `json:"albums"`
 }
 
 type searchResponsePayload struct {
@@ -198,32 +194,35 @@ func (c *Client) Refresh(ctx context.Context) error {
 		c.catalogMu.Unlock()
 	}()
 
-	newReleases, err := c.fetchNewReleases(ctx, defaultLimit)
-	if err != nil {
-		c.catalogMu.Lock()
-		c.refreshErr = err
-		c.catalogMu.Unlock()
-		return err
-	}
-
-	rows := make([]CatalogRow, 0, len(c.rows)+1)
-	rows = append(rows, CatalogRow{
-		Title:  "New Releases",
-		Key:    "new-releases",
-		Kind:   "albums",
-		Albums: newReleases,
-	})
+	rows := make([]CatalogRow, 0, len(c.rows))
+	var newReleases []Album
+	var lastErr error
 
 	for _, row := range c.rows {
 		catalogRow, rowErr := c.fetchCatalogRow(ctx, row)
 		if rowErr != nil {
+			lastErr = rowErr
 			continue
 		}
 		if (catalogRow.Kind == "albums" && len(catalogRow.Albums) == 0) ||
 			(catalogRow.Kind == "artists" && len(catalogRow.Artists) == 0) {
 			continue
 		}
+		if row.Key == "new-releases" && catalogRow.Kind == "albums" {
+			newReleases = catalogRow.Albums
+		}
 		rows = append(rows, catalogRow)
+	}
+
+	if len(rows) == 0 {
+		err := lastErr
+		if err == nil {
+			err = fmt.Errorf("%w: empty catalog", ErrFetchFailed)
+		}
+		c.catalogMu.Lock()
+		c.refreshErr = err
+		c.catalogMu.Unlock()
+		return err
 	}
 
 	response := &BrowseResponse{
@@ -397,24 +396,11 @@ func NormalizeID(value string) string {
 }
 
 func (c *Client) fetchCatalogRow(ctx context.Context, row RowConfig) (CatalogRow, error) {
-	params := url.Values{}
-	params.Set("q", row.Query)
-	params.Set("limit", strconv.Itoa(defaultLimit))
-
 	switch row.Kind {
 	case "artists":
-		params.Set("type", "artist")
-		var payload searchResponsePayload
-		if err := c.getJSON(ctx, "/search?"+params.Encode(), &payload); err != nil {
+		artists, err := c.searchArtists(ctx, row.Query, catalogPageCount*defaultLimit)
+		if err != nil {
 			return CatalogRow{}, err
-		}
-		artists := make([]Artist, 0, defaultLimit)
-		if payload.Artists != nil {
-			for _, item := range payload.Artists.Items {
-				if artist := mapArtist(item); artist.ID != "" {
-					artists = append(artists, artist)
-				}
-			}
 		}
 		return CatalogRow{
 			Title:   row.Title,
@@ -423,18 +409,9 @@ func (c *Client) fetchCatalogRow(ctx context.Context, row RowConfig) (CatalogRow
 			Artists: artists,
 		}, nil
 	default:
-		params.Set("type", "album")
-		var payload searchResponsePayload
-		if err := c.getJSON(ctx, "/search?"+params.Encode(), &payload); err != nil {
+		albums, err := c.searchAlbums(ctx, row.Query, catalogPageCount*defaultLimit)
+		if err != nil {
 			return CatalogRow{}, err
-		}
-		albums := make([]Album, 0, defaultLimit)
-		if payload.Albums != nil {
-			for _, item := range payload.Albums.Items {
-				if album := mapAlbum(item); album.ID != "" {
-					albums = append(albums, album)
-				}
-			}
 		}
 		return CatalogRow{
 			Title:  row.Title,
@@ -445,23 +422,92 @@ func (c *Client) fetchCatalogRow(ctx context.Context, row RowConfig) (CatalogRow
 	}
 }
 
-func (c *Client) fetchNewReleases(ctx context.Context, limit int) ([]Album, error) {
-	params := url.Values{}
-	params.Set("limit", strconv.Itoa(limit))
-	var payload newReleasesResponse
-	if err := c.getJSON(ctx, "/browse/new-releases?"+params.Encode(), &payload); err != nil {
-		return nil, err
-	}
-	albums := make([]Album, 0, len(payload.Albums.Items))
-	for _, item := range payload.Albums.Items {
-		if album := mapAlbum(item); album.ID != "" {
+func (c *Client) searchAlbums(ctx context.Context, query string, maxItems int) ([]Album, error) {
+	albums := make([]Album, 0, maxItems)
+	seen := make(map[string]struct{})
+	for offset := 0; len(albums) < maxItems && offset < maxItems; offset += defaultLimit {
+		params := url.Values{}
+		params.Set("q", query)
+		params.Set("type", "album")
+		params.Set("limit", strconv.Itoa(defaultLimit))
+		params.Set("offset", strconv.Itoa(offset))
+
+		var payload searchResponsePayload
+		if err := c.getJSON(ctx, "/search?"+params.Encode(), &payload); err != nil {
+			if len(albums) > 0 {
+				return albums, nil
+			}
+			return nil, err
+		}
+		if payload.Albums == nil || len(payload.Albums.Items) == 0 {
+			break
+		}
+		for _, item := range payload.Albums.Items {
+			album := mapAlbum(item)
+			if album.ID == "" {
+				continue
+			}
+			if _, ok := seen[album.ID]; ok {
+				continue
+			}
+			seen[album.ID] = struct{}{}
 			albums = append(albums, album)
+			if len(albums) >= maxItems {
+				break
+			}
+		}
+		if len(payload.Albums.Items) < defaultLimit {
+			break
 		}
 	}
 	return albums, nil
 }
 
+func (c *Client) searchArtists(ctx context.Context, query string, maxItems int) ([]Artist, error) {
+	artists := make([]Artist, 0, maxItems)
+	seen := make(map[string]struct{})
+	for offset := 0; len(artists) < maxItems && offset < maxItems; offset += defaultLimit {
+		params := url.Values{}
+		params.Set("q", query)
+		params.Set("type", "artist")
+		params.Set("limit", strconv.Itoa(defaultLimit))
+		params.Set("offset", strconv.Itoa(offset))
+
+		var payload searchResponsePayload
+		if err := c.getJSON(ctx, "/search?"+params.Encode(), &payload); err != nil {
+			if len(artists) > 0 {
+				return artists, nil
+			}
+			return nil, err
+		}
+		if payload.Artists == nil || len(payload.Artists.Items) == 0 {
+			break
+		}
+		for _, item := range payload.Artists.Items {
+			artist := mapArtist(item)
+			if artist.ID == "" {
+				continue
+			}
+			if _, ok := seen[artist.ID]; ok {
+				continue
+			}
+			seen[artist.ID] = struct{}{}
+			artists = append(artists, artist)
+			if len(artists) >= maxItems {
+				break
+			}
+		}
+		if len(payload.Artists.Items) < defaultLimit {
+			break
+		}
+	}
+	return artists, nil
+}
+
 func (c *Client) fetchArtistAlbums(ctx context.Context, artistID string, limit int) ([]Album, error) {
+	if limit <= 0 || limit > defaultLimit {
+		limit = defaultLimit
+	}
 	params := url.Values{}
 	params.Set("include_groups", "album,single")
 	params.Set("limit", strconv.Itoa(limit))

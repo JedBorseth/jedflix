@@ -1,6 +1,16 @@
 package spotify
 
-import "testing"
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/jedborseth/jeds-movies/stream-server/internal/config"
+)
 
 func TestNormalizeID(t *testing.T) {
 	tests := []struct {
@@ -53,5 +63,94 @@ func TestMapAlbumAndArtist(t *testing.T) {
 	})
 	if artist.Name != "Artist" || artist.ImageURL == "" || artist.Genres == nil {
 		t.Fatalf("unexpected artist mapping: %+v", artist)
+	}
+}
+
+func TestRefreshUsesSearchNotBrowseNewReleases(t *testing.T) {
+	var browseHits int
+	var searchHits int
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/token":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"access_token": "test-token",
+				"token_type":   "Bearer",
+				"expires_in":   3600,
+			})
+		case strings.HasPrefix(r.URL.Path, "/browse/"):
+			browseHits++
+			http.Error(w, `{"error":{"status":403,"message":"Forbidden"}}`, http.StatusForbidden)
+		case r.URL.Path == "/search":
+			searchHits++
+			q := r.URL.Query().Get("q")
+			typ := r.URL.Query().Get("type")
+			limit := r.URL.Query().Get("limit")
+			if limit != "10" {
+				t.Errorf("expected search limit=10, got %q", limit)
+			}
+			if typ == "album" {
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"albums": map[string]any{
+						"items": []map[string]any{{
+							"id":           "4aawyAB9vmqN3uQ7FjRGTy",
+							"name":         "Album " + q,
+							"album_type":   "album",
+							"release_date": "2026-01-01",
+							"images":       []map[string]any{{"url": "https://img/a.jpg", "width": 300}},
+							"artists":      []map[string]any{{"id": "artistid00000000000001", "name": "Artist"}},
+						}},
+					},
+				})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"artists": map[string]any{
+					"items": []map[string]any{{
+						"id":     "artistid00000000000001",
+						"name":   "Artist " + q,
+						"images": []map[string]any{{"url": "https://img/ar.jpg", "width": 300}},
+						"genres": []string{"pop"},
+					}},
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer upstream.Close()
+
+	client := NewClient(config.Config{
+		SpotifyClientID:     "id",
+		SpotifyClientSecret: "secret",
+		SpotifyAPIBaseURL:   upstream.URL,
+		SpotifyAuthURL:      upstream.URL + "/api/token",
+		SpotifyCacheTTL:     time.Hour,
+	})
+	// Keep refresh light for the unit test.
+	client.rows = []RowConfig{
+		{Title: "New Releases", Key: "new-releases", Kind: "albums", Query: "tag:new"},
+		{Title: "Popular Artists", Key: "popular-artists", Kind: "artists", Query: "pop"},
+	}
+
+	if err := client.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+	if browseHits != 0 {
+		t.Fatalf("expected no /browse calls, got %d", browseHits)
+	}
+	if searchHits == 0 {
+		t.Fatal("expected /search calls")
+	}
+
+	browse, err := client.Browse(context.Background())
+	if err != nil {
+		t.Fatalf("Browse failed: %v", err)
+	}
+	if len(browse.NewReleases) == 0 {
+		t.Fatal("expected new releases from search")
+	}
+	if len(browse.Rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(browse.Rows))
 	}
 }
