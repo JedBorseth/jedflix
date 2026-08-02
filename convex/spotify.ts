@@ -12,11 +12,8 @@ import {
 } from "./_generated/server";
 import {
   buildAuthorizeUrl,
-  describeSpotifyError,
   isSpotifyConfigured,
-  listDevices,
   refreshAccessToken,
-  type SpotifyDevice,
 } from "./spotifyApi";
 
 const OAUTH_STATE_TTL_MS = 10 * 60_000;
@@ -113,34 +110,6 @@ export const unlink = mutation({
       await ctx.db.delete(target._id);
     }
     return null;
-  },
-});
-
-export const listMyDevices = action({
-  args: {},
-  returns: v.object({
-    devices: v.array(
-      v.object({
-        id: v.string(),
-        name: v.string(),
-        type: v.string(),
-        isActive: v.boolean(),
-        isRestricted: v.boolean(),
-      }),
-    ),
-    error: v.union(v.string(), v.null()),
-  }),
-  handler: async (ctx): Promise<{ devices: SpotifyDevice[]; error: string | null }> => {
-    const account = await ctx.runQuery(internal.spotify.getMyAccountInternal, {});
-    if (!account) {
-      return { devices: [], error: "No Spotify account linked" };
-    }
-    try {
-      const accessToken = await ensureAccessToken(ctx, account._id);
-      return { devices: await listDevices(accessToken), error: null };
-    } catch (error) {
-      return { devices: [], error: describeSpotifyError(error) };
-    }
   },
 });
 

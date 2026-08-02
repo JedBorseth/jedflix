@@ -7,6 +7,9 @@
  * ping-pong forever. Baselines record what each side looked like the last time
  * we reconciled, and after acting we set the baselines to the state we expect
  * both sides to settle on.
+ *
+ * Position is handled separately: drifts within POSITION_SYNC_GRACE_MS are
+ * ignored, and larger seeks are mirrored.
  */
 
 export type PartySnapshot = {
@@ -21,6 +24,34 @@ export type PartySyncDecision = {
   nextLocal: PartySnapshot;
   nextRemote: PartySnapshot;
 };
+
+/** Allowed position skew between party members before a seek is forced. */
+export const POSITION_SYNC_GRACE_MS = 5_000;
+
+export function estimatedPositionMs(args: {
+  positionMs: number;
+  positionUpdatedAt: number;
+  isPlaying: boolean;
+  now: number;
+  durationMs?: number;
+}): number {
+  let position = Math.max(0, args.positionMs);
+  if (args.isPlaying) {
+    position += Math.max(0, args.now - args.positionUpdatedAt);
+  }
+  if (args.durationMs !== undefined && args.durationMs > 0) {
+    position = Math.min(position, args.durationMs);
+  }
+  return position;
+}
+
+export function shouldSyncPosition(
+  localMs: number,
+  remoteMs: number,
+  graceMs: number = POSITION_SYNC_GRACE_MS,
+): boolean {
+  return Math.abs(localMs - remoteMs) > graceMs;
+}
 
 export function snapshotsEqual(a: PartySnapshot, b: PartySnapshot): boolean {
   return a.trackId === b.trackId && a.playing === b.playing;

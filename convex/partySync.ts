@@ -1,14 +1,10 @@
 /**
- * The two-way bridge between a party and the Spotify accounts mirroring it.
+ * Spotify → party bridge (read-only).
  *
- * JedFlix -> Spotify: every playback mutation schedules `pushToSpotify`.
- * Spotify -> JedFlix: `pollParty` self-reschedules while the party is live and
- * watches `GET /me/player` for changes made on a Spotify client.
- *
- * Echo suppression relies on two things: pushes carry the playback `revision`
- * so a stale push is dropped, and polled state is ignored for a short grace
- * window after a push so a device that is still catching up is not mistaken
- * for a user action.
+ * JedFlix never controls Spotify playback. `pollParty` watches
+ * `GET /me/player` on linked accounts and writes what it sees into the party
+ * so every JedFlix client can follow along. JedFlix ↔ JedFlix sync is handled
+ * separately by party mutations + client subscriptions.
  */
 
 import { v } from "convex/values";
@@ -16,120 +12,22 @@ import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { internalAction, type ActionCtx } from "./_generated/server";
 import {
+  estimatedPositionMs,
   MEMBER_STALE_WINDOW_MS,
   PARTY_POLL_INTERVAL_MS,
-  SPOTIFY_CONTEXT_TRACKS,
-  SPOTIFY_PUSH_GRACE_MS,
+  shouldSyncPosition,
   spotifyTrackToPartyTrack,
-  toSpotifyTrackUri,
   type PartyTrack,
 } from "./partyModel";
 import { ensureAccessToken } from "./spotify";
-import {
-  describeSpotifyError,
-  getPlaybackState,
-  pausePlayback,
-  resumePlayback,
-  startPlayback,
-} from "./spotifyApi";
+import { describeSpotifyError, getPlaybackState } from "./spotifyApi";
 
 type Target = Doc<"partySpotifyTargets">;
-
-/**
- * Current track first, then the next few queued tracks so the Spotify device
- * has somewhere to go when the track ends.
- */
-function playbackUris(track: PartyTrack, queue: PartyTrack[], queueIndex: number): string[] {
-  const inQueue = queueIndex >= 0 && queue[queueIndex]?.id === track.id;
-  const window = inQueue
-    ? queue.slice(queueIndex, queueIndex + 1 + SPOTIFY_CONTEXT_TRACKS)
-    : [track];
-  const uris = window
-    .map((item) => toSpotifyTrackUri(item.id))
-    .filter((uri): uri is string => uri !== null);
-  return uris;
-}
-
-async function pushToTarget(
-  ctx: ActionCtx,
-  target: Target,
-  args: { track: PartyTrack; uris: string[]; isPlaying: boolean; force: boolean },
-): Promise<void> {
-  try {
-    const accessToken = await ensureAccessToken(ctx, target.accountId);
-    const trackChanged = args.force || target.lastPushedTrackId !== args.track.id;
-
-    if (trackChanged) {
-      await startPlayback(accessToken, { uris: args.uris, deviceId: target.deviceId });
-      if (!args.isPlaying) {
-        await pausePlayback(accessToken, target.deviceId);
-      }
-    } else if (args.isPlaying) {
-      await resumePlayback(accessToken, target.deviceId);
-    } else {
-      await pausePlayback(accessToken, target.deviceId);
-    }
-
-    await ctx.runMutation(internal.party.recordPush, {
-      targetId: target._id,
-      trackId: args.track.id,
-    });
-  } catch (error) {
-    await ctx.runMutation(internal.party.recordPush, {
-      targetId: target._id,
-      trackId: args.track.id,
-      error: describeSpotifyError(error),
-    });
-  }
-}
-
-export const pushToSpotify = internalAction({
-  args: {
-    partyId: v.id("parties"),
-    revision: v.number(),
-    /** The account whose Spotify client caused this change — do not echo back. */
-    skipAccountId: v.optional(v.id("spotifyAccounts")),
-    /** Push even if the track is unchanged (used when a device is first attached). */
-    force: v.optional(v.boolean()),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const snapshot = await ctx.runQuery(internal.party.getSyncSnapshot, {
-      partyId: args.partyId,
-    });
-    if (!snapshot || snapshot.party.closedAt !== undefined || !snapshot.playback) {
-      return null;
-    }
-    // A newer change already landed; that one will drive the devices instead.
-    if (!args.force && snapshot.playback.revision !== args.revision) {
-      return null;
-    }
-
-    const { track, queueIndex, isPlaying } = snapshot.playback;
-    if (!track) {
-      return null;
-    }
-    const uris = playbackUris(track, snapshot.queue, queueIndex);
-    if (uris.length === 0) {
-      return null;
-    }
-
-    const targets = snapshot.targets.filter(
-      (target) => target.accountId !== args.skipAccountId,
-    );
-    await Promise.all(
-      targets.map((target) =>
-        pushToTarget(ctx, target, { track, uris, isPlaying, force: args.force === true }),
-      ),
-    );
-    return null;
-  },
-});
 
 type Observation =
   | { kind: "error"; message: string }
   | { kind: "idle" }
-  | { kind: "state"; track: PartyTrack | null; isPlaying: boolean };
+  | { kind: "state"; track: PartyTrack | null; isPlaying: boolean; progressMs: number };
 
 async function observeTarget(ctx: ActionCtx, target: Target): Promise<Observation> {
   try {
@@ -142,6 +40,7 @@ async function observeTarget(ctx: ActionCtx, target: Target): Promise<Observatio
       kind: "state",
       track: spotifyTrackToPartyTrack(state.item),
       isPlaying: state.isPlaying,
+      progressMs: state.progressMs,
     };
   } catch (error) {
     return { kind: "error", message: describeSpotifyError(error) };
@@ -176,6 +75,15 @@ export const pollParty = internalAction({
     const partyTrackId = snapshot.playback?.track?.id ?? null;
     const partyPlaying = snapshot.playback?.isPlaying ?? false;
     const now = Date.now();
+    const partyPosition = snapshot.playback
+      ? estimatedPositionMs({
+          positionMs: snapshot.playback.positionMs ?? 0,
+          positionUpdatedAt: snapshot.playback.positionUpdatedAt ?? now,
+          isPlaying: partyPlaying,
+          now,
+          durationMs: snapshot.playback.track?.durationMs,
+        })
+      : 0;
     let applied = false;
 
     for (const target of snapshot.targets) {
@@ -200,11 +108,8 @@ export const pollParty = internalAction({
         trackId: observedTrack?.id,
       });
 
-      // The device may still be catching up with a push we just made.
-      if (now - target.lastPushedAt < SPOTIFY_PUSH_GRACE_MS) {
-        continue;
-      }
-      // Only the first change per tick wins; the rest get it via the push back.
+      // Only the first Spotify change per tick wins; JedFlix clients pick it up
+      // from party state.
       if (applied || !observedTrack) {
         continue;
       }
@@ -215,19 +120,21 @@ export const pollParty = internalAction({
           accountId: target.accountId,
           track: observedTrack,
           isPlaying: observation.isPlaying,
+          positionMs: observation.progressMs,
         });
         applied = true;
         continue;
       }
 
-      // Same track: a play/pause on the Spotify client counts, a stale idle
-      // device sitting on some other track does not.
-      if (observation.isPlaying !== partyPlaying) {
+      const positionChanged = shouldSyncPosition(observation.progressMs, partyPosition);
+      const playingChanged = observation.isPlaying !== partyPlaying;
+      if (positionChanged || playingChanged) {
         await ctx.runMutation(internal.party.applySpotifyChange, {
           partyId: args.partyId,
           accountId: target.accountId,
           track: observedTrack,
           isPlaying: observation.isPlaying,
+          positionMs: observation.progressMs,
         });
         applied = true;
       }

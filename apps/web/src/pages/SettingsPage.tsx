@@ -304,8 +304,8 @@ export function SettingsPage() {
               <CardHeader>
                 <CardTitle>Party mode</CardTitle>
                 <CardDescription className="text-zinc-400">
-                  Sync music playback across your devices and mirror it onto connected Spotify
-                  accounts.
+                  Sync music playback across JedFlix devices. Optionally follow a linked Spotify
+                  account (read-only — JedFlix never changes what Spotify is playing).
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">

@@ -7,7 +7,14 @@ import {
   type MusicQueueTrack,
 } from "@/components/player/music/MusicPlayerContext";
 import { getDeviceLabel, getPartyClientId } from "@/lib/partyClient";
-import { queueSignature, resolvePartySync, type PartySnapshot } from "@/lib/partySync";
+import {
+  estimatedPositionMs,
+  POSITION_SYNC_GRACE_MS,
+  queueSignature,
+  resolvePartySync,
+  shouldSyncPosition,
+  type PartySnapshot,
+} from "@/lib/partySync";
 
 const HEARTBEAT_INTERVAL_MS = 20_000;
 
@@ -39,6 +46,7 @@ export function PartyProvider({ children }: { children: ReactNode }) {
   const heartbeat = useMutation(api.party.heartbeat);
   const setTrack = useMutation(api.party.setTrack);
   const setPlaying = useMutation(api.party.setPlaying);
+  const setPosition = useMutation(api.party.setPosition);
 
   // The player context changes identity on every timeupdate, so read it through
   // a ref and keep the sync effect keyed to the fields that actually matter.
@@ -50,6 +58,16 @@ export function PartyProvider({ children }: { children: ReactNode }) {
     remote: null,
   });
   const queueSignatureRef = useRef<string | null>(null);
+  /** Skip reporting the next local currentTime jump — we caused it via apply. */
+  const suppressSeekReportRef = useRef(false);
+  /** Re-apply a remote seek once audio finishes loading (currentTime often resets). */
+  const pendingSeekSecRef = useRef<number | null>(null);
+  /** Last party position clock we already sought to, so we do not re-seek every tick. */
+  const lastAppliedPositionAtRef = useRef<number | null>(null);
+  const localTimeProbeRef = useRef<{ timeSec: number; wallMs: number }>({
+    timeSec: 0,
+    wallMs: Date.now(),
+  });
 
   const inParty = party !== null;
 
@@ -68,11 +86,24 @@ export function PartyProvider({ children }: { children: ReactNode }) {
   // That covers the silent gap after picking a track without letting a Spotify
   // pause get overwritten by a still-resolving audio load.
   const localPlaying = player.playing || (player.loading && (party?.isPlaying ?? true));
+  const localCurrentTime = player.currentTime;
+  const localLoading = player.loading;
+
+  const applyPartyPosition = useCallback((positionMs: number) => {
+    const activePlayer = playerRef.current;
+    const targetSec = Math.max(0, positionMs / 1000);
+    suppressSeekReportRef.current = true;
+    pendingSeekSecRef.current = targetSec;
+    activePlayer.seek(targetSec);
+    localTimeProbeRef.current = { timeSec: targetSec, wallMs: Date.now() };
+  }, []);
 
   useEffect(() => {
     if (!party) {
       baselineRef.current = { local: null, remote: null };
       queueSignatureRef.current = null;
+      lastAppliedPositionAtRef.current = null;
+      pendingSeekSecRef.current = null;
       return;
     }
 
@@ -103,6 +134,17 @@ export function PartyProvider({ children }: { children: ReactNode }) {
           // playTrack always starts audio, so record that as the expected local
           // state. If the party is paused the next pass will pause us.
           baselineRef.current.local = { trackId: party.track.id, playing: true };
+          const positionMs = estimatedPositionMs({
+            positionMs: party.positionMs,
+            positionUpdatedAt: party.positionUpdatedAt,
+            isPlaying: party.isPlaying,
+            now: Date.now(),
+            durationMs: party.track.durationMs,
+          });
+          lastAppliedPositionAtRef.current = party.positionUpdatedAt;
+          if (positionMs > 1_000) {
+            applyPartyPosition(positionMs);
+          }
         } else {
           activePlayer.pause();
         }
@@ -129,11 +171,118 @@ export function PartyProvider({ children }: { children: ReactNode }) {
         void setPlaying({ clientId, isPlaying: local.playing }).catch(() => undefined);
       }
     }
-  }, [clientId, localPlaying, localTrackId, party, setPlaying, setTrack]);
+  }, [
+    applyPartyPosition,
+    clientId,
+    localPlaying,
+    localTrackId,
+    party,
+    setPlaying,
+    setTrack,
+  ]);
+
+  // Seek to a remote position when the party clock moved and we drifted > 5s.
+  useEffect(() => {
+    if (!party?.track || localTrackId !== party.track.id) {
+      return;
+    }
+    if (lastAppliedPositionAtRef.current === party.positionUpdatedAt) {
+      return;
+    }
+
+    const now = Date.now();
+    const remoteMs = estimatedPositionMs({
+      positionMs: party.positionMs,
+      positionUpdatedAt: party.positionUpdatedAt,
+      isPlaying: party.isPlaying,
+      now,
+      durationMs: party.track.durationMs,
+    });
+    const localMs = Math.round(localCurrentTime * 1000);
+    if (!shouldSyncPosition(localMs, remoteMs)) {
+      lastAppliedPositionAtRef.current = party.positionUpdatedAt;
+      return;
+    }
+
+    lastAppliedPositionAtRef.current = party.positionUpdatedAt;
+    applyPartyPosition(remoteMs);
+  }, [
+    applyPartyPosition,
+    localCurrentTime,
+    localTrackId,
+    party?.isPlaying,
+    party?.positionMs,
+    party?.positionUpdatedAt,
+    party?.track,
+  ]);
+
+  // After a track load, re-apply any pending seek (HTMLAudio often resets to 0).
+  useEffect(() => {
+    if (localLoading || pendingSeekSecRef.current === null) {
+      return;
+    }
+    const targetSec = pendingSeekSecRef.current;
+    pendingSeekSecRef.current = null;
+    suppressSeekReportRef.current = true;
+    playerRef.current.seek(targetSec);
+    localTimeProbeRef.current = { timeSec: targetSec, wallMs: Date.now() };
+  }, [localLoading]);
+
+  // Detect local seeks (scrub / skip) and publish them when drift exceeds grace.
+  useEffect(() => {
+    if (!party?.track || localTrackId !== party.track.id) {
+      localTimeProbeRef.current = { timeSec: localCurrentTime, wallMs: Date.now() };
+      return;
+    }
+
+    const now = Date.now();
+    const prev = localTimeProbeRef.current;
+    const wallDelta = now - prev.wallMs;
+    const mediaDeltaMs = (localCurrentTime - prev.timeSec) * 1000;
+    localTimeProbeRef.current = { timeSec: localCurrentTime, wallMs: now };
+
+    if (suppressSeekReportRef.current) {
+      suppressSeekReportRef.current = false;
+      return;
+    }
+
+    const expectedDelta = localPlaying ? wallDelta : 0;
+    if (Math.abs(mediaDeltaMs - expectedDelta) <= POSITION_SYNC_GRACE_MS) {
+      return;
+    }
+
+    const positionMs = Math.round(localCurrentTime * 1000);
+    const remoteMs = estimatedPositionMs({
+      positionMs: party.positionMs,
+      positionUpdatedAt: party.positionUpdatedAt,
+      isPlaying: party.isPlaying,
+      now,
+      durationMs: party.track.durationMs,
+    });
+    if (!shouldSyncPosition(positionMs, remoteMs)) {
+      return;
+    }
+
+    lastAppliedPositionAtRef.current = null;
+    void setPosition({ clientId, positionMs }).catch(() => undefined);
+  }, [
+    clientId,
+    localCurrentTime,
+    localPlaying,
+    localTrackId,
+    party?.isPlaying,
+    party?.positionMs,
+    party?.positionUpdatedAt,
+    party?.track,
+    setPosition,
+  ]);
 
   const resetSyncBaseline = useCallback(() => {
     baselineRef.current = { local: null, remote: null };
     queueSignatureRef.current = null;
+    lastAppliedPositionAtRef.current = null;
+    pendingSeekSecRef.current = null;
+    suppressSeekReportRef.current = false;
   }, []);
 
   const createParty = useCallback(async () => {

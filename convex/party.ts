@@ -11,11 +11,13 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import {
+  estimatedPositionMs,
   generatePartyCode,
   isValidPartyCode,
   MEMBER_STALE_WINDOW_MS,
   normalizePartyCode,
   partyTrackValidator,
+  shouldSyncPosition,
   trimQueue,
   type PartyTrack,
 } from "./partyModel";
@@ -78,9 +80,9 @@ async function getQueue(
 // --- Shared write helpers ---------------------------------------------------
 
 /**
- * Applies a playback change, bumps the revision, and hands the result to the
- * Spotify bridge. The revision lets the scheduled push bail out if another
- * change lands first.
+ * Applies a playback change and bumps the revision. Spotify is read-only —
+ * we never push party state back to Spotify devices. JedFlix clients sync
+ * with each other through this document via `getState`.
  */
 async function commitPlayback(
   ctx: MutationCtx,
@@ -90,19 +92,45 @@ async function commitPlayback(
     track?: PartyTrack | undefined;
     queueIndex?: number;
     isPlaying?: boolean;
-    /** Account whose own Spotify report caused this change; it is not pushed back. */
-    originAccountId?: Id<"spotifyAccounts">;
+    /** Explicit seek / Spotify progress. When omitted, the clock is frozen at the estimated position. */
+    positionMs?: number;
   },
 ): Promise<void> {
   const existing = await getPlayback(ctx, args.partyId);
   const now = Date.now();
   const revision = (existing?.revision ?? 0) + 1;
 
+  const prevPlaying = existing?.isPlaying ?? false;
+  const nextTrack = args.track !== undefined ? args.track : existing?.track;
+  const trackChanged =
+    args.track !== undefined && (args.track?.id ?? null) !== (existing?.track?.id ?? null);
+  const nextPlaying = args.isPlaying ?? prevPlaying;
+
+  const estimated = estimatedPositionMs({
+    positionMs: existing?.positionMs ?? 0,
+    positionUpdatedAt: existing?.positionUpdatedAt ?? now,
+    isPlaying: prevPlaying,
+    now,
+    durationMs: existing?.track?.durationMs,
+  });
+
+  let positionMs: number;
+  if (args.positionMs !== undefined) {
+    positionMs = Math.max(0, args.positionMs);
+  } else if (trackChanged) {
+    positionMs = 0;
+  } else {
+    // Freeze the clock at the moment of this change so pause/resume stays accurate.
+    positionMs = estimated;
+  }
+
   const next = {
     partyId: args.partyId,
-    track: args.track !== undefined ? args.track : existing?.track,
+    track: nextTrack,
     queueIndex: args.queueIndex ?? existing?.queueIndex ?? -1,
-    isPlaying: args.isPlaying ?? existing?.isPlaying ?? false,
+    isPlaying: nextPlaying,
+    positionMs,
+    positionUpdatedAt: now,
     revision,
     updatedBy: args.updatedBy,
     updatedAt: now,
@@ -113,12 +141,6 @@ async function commitPlayback(
   } else {
     await ctx.db.insert("partyPlayback", next);
   }
-
-  await ctx.scheduler.runAfter(0, internal.partySync.pushToSpotify, {
-    partyId: args.partyId,
-    revision,
-    skipAccountId: args.originAccountId,
-  });
 }
 
 /**
@@ -204,6 +226,8 @@ export const getState = query({
       queue: v.array(partyTrackValidator),
       queueIndex: v.number(),
       isPlaying: v.boolean(),
+      positionMs: v.number(),
+      positionUpdatedAt: v.number(),
       revision: v.number(),
       updatedBy: v.string(),
       members: v.array(memberValidator),
@@ -281,6 +305,8 @@ export const getState = query({
       queue: queueDoc?.tracks ?? [],
       queueIndex: playback?.queueIndex ?? -1,
       isPlaying: playback?.isPlaying ?? false,
+      positionMs: playback?.positionMs ?? 0,
+      positionUpdatedAt: playback?.positionUpdatedAt ?? playback?.updatedAt ?? 0,
       revision: playback?.revision ?? 0,
       updatedBy: playback?.updatedBy ?? "",
       members,
@@ -335,6 +361,8 @@ export const create = mutation({
       partyId,
       queueIndex: -1,
       isPlaying: false,
+      positionMs: 0,
+      positionUpdatedAt: now,
       revision: 0,
       updatedBy: `member:${args.clientId}`,
       updatedAt: now,
@@ -464,6 +492,7 @@ export const setTrack = mutation({
       track: args.track,
       queueIndex: args.queueIndex,
       isPlaying: true,
+      positionMs: 0,
     });
     await ensurePolling(ctx, party);
     return null;
@@ -488,12 +517,41 @@ export const setPlaying = mutation({
   },
 });
 
+/** Reports a seek. Ignored when the offset is still within the 5s grace window. */
+export const setPosition = mutation({
+  args: { clientId: v.string(), positionMs: v.number() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { member } = await requireMembership(ctx, args.clientId);
+    const playback = await getPlayback(ctx, member.partyId);
+    if (!playback?.track) {
+      return null;
+    }
+    const now = Date.now();
+    const estimated = estimatedPositionMs({
+      positionMs: playback.positionMs ?? 0,
+      positionUpdatedAt: playback.positionUpdatedAt ?? now,
+      isPlaying: playback.isPlaying,
+      now,
+      durationMs: playback.track.durationMs,
+    });
+    const nextPosition = Math.max(0, Math.min(args.positionMs, playback.track.durationMs || args.positionMs));
+    if (!shouldSyncPosition(nextPosition, estimated)) {
+      return null;
+    }
+    await commitPlayback(ctx, {
+      partyId: member.partyId,
+      updatedBy: `member:${args.clientId}`,
+      positionMs: nextPosition,
+    });
+    return null;
+  },
+});
+
 export const setSpotifyTarget = mutation({
   args: {
     clientId: v.string(),
     enabled: v.boolean(),
-    deviceId: v.optional(v.union(v.string(), v.null())),
-    deviceName: v.optional(v.union(v.string(), v.null())),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -514,15 +572,10 @@ export const setSpotifyTarget = mutation({
       .unique();
 
     const now = Date.now();
-    const deviceId = args.deviceId === undefined ? existing?.deviceId : (args.deviceId ?? undefined);
-    const deviceName =
-      args.deviceName === undefined ? existing?.deviceName : (args.deviceName ?? undefined);
 
     if (existing) {
       await ctx.db.patch(existing._id, {
         enabled: args.enabled,
-        deviceId,
-        deviceName,
         lastError: undefined,
         updatedAt: now,
       });
@@ -532,24 +585,14 @@ export const setSpotifyTarget = mutation({
         accountId: account._id,
         userId,
         enabled: args.enabled,
-        deviceId,
-        deviceName,
         lastPushedAt: 0,
         updatedAt: now,
       });
     }
 
     if (args.enabled) {
+      // Start watching this account's Spotify playback — never controlling it.
       await ensurePolling(ctx, party);
-      // Hand the device whatever the party is already playing.
-      const playback = await getPlayback(ctx, member.partyId);
-      if (playback?.track) {
-        await ctx.scheduler.runAfter(0, internal.partySync.pushToSpotify, {
-          partyId: member.partyId,
-          revision: playback.revision,
-          force: true,
-        });
-      }
     }
     return null;
   },
@@ -599,29 +642,6 @@ export const sweepParty = internalMutation({
   },
 });
 
-export const recordPush = internalMutation({
-  args: {
-    targetId: v.id("partySpotifyTargets"),
-    trackId: v.optional(v.string()),
-    error: v.optional(v.string()),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const target = await ctx.db.get(args.targetId);
-    if (!target) {
-      return null;
-    }
-    await ctx.db.patch(args.targetId, {
-      lastPushedTrackId: args.trackId ?? target.lastPushedTrackId,
-      lastPushedAt: Date.now(),
-      lastObservedTrackId: args.trackId ?? target.lastObservedTrackId,
-      lastError: args.error,
-      updatedAt: Date.now(),
-    });
-    return null;
-  },
-});
-
 export const recordObservation = internalMutation({
   args: {
     targetId: v.id("partySpotifyTargets"),
@@ -650,6 +670,7 @@ export const applySpotifyChange = internalMutation({
     accountId: v.id("spotifyAccounts"),
     track: v.optional(partyTrackValidator),
     isPlaying: v.boolean(),
+    positionMs: v.optional(v.number()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -691,7 +712,7 @@ export const applySpotifyChange = internalMutation({
       track: args.track,
       queueIndex,
       isPlaying: args.isPlaying,
-      originAccountId: args.accountId,
+      positionMs: args.positionMs,
     });
     return null;
   },

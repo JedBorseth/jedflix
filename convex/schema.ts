@@ -105,6 +105,10 @@ export default defineSchema({
     // Index into partyQueue.tracks, or -1 when the track came from outside the queue.
     queueIndex: v.number(),
     isPlaying: v.boolean(),
+    /** Playback offset that was correct at `positionUpdatedAt`. */
+    positionMs: v.optional(v.number()),
+    /** Wall clock for `positionMs`; advance while `isPlaying` on the client. */
+    positionUpdatedAt: v.optional(v.number()),
     // Monotonic; lets a scheduled Spotify push detect that it has been superseded.
     revision: v.number(),
     // "member:<clientId>" or "spotify:<accountId>" — used to skip echoes.

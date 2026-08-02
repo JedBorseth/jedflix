@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { resolvePartySync, type PartySnapshot } from "@/lib/partySync";
+import {
+  estimatedPositionMs,
+  resolvePartySync,
+  shouldSyncPosition,
+  type PartySnapshot,
+} from "@/lib/partySync";
 
 const idle: PartySnapshot = { trackId: null, playing: false };
 const playingA: PartySnapshot = { trackId: "a", playing: true };
@@ -132,5 +137,34 @@ describe("resolvePartySync", () => {
       lastRemote: idle,
     });
     expect(decision.action).toBe("push");
+  });
+});
+
+describe("position sync", () => {
+  test("advances position while playing", () => {
+    expect(
+      estimatedPositionMs({
+        positionMs: 10_000,
+        positionUpdatedAt: 1_000,
+        isPlaying: true,
+        now: 4_000,
+      }),
+    ).toBe(13_000);
+  });
+
+  test("freezes position while paused", () => {
+    expect(
+      estimatedPositionMs({
+        positionMs: 10_000,
+        positionUpdatedAt: 1_000,
+        isPlaying: false,
+        now: 4_000,
+      }),
+    ).toBe(10_000);
+  });
+
+  test("ignores drifts within the 5s grace window", () => {
+    expect(shouldSyncPosition(60_000, 64_000)).toBe(false);
+    expect(shouldSyncPosition(60_000, 65_001)).toBe(true);
   });
 });

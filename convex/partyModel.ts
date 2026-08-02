@@ -30,13 +30,39 @@ export const PARTY_CODE_LENGTH = 6;
 /** Queue is stored as one array; capped so the document stays well under 1MB. */
 export const MAX_PARTY_QUEUE = 100;
 
-/** Number of upcoming tracks handed to Spotify so it has playback context. */
-export const SPOTIFY_CONTEXT_TRACKS = 20;
-
-/** Ignore polled Spotify state this long after a push — the device lags behind. */
-export const SPOTIFY_PUSH_GRACE_MS = 6_000;
+/**
+ * Position is considered in sync within this window. Larger drifts from a seek
+ * (JedFlix or Spotify) are mirrored to the rest of the party.
+ */
+export const POSITION_SYNC_GRACE_MS = 5_000;
 
 export const PARTY_POLL_INTERVAL_MS = 2_500;
+
+/** Wall-clock advance of a stored playback position. */
+export function estimatedPositionMs(args: {
+  positionMs: number;
+  positionUpdatedAt: number;
+  isPlaying: boolean;
+  now: number;
+  durationMs?: number;
+}): number {
+  let position = Math.max(0, args.positionMs);
+  if (args.isPlaying) {
+    position += Math.max(0, args.now - args.positionUpdatedAt);
+  }
+  if (args.durationMs !== undefined && args.durationMs > 0) {
+    position = Math.min(position, args.durationMs);
+  }
+  return position;
+}
+
+export function shouldSyncPosition(
+  localMs: number,
+  remoteMs: number,
+  graceMs: number = POSITION_SYNC_GRACE_MS,
+): boolean {
+  return Math.abs(localMs - remoteMs) > graceMs;
+}
 
 /** A member that has not sent a heartbeat within this window is treated as gone. */
 export const MEMBER_ONLINE_WINDOW_MS = 45_000;

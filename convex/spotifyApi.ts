@@ -11,13 +11,13 @@ const AUTH_BASE = "https://accounts.spotify.com";
 const API_BASE = "https://api.spotify.com/v1";
 
 /**
- * Playback control needs the modify scope; the poller needs the read scopes.
- * `user-read-private` is only used to label the linked account in the UI.
+ * Playback observation needs the read scopes. JedFlix never modifies Spotify
+ * playback — party mode only mirrors what a linked account is already playing.
+ * `user-read-private` is used to label the linked account in the UI.
  */
 export const SPOTIFY_SCOPES = [
   "user-read-private",
   "user-read-playback-state",
-  "user-modify-playback-state",
   "user-read-currently-playing",
 ].join(" ");
 
@@ -26,14 +26,6 @@ export type SpotifyTokens = {
   refreshToken: string | null;
   expiresAt: number;
   scope: string;
-};
-
-export type SpotifyDevice = {
-  id: string;
-  name: string;
-  type: string;
-  isActive: boolean;
-  isRestricted: boolean;
 };
 
 export type SpotifyPlaybackState = {
@@ -188,31 +180,6 @@ export async function getProfile(accessToken: string): Promise<SpotifyProfile> {
   };
 }
 
-export async function listDevices(accessToken: string): Promise<SpotifyDevice[]> {
-  const response = await apiFetch(accessToken, "/me/player/devices");
-  if (!response.ok) {
-    throw new SpotifyApiError(response.status, await readError(response));
-  }
-  const body = (await response.json()) as {
-    devices?: Array<{
-      id?: string | null;
-      name?: string;
-      type?: string;
-      is_active?: boolean;
-      is_restricted?: boolean;
-    }>;
-  };
-  return (body.devices ?? [])
-    .filter((device): device is { id: string } & typeof device => Boolean(device.id))
-    .map((device) => ({
-      id: device.id,
-      name: device.name ?? "Spotify device",
-      type: device.type ?? "Unknown",
-      isActive: device.is_active === true,
-      isRestricted: device.is_restricted === true,
-    }));
-}
-
 /** Returns null when Spotify reports no active playback session (HTTP 204). */
 export async function getPlaybackState(
   accessToken: string,
@@ -238,52 +205,14 @@ export async function getPlaybackState(
   };
 }
 
-function withDevice(path: string, deviceId?: string): string {
-  return deviceId ? `${path}?device_id=${encodeURIComponent(deviceId)}` : path;
-}
-
-export async function startPlayback(
-  accessToken: string,
-  args: { uris: string[]; deviceId?: string },
-): Promise<void> {
-  const response = await apiFetch(accessToken, withDevice("/me/player/play", args.deviceId), {
-    method: "PUT",
-    body: { uris: args.uris },
-  });
-  if (!response.ok && response.status !== 204) {
-    throw new SpotifyApiError(response.status, await readError(response));
-  }
-}
-
-export async function resumePlayback(accessToken: string, deviceId?: string): Promise<void> {
-  const response = await apiFetch(accessToken, withDevice("/me/player/play", deviceId), {
-    method: "PUT",
-  });
-  // Spotify answers 403 "restriction violated" when the device is already
-  // playing, which is the state we wanted anyway.
-  if (!response.ok && response.status !== 204 && response.status !== 403) {
-    throw new SpotifyApiError(response.status, await readError(response));
-  }
-}
-
-export async function pausePlayback(accessToken: string, deviceId?: string): Promise<void> {
-  const response = await apiFetch(accessToken, withDevice("/me/player/pause", deviceId), {
-    method: "PUT",
-  });
-  // 403 here usually means "already paused", which is not worth surfacing.
-  if (!response.ok && response.status !== 204 && response.status !== 403) {
-    throw new SpotifyApiError(response.status, await readError(response));
-  }
-}
-
-/** Turns a raw API failure into something worth showing next to a device picker. */
+/** Turns a raw API failure into something worth showing in the party UI. */
 export function describeSpotifyError(error: unknown): string {
   if (error instanceof SpotifyApiError) {
     if (error.status === 404) {
-      return "No active Spotify device. Open Spotify and start playing something once.";
+      return "No active Spotify playback. Open Spotify and start playing something.";
     }
     if (error.status === 403) {
-      return "Spotify rejected the request. Playback control requires Spotify Premium.";
+      return "Spotify rejected the request.";
     }
     if (error.status === 429) {
       return "Spotify rate limit reached. Retrying shortly.";
