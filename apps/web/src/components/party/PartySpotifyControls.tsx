@@ -7,9 +7,9 @@ import { useSpotifyLink } from "@/components/party/useSpotifyLink";
 import { Button } from "@/components/ui/button";
 
 /**
- * Spotify follow controls inside the party panel. Linked accounts are read-only
- * sources: JedFlix mirrors whatever they are already playing, and never changes
- * Spotify playback. Other members' follows are shown read-only.
+ * Spotify follow controls inside the party panel. Linked accounts stay the
+ * source of track/seek; JedFlix mirrors what they play and can pause/resume
+ * them. Other members' follows are shown read-only.
  */
 export function PartySpotifyControls({
   party,
@@ -55,7 +55,7 @@ export function PartySpotifyControls({
             <div className="min-w-0">
               <p className="truncate text-sm font-medium text-white">{account.displayName}</p>
               <p className="text-xs text-zinc-500">
-                Follow this account — JedFlix plays what Spotify plays
+                Follow this account — tracks come from Spotify; pause/play syncs both ways
               </p>
             </div>
             <Button
@@ -70,8 +70,8 @@ export function PartySpotifyControls({
 
           {myTarget?.enabled ? (
             <p className="text-xs text-zinc-500">
-              Open Spotify and play something. The party will follow track, pause, and
-              position (within 5s). JedFlix never changes what Spotify is playing.
+              Spotify picks the song and seek position. Pausing or playing on JedFlix
+              pauses or resumes Spotify (Premium required), and the reverse works too.
             </p>
           ) : null}
 
@@ -83,8 +83,8 @@ export function PartySpotifyControls({
       ) : (
         <div className="space-y-2 rounded-lg border border-zinc-800 bg-zinc-950/60 p-3">
           <p className="text-sm text-zinc-300">
-            Connect Spotify to follow what it is playing in this party. JedFlix will not
-            control or change Spotify playback.
+            Connect Spotify so the party can follow its track and position. JedFlix can
+            pause and resume Spotify, but will not change which song is playing.
           </p>
           <Button
             type="button"

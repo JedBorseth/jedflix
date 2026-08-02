@@ -454,8 +454,9 @@ func (r *Resolver) extractStream(ctx context.Context, entry *searchEntry) (*Stre
 		return nil, ErrNotFound
 	}
 
-	// Prefer m4a/AAC for iOS Safari / PWA HTML5 audio.
-	format := "bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/bestaudio[acodec*=mp4a]/bestaudio[ext=mp4]/bestaudio/best"
+	// Prefer AAC/MP4/MP3 for HTML5 audio (Safari/iOS reject webm/opus).
+	// Avoid bare "bestaudio/best" — that often returns Opus and breaks the player.
+	format := "bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/bestaudio[acodec*=mp4a]/bestaudio[ext=mp4]/bestaudio[ext=mp3]/bestaudio[acodec*=mp3]/bestaudio[acodec*=aac]"
 	args := append(r.commonArgs(),
 		"--no-playlist",
 		"-f", format,
@@ -490,14 +491,21 @@ func (r *Resolver) extractStream(ctx context.Context, entry *searchEntry) (*Stre
 	streamURL := payload.URL
 	ext := payload.Ext
 	acodec := payload.ACodec
+	if streamURL != "" && !isBrowserSafeAudio(ext, acodec) {
+		streamURL = ""
+	}
 	if streamURL == "" {
 		for _, f := range payload.RequestedFormats {
-			if f.URL != "" && (f.Vcodec == "" || f.Vcodec == "none") {
-				streamURL = f.URL
-				ext = f.Ext
-				acodec = f.ACodec
-				break
+			if f.URL == "" || (f.Vcodec != "" && f.Vcodec != "none") {
+				continue
 			}
+			if !isBrowserSafeAudio(f.Ext, f.ACodec) {
+				continue
+			}
+			streamURL = f.URL
+			ext = f.Ext
+			acodec = f.ACodec
+			break
 		}
 	}
 	if streamURL == "" {
@@ -511,16 +519,19 @@ func (r *Resolver) extractStream(ctx context.Context, entry *searchEntry) (*Stre
 			if strings.Contains(f.Protocol, "m3u8") {
 				continue
 			}
+			if !isBrowserSafeAudio(f.Ext, f.ACodec) {
+				continue
+			}
 			streamURL = f.URL
 			ext = f.Ext
 			acodec = f.ACodec
-			if ext == "m4a" || strings.Contains(acodec, "mp4a") {
+			if f.Ext == "m4a" || strings.Contains(f.ACodec, "mp4a") {
 				break
 			}
 		}
 	}
 	if streamURL == "" {
-		return nil, ErrNotFound
+		return nil, fmt.Errorf("%w: no browser-compatible audio format (need m4a/mp3/aac)", ErrNotFound)
 	}
 
 	videoID := payload.ID
@@ -545,7 +556,7 @@ func contentTypeFor(ext, acodec string) string {
 	ext = strings.ToLower(ext)
 	acodec = strings.ToLower(acodec)
 	switch {
-	case ext == "m4a" || ext == "mp4" || strings.Contains(acodec, "mp4a"):
+	case ext == "m4a" || ext == "mp4" || strings.Contains(acodec, "mp4a") || strings.Contains(acodec, "aac"):
 		return "audio/mp4"
 	case ext == "webm" || strings.Contains(acodec, "opus") || strings.Contains(acodec, "vorbis"):
 		return "audio/webm"
@@ -556,6 +567,21 @@ func contentTypeFor(ext, acodec string) string {
 	default:
 		return "application/octet-stream"
 	}
+}
+
+// isBrowserSafeAudio reports formats HTML5 <audio> can play on Safari/iOS/Chrome.
+func isBrowserSafeAudio(ext, acodec string) bool {
+	ext = strings.ToLower(strings.TrimSpace(ext))
+	acodec = strings.ToLower(strings.TrimSpace(acodec))
+	if ext == "webm" || ext == "ogg" || strings.Contains(acodec, "opus") || strings.Contains(acodec, "vorbis") {
+		return false
+	}
+	if ext == "m4a" || ext == "mp4" || ext == "mp3" {
+		return true
+	}
+	return strings.Contains(acodec, "mp4a") ||
+		strings.Contains(acodec, "aac") ||
+		strings.Contains(acodec, "mp3")
 }
 
 func normalizeText(value string) string {

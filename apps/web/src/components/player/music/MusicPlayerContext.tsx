@@ -156,16 +156,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     setDuration(catalogSec);
     audio.src = src;
     audio.load();
-    void playMediaElement(audio).then((playError) => {
-      if (playError) {
-        setError(playError.message);
-        playIntentRef.current = false;
-        setPlaying(false);
-        setLoading(false);
-        return;
-      }
-      setPlaying(true);
-    });
+    // Do not call play() here — eager play races the stream resolve and leaves
+    // the element in MEDIA_ERR_SRC_NOT_SUPPORTED, after which play() throws
+    // "The operation is not supported". onLoadedMetadata starts playback.
   }, []);
 
   const playTrack = useCallback(
@@ -289,6 +282,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     if (!audio || !current) {
       return;
     }
+    // A previous MEDIA_ERR_SRC_NOT_SUPPORTED leaves the element dead — calling
+    // play() again throws "The operation is not supported". Reload the stream.
+    if (audio.error || !audio.src) {
+      loadAndPlay(current);
+      return;
+    }
     playIntentRef.current = true;
     void playMediaElement(audio).then((playError) => {
       if (playError) {
@@ -300,7 +299,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       setPlaying(true);
       setError(null);
     });
-  }, [current]);
+  }, [current, loadAndPlay]);
 
   const toggle = useCallback(() => {
     if (playing) {
@@ -527,7 +526,16 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           playIntentRef.current = false;
           setPlaying(false);
           setLoading(false);
-          void resolveStreamServerAudioError(event.currentTarget).then(setError);
+          void resolveStreamServerAudioError(event.currentTarget).then((message) => {
+            // Normalize the cryptic NotSupportedError that follows code 4.
+            if (/operation is not supported/i.test(message)) {
+              setError(
+                "This stream format is not supported in your browser. Try another source. (media error code 4).",
+              );
+              return;
+            }
+            setError(message);
+          });
         }}
         onEnded={() => {
           if (queueIndex < queue.length - 1) {

@@ -51,6 +51,21 @@ func TestContentTypeFor(t *testing.T) {
 	}
 }
 
+func TestIsBrowserSafeAudio(t *testing.T) {
+	if !isBrowserSafeAudio("m4a", "mp4a.40.2") {
+		t.Fatal("m4a should be safe")
+	}
+	if !isBrowserSafeAudio("mp3", "mp3") {
+		t.Fatal("mp3 should be safe")
+	}
+	if isBrowserSafeAudio("webm", "opus") {
+		t.Fatal("webm/opus is not Safari-safe")
+	}
+	if isBrowserSafeAudio("ogg", "vorbis") {
+		t.Fatal("ogg/vorbis is not Safari-safe")
+	}
+}
+
 func TestNormalizeText(t *testing.T) {
 	got := normalizeText("  Karma-Police (Official Audio)! ")
 	if got != "karma police official audio" {

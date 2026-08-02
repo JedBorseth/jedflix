@@ -80,9 +80,9 @@ async function getQueue(
 // --- Shared write helpers ---------------------------------------------------
 
 /**
- * Applies a playback change and bumps the revision. Spotify is read-only —
- * we never push party state back to Spotify devices. JedFlix clients sync
- * with each other through this document via `getState`.
+ * Applies a playback change and bumps the revision. Track and seek stay
+ * Spotify-owned when following; JedFlix only pushes pause/resume to linked
+ * Spotify accounts. JedFlix clients sync with each other via `getState`.
  */
 async function commitPlayback(
   ctx: MutationCtx,
@@ -105,6 +105,7 @@ async function commitPlayback(
   const trackChanged =
     args.track !== undefined && (args.track?.id ?? null) !== (existing?.track?.id ?? null);
   const nextPlaying = args.isPlaying ?? prevPlaying;
+  const playingChanged = args.isPlaying !== undefined && args.isPlaying !== prevPlaying;
 
   const estimated = estimatedPositionMs({
     positionMs: existing?.positionMs ?? 0,
@@ -140,6 +141,15 @@ async function commitPlayback(
     await ctx.db.replace(existing._id, next);
   } else {
     await ctx.db.insert("partyPlayback", next);
+  }
+
+  // Only JedFlix-originated play/pause is mirrored to Spotify — never tracks or seeks.
+  if (playingChanged && !args.updatedBy.startsWith("spotify:")) {
+    await ctx.scheduler.runAfter(0, internal.partySync.pushPlayStateToSpotify, {
+      partyId: args.partyId,
+      revision,
+      isPlaying: nextPlaying,
+    });
   }
 }
 
@@ -591,7 +601,7 @@ export const setSpotifyTarget = mutation({
     }
 
     if (args.enabled) {
-      // Start watching this account's Spotify playback — never controlling it.
+      // Watch Spotify for track/position and allow JedFlix pause/play to reach it.
       await ensurePolling(ctx, party);
     }
     return null;
@@ -638,6 +648,26 @@ export const sweepParty = internalMutation({
   handler: async (ctx, args) => {
     await pruneStaleMembers(ctx, args.partyId);
     await closePartyIfEmpty(ctx, args.partyId);
+    return null;
+  },
+});
+
+export const recordPlayPush = internalMutation({
+  args: {
+    targetId: v.id("partySpotifyTargets"),
+    error: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const target = await ctx.db.get(args.targetId);
+    if (!target) {
+      return null;
+    }
+    await ctx.db.patch(args.targetId, {
+      lastPushedAt: Date.now(),
+      lastError: args.error,
+      updatedAt: Date.now(),
+    });
     return null;
   },
 });

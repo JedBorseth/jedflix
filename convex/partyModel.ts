@@ -36,6 +36,9 @@ export const MAX_PARTY_QUEUE = 100;
  */
 export const POSITION_SYNC_GRACE_MS = 5_000;
 
+/** Ignore polled Spotify play/pause briefly after we push pause/resume. */
+export const SPOTIFY_PUSH_GRACE_MS = 6_000;
+
 export const PARTY_POLL_INTERVAL_MS = 2_500;
 
 /** Wall-clock advance of a stored playback position. */

@@ -1,10 +1,10 @@
 /**
- * Spotify → party bridge (read-only).
+ * Spotify ↔ party bridge for follow mode.
  *
- * JedFlix never controls Spotify playback. `pollParty` watches
- * `GET /me/player` on linked accounts and writes what it sees into the party
- * so every JedFlix client can follow along. JedFlix ↔ JedFlix sync is handled
- * separately by party mutations + client subscriptions.
+ * - Spotify → JedFlix: `pollParty` watches `/me/player` and applies track,
+ *   play/pause, and position into the party (JedFlix never picks Spotify's song).
+ * - JedFlix → Spotify: only pause/resume via `pushPlayStateToSpotify`. Track
+ *   changes and seeks are not pushed.
  */
 
 import { v } from "convex/values";
@@ -15,12 +15,18 @@ import {
   estimatedPositionMs,
   MEMBER_STALE_WINDOW_MS,
   PARTY_POLL_INTERVAL_MS,
+  SPOTIFY_PUSH_GRACE_MS,
   shouldSyncPosition,
   spotifyTrackToPartyTrack,
   type PartyTrack,
 } from "./partyModel";
 import { ensureAccessToken } from "./spotify";
-import { describeSpotifyError, getPlaybackState } from "./spotifyApi";
+import {
+  describeSpotifyError,
+  getPlaybackState,
+  pausePlayback,
+  resumePlayback,
+} from "./spotifyApi";
 
 type Target = Doc<"partySpotifyTargets">;
 
@@ -46,6 +52,47 @@ async function observeTarget(ctx: ActionCtx, target: Target): Promise<Observatio
     return { kind: "error", message: describeSpotifyError(error) };
   }
 }
+
+/** Pause or resume linked Spotify players to match the party — never change track. */
+export const pushPlayStateToSpotify = internalAction({
+  args: {
+    partyId: v.id("parties"),
+    revision: v.number(),
+    isPlaying: v.boolean(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const snapshot = await ctx.runQuery(internal.party.getSyncSnapshot, {
+      partyId: args.partyId,
+    });
+    if (!snapshot || snapshot.party.closedAt !== undefined || !snapshot.playback) {
+      return null;
+    }
+    if (snapshot.playback.revision !== args.revision) {
+      return null;
+    }
+
+    await Promise.all(
+      snapshot.targets.map(async (target) => {
+        try {
+          const accessToken = await ensureAccessToken(ctx, target.accountId);
+          if (args.isPlaying) {
+            await resumePlayback(accessToken, target.deviceId);
+          } else {
+            await pausePlayback(accessToken, target.deviceId);
+          }
+          await ctx.runMutation(internal.party.recordPlayPush, { targetId: target._id });
+        } catch (error) {
+          await ctx.runMutation(internal.party.recordPlayPush, {
+            targetId: target._id,
+            error: describeSpotifyError(error),
+          });
+        }
+      }),
+    );
+    return null;
+  },
+});
 
 export const pollParty = internalAction({
   args: { partyId: v.id("parties"), generation: v.number() },
@@ -107,6 +154,11 @@ export const pollParty = internalAction({
         targetId: target._id,
         trackId: observedTrack?.id,
       });
+
+      // Device may still be catching up after a JedFlix pause/resume push.
+      if (now - target.lastPushedAt < SPOTIFY_PUSH_GRACE_MS) {
+        continue;
+      }
 
       // Only the first Spotify change per tick wins; JedFlix clients pick it up
       // from party state.

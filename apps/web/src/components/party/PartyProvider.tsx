@@ -64,6 +64,8 @@ export function PartyProvider({ children }: { children: ReactNode }) {
   const pendingSeekSecRef = useRef<number | null>(null);
   /** Last party position clock we already sought to, so we do not re-seek every tick. */
   const lastAppliedPositionAtRef = useRef<number | null>(null);
+  /** Track id whose stream failed — do not retry play() or broadcast a pause for it. */
+  const failedTrackIdRef = useRef<string | null>(null);
   const localTimeProbeRef = useRef<{ timeSec: number; wallMs: number }>({
     timeSec: 0,
     wallMs: Date.now(),
@@ -82,6 +84,7 @@ export function PartyProvider({ children }: { children: ReactNode }) {
   }, [clientId, heartbeat, inParty]);
 
   const localTrackId = player.current?.id ?? null;
+  const playerError = player.error;
   // Count `loading` as playing only while the party itself is still playing.
   // That covers the silent gap after picking a track without letting a Spotify
   // pause get overwritten by a still-resolving audio load.
@@ -89,13 +92,23 @@ export function PartyProvider({ children }: { children: ReactNode }) {
   const localCurrentTime = player.currentTime;
   const localLoading = player.loading;
 
-  const applyPartyPosition = useCallback((positionMs: number) => {
-    const activePlayer = playerRef.current;
+  useEffect(() => {
+    if (playerError && localTrackId) {
+      failedTrackIdRef.current = localTrackId;
+    } else if (!playerError && player.playing) {
+      failedTrackIdRef.current = null;
+    }
+  }, [localTrackId, player.playing, playerError]);
+
+  const applyPartyPosition = useCallback((positionMs: number, opts?: { immediate?: boolean }) => {
     const targetSec = Math.max(0, positionMs / 1000);
     suppressSeekReportRef.current = true;
     pendingSeekSecRef.current = targetSec;
-    activePlayer.seek(targetSec);
-    localTimeProbeRef.current = { timeSec: targetSec, wallMs: Date.now() };
+    // Seeking before the element has a playable source throws / marks it broken.
+    if (opts?.immediate !== false && !playerRef.current.loading) {
+      playerRef.current.seek(targetSec);
+      localTimeProbeRef.current = { timeSec: targetSec, wallMs: Date.now() };
+    }
   }, []);
 
   useEffect(() => {
@@ -104,11 +117,18 @@ export function PartyProvider({ children }: { children: ReactNode }) {
       queueSignatureRef.current = null;
       lastAppliedPositionAtRef.current = null;
       pendingSeekSecRef.current = null;
+      failedTrackIdRef.current = null;
       return;
     }
 
     const activePlayer = playerRef.current;
-    const local: PartySnapshot = { trackId: localTrackId, playing: localPlaying };
+    const failedTrack = failedTrackIdRef.current === localTrackId && localTrackId !== null;
+    // Treat a failed stream as still "on" the party track for sync decisions so we
+    // neither push a fake pause nor keep re-applying play() on a dead source.
+    const local: PartySnapshot = {
+      trackId: localTrackId,
+      playing: failedTrack ? party.isPlaying : localPlaying,
+    };
     const remote: PartySnapshot = {
       trackId: party.track?.id ?? null,
       playing: party.isPlaying,
@@ -129,6 +149,7 @@ export function PartyProvider({ children }: { children: ReactNode }) {
           const queue = party.queue.some((track) => track.id === party.track!.id)
             ? party.queue
             : [party.track, ...party.queue];
+          failedTrackIdRef.current = null;
           activePlayer.playTrack(party.track, queue);
           queueSignatureRef.current = queueSignature(queue.map((track) => track.id));
           // playTrack always starts audio, so record that as the expected local
@@ -143,12 +164,18 @@ export function PartyProvider({ children }: { children: ReactNode }) {
           });
           lastAppliedPositionAtRef.current = party.positionUpdatedAt;
           if (positionMs > 1_000) {
-            applyPartyPosition(positionMs);
+            // Defer seek until the new source can play — immediate seek on a
+            // loading/failed element contributes to "operation is not supported".
+            applyPartyPosition(positionMs, { immediate: false });
           }
         } else {
           activePlayer.pause();
         }
       } else if (remote.playing) {
+        if (failedTrackIdRef.current === remote.trackId) {
+          // Stream already failed for this track; wait for Spotify/party to move on.
+          return;
+        }
         activePlayer.play();
       } else {
         activePlayer.pause();
@@ -167,6 +194,9 @@ export function PartyProvider({ children }: { children: ReactNode }) {
           queueIndex: activePlayer.queueIndex,
           queue: queueChanged ? activePlayer.queue.map(toPartyTrack) : undefined,
         }).catch(() => undefined);
+      } else if (failedTrack) {
+        // Our YouTube stream failed — do not pause the whole party / Spotify.
+        return;
       } else {
         void setPlaying({ clientId, isPlaying: local.playing }).catch(() => undefined);
       }
@@ -177,6 +207,7 @@ export function PartyProvider({ children }: { children: ReactNode }) {
     localPlaying,
     localTrackId,
     party,
+    playerError,
     setPlaying,
     setTrack,
   ]);
@@ -184,6 +215,9 @@ export function PartyProvider({ children }: { children: ReactNode }) {
   // Seek to a remote position when the party clock moved and we drifted > 5s.
   useEffect(() => {
     if (!party?.track || localTrackId !== party.track.id) {
+      return;
+    }
+    if (failedTrackIdRef.current === party.track.id) {
       return;
     }
     if (lastAppliedPositionAtRef.current === party.positionUpdatedAt) {
@@ -205,10 +239,11 @@ export function PartyProvider({ children }: { children: ReactNode }) {
     }
 
     lastAppliedPositionAtRef.current = party.positionUpdatedAt;
-    applyPartyPosition(remoteMs);
+    applyPartyPosition(remoteMs, { immediate: !localLoading });
   }, [
     applyPartyPosition,
     localCurrentTime,
+    localLoading,
     localTrackId,
     party?.isPlaying,
     party?.positionMs,
@@ -221,12 +256,16 @@ export function PartyProvider({ children }: { children: ReactNode }) {
     if (localLoading || pendingSeekSecRef.current === null) {
       return;
     }
+    if (failedTrackIdRef.current && failedTrackIdRef.current === localTrackId) {
+      pendingSeekSecRef.current = null;
+      return;
+    }
     const targetSec = pendingSeekSecRef.current;
     pendingSeekSecRef.current = null;
     suppressSeekReportRef.current = true;
     playerRef.current.seek(targetSec);
     localTimeProbeRef.current = { timeSec: targetSec, wallMs: Date.now() };
-  }, [localLoading]);
+  }, [localLoading, localTrackId]);
 
   // Detect local seeks (scrub / skip) and publish them when drift exceeds grace.
   useEffect(() => {
@@ -283,6 +322,7 @@ export function PartyProvider({ children }: { children: ReactNode }) {
     lastAppliedPositionAtRef.current = null;
     pendingSeekSecRef.current = null;
     suppressSeekReportRef.current = false;
+    failedTrackIdRef.current = null;
   }, []);
 
   const createParty = useCallback(async () => {

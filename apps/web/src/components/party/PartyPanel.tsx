@@ -55,8 +55,8 @@ export function PartyPanel() {
         <DialogHeader>
           <DialogTitle>Party mode</DialogTitle>
           <DialogDescription className="text-zinc-400">
-            Keep playback in step across JedFlix devices. Optionally follow Spotify
-            (read-only — we never change what Spotify is playing).
+            Keep playback in step across JedFlix devices. Follow Spotify for track and
+            position; pause/play syncs both ways.
           </DialogDescription>
         </DialogHeader>
 

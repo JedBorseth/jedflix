@@ -17,8 +17,8 @@ export function SpotifyConnectCard() {
       <CardHeader>
         <CardTitle>Spotify</CardTitle>
         <CardDescription className="text-zinc-400">
-          Connect a Spotify account so party mode can follow what it is playing. JedFlix
-          never changes Spotify playback — it only mirrors it. Tokens are stored on the
+          Connect a Spotify account so party mode can follow its track and sync pause/play.
+          JedFlix does not change which song Spotify is playing. Tokens are stored on the
           backend and never sent to the browser.
         </CardDescription>
       </CardHeader>
@@ -35,7 +35,9 @@ export function SpotifyConnectCard() {
             <div className="min-w-0">
               <p className="truncate text-sm font-medium">{account.displayName}</p>
               <p className="text-xs text-zinc-500">
-                {account.isPremium ? "Premium" : "Free account"} · read-only follow
+                {account.isPremium
+                  ? "Premium · follow + pause/play"
+                  : "Free account · pause/play requires Premium"}
               </p>
             </div>
             <Button type="button" variant="outline" onClick={() => void disconnect()}>
