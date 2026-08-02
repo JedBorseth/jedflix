@@ -4,16 +4,19 @@ import { AlbumCard } from "@/components/browse/AlbumCard";
 import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
 import { AppLink } from "@/components/layout/AppLink";
 import { Navbar } from "@/components/layout/Navbar";
+import { useMusicPlayer } from "@/components/player/music/MusicPlayerContext";
 import { Button } from "@/components/ui/button";
 import { DetailPageSkeleton } from "@/components/ui/skeleton";
 import type { AlbumItem } from "@/lib/spotify";
 import {
+  formatTrackDuration,
   getAlbumDetails,
   getArtistDetails,
   getArtistPath,
   normalizeSpotifyId,
 } from "@/lib/spotify";
 import { catalogQueryKeys } from "@/lib/queryClient";
+import { cn } from "@/lib/utils";
 
 type LocationState = {
   preview?: AlbumItem;
@@ -22,6 +25,7 @@ type LocationState = {
 export function AlbumDetailPage() {
   const { albumId } = useParams<{ albumId: string }>();
   const location = useLocation();
+  const musicPlayer = useMusicPlayer();
   const normalizedId = normalizeSpotifyId(albumId ?? null);
   const preview =
     (location.state as LocationState | null)?.preview &&
@@ -44,6 +48,7 @@ export function AlbumDetailPage() {
       ? "Album not found."
       : null;
   const displayAlbum = album ?? preview ?? null;
+  const tracks = album?.tracks ?? [];
 
   const relatedArtistId = displayAlbum?.artistIds[0];
   const relatedQuery = useQuery({
@@ -77,10 +82,28 @@ export function AlbumDetailPage() {
     );
   }
 
+  function playFrom(index: number) {
+    if (!album || tracks.length === 0) {
+      return;
+    }
+    musicPlayer.playAlbumTracks(
+      tracks,
+      {
+        id: album.id,
+        name: album.name,
+        imageUrl: album.imageUrl,
+        artists: album.artists,
+      },
+      index,
+    );
+  }
+
+  const activeTrackId = musicPlayer.current?.id;
+
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
       <Navbar searchMode="music" />
-      <section className="relative min-h-[60vh] overflow-hidden">
+      <section className="relative min-h-[50vh] overflow-hidden">
         <ProgressiveCoverImage
           src={displayAlbum.imageUrl}
           alt=""
@@ -88,7 +111,7 @@ export function AlbumDetailPage() {
         />
         <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/90 to-black/60" />
 
-        <div className="pt-navbar relative z-10 mx-auto flex max-w-6xl flex-col gap-8 px-4 pb-16 md:flex-row md:items-start md:px-12">
+        <div className="pt-navbar relative z-10 mx-auto flex max-w-6xl flex-col gap-8 px-4 pb-10 md:flex-row md:items-start md:px-12">
           <ProgressiveCoverImage
             src={displayAlbum.imageUrl}
             alt={displayAlbum.name}
@@ -128,15 +151,58 @@ export function AlbumDetailPage() {
                 {displayAlbum.genres.slice(0, 4).join(" · ")}
               </p>
             ) : null}
-            <p className="max-w-2xl text-sm text-zinc-300 md:text-base">
-              Playback coming soon. Browse more from this artist below.
-            </p>
+            {tracks.length > 0 ? (
+              <Button type="button" onClick={() => playFrom(0)} className="w-fit">
+                Play album
+              </Button>
+            ) : albumQuery.isLoading ? (
+              <p className="text-sm text-zinc-400">Loading tracks…</p>
+            ) : (
+              <p className="text-sm text-zinc-400">No tracks available for this album.</p>
+            )}
           </div>
         </div>
       </section>
 
+      {tracks.length > 0 ? (
+        <section className="mx-auto max-w-6xl px-4 pb-8 md:px-12">
+          <ol className="divide-y divide-zinc-900 rounded-lg border border-zinc-900">
+            {tracks.map((track, index) => {
+              const isActive = activeTrackId === track.id;
+              return (
+                <li key={track.id || `${track.discNumber}-${track.trackNumber}-${track.name}`}>
+                  <button
+                    type="button"
+                    onClick={() => playFrom(index)}
+                    className={cn(
+                      "flex w-full items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-zinc-900/80",
+                      isActive && "bg-zinc-900 text-white",
+                    )}
+                  >
+                    <span className="w-8 shrink-0 text-center text-sm text-zinc-500">
+                      {isActive && musicPlayer.playing ? "▶" : track.trackNumber || index + 1}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className={cn("truncate text-sm", isActive ? "text-red-400" : "text-white")}>
+                        {track.name}
+                      </p>
+                      <p className="truncate text-xs text-zinc-500">
+                        {(track.artists.length > 0 ? track.artists : displayAlbum.artists).join(", ")}
+                      </p>
+                    </div>
+                    <span className="shrink-0 text-xs text-zinc-500">
+                      {formatTrackDuration(track.durationMs)}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+        </section>
+      ) : null}
+
       {relatedAlbums.length > 0 ? (
-        <section className="mx-auto max-w-6xl px-4 pb-24 md:px-12 md:pb-16">
+        <section className="mx-auto max-w-6xl px-4 pb-36 md:px-12 md:pb-24">
           <h2 className="mb-4 text-xl font-semibold">More from this artist</h2>
           <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2 scrollbar-hide">
             {relatedAlbums.map((item) => (
@@ -144,7 +210,9 @@ export function AlbumDetailPage() {
             ))}
           </div>
         </section>
-      ) : null}
+      ) : (
+        <div className="pb-36 md:pb-16" />
+      )}
     </div>
   );
 }

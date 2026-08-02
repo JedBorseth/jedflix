@@ -81,6 +81,16 @@ type spotifyArtistRef struct {
 	Name string `json:"name"`
 }
 
+type spotifyTrackPayload struct {
+	ID          string             `json:"id"`
+	Name        string             `json:"name"`
+	TrackNumber int                `json:"track_number"`
+	DiscNumber  int                `json:"disc_number"`
+	DurationMs  int                `json:"duration_ms"`
+	Explicit    bool               `json:"explicit"`
+	Artists     []spotifyArtistRef `json:"artists"`
+}
+
 type spotifyAlbumPayload struct {
 	ID                   string             `json:"id"`
 	Name                 string             `json:"name"`
@@ -93,6 +103,9 @@ type spotifyAlbumPayload struct {
 	Genres               []string           `json:"genres"`
 	Images               []spotifyImage     `json:"images"`
 	Artists              []spotifyArtistRef `json:"artists"`
+	Tracks               *struct {
+		Items []spotifyTrackPayload `json:"items"`
+	} `json:"tracks"`
 }
 
 type spotifyArtistPayload struct {
@@ -676,6 +689,7 @@ func mapAlbum(payload spotifyAlbumPayload) Album {
 	if genres == nil {
 		genres = []string{}
 	}
+	tracks := mapTracks(payload.Tracks)
 	return Album{
 		ID:          payload.ID,
 		Name:        payload.Name,
@@ -689,7 +703,42 @@ func mapAlbum(payload spotifyAlbumPayload) Album {
 		Label:       payload.Label,
 		Genres:      genres,
 		Popularity:  payload.Popularity,
+		Tracks:      tracks,
 	}
+}
+
+func mapTracks(payload *struct {
+	Items []spotifyTrackPayload `json:"items"`
+}) []Track {
+	if payload == nil || len(payload.Items) == 0 {
+		return nil
+	}
+	tracks := make([]Track, 0, len(payload.Items))
+	for _, item := range payload.Items {
+		if item.ID == "" && item.Name == "" {
+			continue
+		}
+		artists := make([]string, 0, len(item.Artists))
+		for _, artist := range item.Artists {
+			if artist.Name != "" {
+				artists = append(artists, artist.Name)
+			}
+		}
+		disc := item.DiscNumber
+		if disc <= 0 {
+			disc = 1
+		}
+		tracks = append(tracks, Track{
+			ID:          item.ID,
+			Name:        item.Name,
+			Artists:     artists,
+			TrackNumber: item.TrackNumber,
+			DiscNumber:  disc,
+			DurationMs:  item.DurationMs,
+			Explicit:    item.Explicit,
+		})
+	}
+	return tracks
 }
 
 func mapArtist(payload spotifyArtistPayload) Artist {

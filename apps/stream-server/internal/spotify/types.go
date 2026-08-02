@@ -9,6 +9,16 @@ var (
 	ErrNotConfigured = errors.New("spotify client credentials are not configured")
 )
 
+type Track struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Artists     []string `json:"artists"`
+	TrackNumber int      `json:"trackNumber"`
+	DiscNumber  int      `json:"discNumber"`
+	DurationMs  int      `json:"durationMs"`
+	Explicit    bool     `json:"explicit"`
+}
+
 type Album struct {
 	ID          string   `json:"id"`
 	Name        string   `json:"name"`
@@ -22,6 +32,7 @@ type Album struct {
 	Label       string   `json:"label,omitempty"`
 	Genres      []string `json:"genres"`
 	Popularity  int      `json:"popularity,omitempty"`
+	Tracks      []Track  `json:"tracks,omitempty"`
 }
 
 type Artist struct {

@@ -146,6 +146,16 @@ export type OpenLibrarySearchResponse = {
   authors: OpenLibraryAuthorSummary[];
 };
 
+export type SpotifyTrack = {
+  id: string;
+  name: string;
+  artists: string[];
+  trackNumber: number;
+  discNumber: number;
+  durationMs: number;
+  explicit: boolean;
+};
+
 export type SpotifyAlbum = {
   id: string;
   name: string;
@@ -159,6 +169,7 @@ export type SpotifyAlbum = {
   label?: string;
   genres: string[];
   popularity?: number;
+  tracks?: SpotifyTrack[];
 };
 
 export type SpotifyArtist = {
@@ -218,6 +229,11 @@ export type StreamClient = {
   searchSpotify: (query: string) => Promise<SpotifySearchResponse>;
   fetchSpotifyAlbum: (albumId: string) => Promise<SpotifyAlbum>;
   fetchSpotifyArtist: (artistId: string) => Promise<SpotifyArtistDetails>;
+  getYoutubeAudioUrl: (params: {
+    artist: string;
+    title: string;
+    album?: string;
+  }) => string;
 };
 
 /** JSON contract mirrors apps/stream-server/internal/resolver/resolver.go */
@@ -572,6 +588,24 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
     };
   }
 
+  function getYoutubeAudioUrl(params: {
+    artist: string;
+    title: string;
+    album?: string;
+  }): string {
+    const query = new URLSearchParams({
+      artist: params.artist.trim(),
+      title: params.title.trim(),
+    });
+    if (params.album?.trim()) {
+      query.set("album", params.album.trim());
+    }
+    if (apiKey) {
+      query.set("apikey", apiKey);
+    }
+    return `${apiBase}/api/v1/youtube/audio?${query.toString()}`;
+  }
+
   return {
     resolveStreamUrl,
     getPlaybackUrl,
@@ -588,6 +622,7 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
     searchSpotify,
     fetchSpotifyAlbum,
     fetchSpotifyArtist,
+    getYoutubeAudioUrl,
   };
 }
 
@@ -663,6 +698,18 @@ function normalizeSpotifyAlbum(album: SpotifyAlbum): SpotifyAlbum {
     artistIds: album.artistIds ?? [],
     genres: album.genres ?? [],
     year: album.year ?? null,
+    tracks: (album.tracks ?? []).map(normalizeSpotifyTrack),
+  };
+}
+
+function normalizeSpotifyTrack(track: SpotifyTrack): SpotifyTrack {
+  return {
+    ...track,
+    artists: track.artists ?? [],
+    trackNumber: track.trackNumber ?? 0,
+    discNumber: track.discNumber ?? 1,
+    durationMs: track.durationMs ?? 0,
+    explicit: Boolean(track.explicit),
   };
 }
 

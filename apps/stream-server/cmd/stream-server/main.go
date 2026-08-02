@@ -17,6 +17,7 @@ import (
 	"github.com/jedborseth/jeds-movies/stream-server/internal/resolver"
 	"github.com/jedborseth/jeds-movies/stream-server/internal/search"
 	"github.com/jedborseth/jeds-movies/stream-server/internal/spotify"
+	"github.com/jedborseth/jeds-movies/stream-server/internal/youtube"
 )
 
 func main() {
@@ -54,7 +55,8 @@ func main() {
 	}
 	spotifyClient.Start(ctx)
 
-	server := api.NewServer(cfg, resolverService, letterboxdClient, openLibraryClient, spotifyClient)
+	youtubeResolver := youtube.NewResolver()
+	server := api.NewServer(cfg, resolverService, letterboxdClient, openLibraryClient, spotifyClient, youtubeResolver)
 	log.Printf("stream-server listening on %s", cfg.Addr)
 	if err := http.ListenAndServe(cfg.Addr, server.Router()); err != nil {
 		log.Println(err)

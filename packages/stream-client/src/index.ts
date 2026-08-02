@@ -18,6 +18,7 @@ export type {
   SpotifyBrowseResponse,
   SpotifyCatalogRow,
   SpotifySearchResponse,
+  SpotifyTrack,
   StreamClient,
   StreamClientConfig,
   StreamFile,

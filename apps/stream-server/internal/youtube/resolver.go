@@ -1,0 +1,488 @@
+package youtube
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"strings"
+	"sync"
+	"time"
+	"unicode"
+)
+
+var (
+	ErrNotFound     = errors.New("no matching youtube audio found")
+	ErrBadRequest   = errors.New("invalid youtube audio request")
+	ErrResolveFail  = errors.New("youtube resolve failed")
+	ErrYtdlpMissing = errors.New("yt-dlp is not installed")
+)
+
+const (
+	defaultSearchCount = 5
+	urlCacheTTL        = 45 * time.Minute
+	maxURLCacheSize    = 256
+)
+
+// Resolver finds YouTube audio streams via yt-dlp without downloading files.
+type Resolver struct {
+	ytdlpPath   string
+	cookiesFile string
+	searchN     int
+	now         func() time.Time
+
+	mu    sync.Mutex
+	cache map[string]cachedURL
+}
+
+type cachedURL struct {
+	info     StreamInfo
+	cachedAt time.Time
+}
+
+// Request identifies a track to resolve.
+type Request struct {
+	Artist string
+	Title  string
+	Album  string
+}
+
+// StreamInfo is a resolved direct audio URL (ephemeral; not stored on disk).
+type StreamInfo struct {
+	URL         string `json:"url"`
+	ContentType string `json:"contentType"`
+	Title       string `json:"title"`
+	VideoID     string `json:"videoId"`
+	Ext         string `json:"ext"`
+}
+
+type searchEntry struct {
+	ID         string  `json:"id"`
+	Title      string  `json:"title"`
+	Uploader   string  `json:"uploader"`
+	Channel    string  `json:"channel"`
+	Duration   float64 `json:"duration"`
+	ViewCount  float64 `json:"view_count"`
+	WebpageURL string  `json:"webpage_url"`
+	URL        string  `json:"url"`
+	LiveStatus string  `json:"live_status"`
+	WasLive    bool    `json:"was_live"`
+}
+
+type formatProbe struct {
+	URL      string `json:"url"`
+	Ext      string `json:"ext"`
+	ACodec   string `json:"acodec"`
+	Vcodec   string `json:"vcodec"`
+	Protocol string `json:"protocol"`
+}
+
+func NewResolver() *Resolver {
+	cookies := strings.TrimSpace(os.Getenv("YTDLP_COOKIES_FILE"))
+	if cookies == "" {
+		cookies = strings.TrimSpace(os.Getenv("YOUTUBE_COOKIES_FILE"))
+	}
+	return &Resolver{
+		ytdlpPath:   "yt-dlp",
+		cookiesFile: cookies,
+		searchN:     defaultSearchCount,
+		now:         time.Now,
+		cache:       make(map[string]cachedURL),
+	}
+}
+
+func (r *Resolver) Resolve(ctx context.Context, req Request) (*StreamInfo, error) {
+	req.Artist = strings.TrimSpace(req.Artist)
+	req.Title = strings.TrimSpace(req.Title)
+	req.Album = strings.TrimSpace(req.Album)
+	if req.Title == "" {
+		return nil, fmt.Errorf("%w: title is required", ErrBadRequest)
+	}
+	if req.Artist == "" {
+		return nil, fmt.Errorf("%w: artist is required", ErrBadRequest)
+	}
+
+	key := cacheKey(req)
+	if info, ok := r.getCached(key); ok {
+		return &info, nil
+	}
+
+	if _, err := exec.LookPath(r.ytdlpPath); err != nil {
+		return nil, ErrYtdlpMissing
+	}
+
+	entries, err := r.search(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	best := pickBestEntry(entries, req)
+	if best == nil {
+		return nil, ErrNotFound
+	}
+
+	info, err := r.extractStream(ctx, best)
+	if err != nil {
+		return nil, err
+	}
+	r.putCached(key, *info)
+	return info, nil
+}
+
+func cacheKey(req Request) string {
+	return strings.ToLower(req.Artist) + "\x00" + strings.ToLower(req.Title) + "\x00" + strings.ToLower(req.Album)
+}
+
+func (r *Resolver) getCached(key string) (StreamInfo, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	entry, ok := r.cache[key]
+	if !ok {
+		return StreamInfo{}, false
+	}
+	if r.now().Sub(entry.cachedAt) > urlCacheTTL {
+		delete(r.cache, key)
+		return StreamInfo{}, false
+	}
+	return entry.info, true
+}
+
+func (r *Resolver) putCached(key string, info StreamInfo) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.cache) >= maxURLCacheSize {
+		for k, v := range r.cache {
+			if r.now().Sub(v.cachedAt) > urlCacheTTL/2 {
+				delete(r.cache, k)
+			}
+			if len(r.cache) < maxURLCacheSize {
+				break
+			}
+		}
+		for len(r.cache) >= maxURLCacheSize {
+			for k := range r.cache {
+				delete(r.cache, k)
+				break
+			}
+		}
+	}
+	r.cache[key] = cachedURL{info: info, cachedAt: r.now()}
+}
+
+func buildSearchQuery(req Request) string {
+	parts := []string{req.Artist, req.Title}
+	if req.Album != "" {
+		parts = append(parts, req.Album)
+	}
+	return strings.Join(parts, " ")
+}
+
+func (r *Resolver) commonArgs() []string {
+	args := []string{
+		"--no-download",
+		"--no-warnings",
+	}
+	if runtime := detectJSRuntime(); runtime != "" {
+		args = append(args, "--js-runtimes", runtime)
+	}
+	if r.cookiesFile != "" {
+		args = append(args, "--cookies", r.cookiesFile)
+	}
+	return args
+}
+
+func detectJSRuntime() string {
+	for _, name := range []string{"deno", "node", "bun"} {
+		if _, err := exec.LookPath(name); err == nil {
+			return name
+		}
+	}
+	return ""
+}
+
+func (r *Resolver) search(ctx context.Context, req Request) ([]searchEntry, error) {
+	n := r.searchN
+	if n <= 0 {
+		n = defaultSearchCount
+	}
+	query := fmt.Sprintf("ytsearch%d:%s", n, buildSearchQuery(req))
+	args := append(r.commonArgs(),
+		"--flat-playlist",
+		"--dump-json",
+		"--ignore-no-formats-error",
+		query,
+	)
+	cmd := exec.CommandContext(ctx, r.ytdlpPath, args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		return nil, fmt.Errorf("%w: search: %s", ErrResolveFail, msg)
+	}
+
+	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	entries := make([]searchEntry, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var entry searchEntry
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			continue
+		}
+		if entry.ID == "" && entry.WebpageURL == "" && entry.URL == "" {
+			continue
+		}
+		entries = append(entries, entry)
+	}
+	if len(entries) == 0 {
+		return nil, ErrNotFound
+	}
+	return entries, nil
+}
+
+func pickBestEntry(entries []searchEntry, req Request) *searchEntry {
+	var best *searchEntry
+	bestScore := -1.0
+	for i := range entries {
+		entry := &entries[i]
+		if isLikelyLiveOrNonMusic(entry) {
+			continue
+		}
+		score := scoreEntry(entry, req)
+		if score > bestScore {
+			bestScore = score
+			best = entry
+		}
+	}
+	if best == nil && len(entries) > 0 {
+		return &entries[0]
+	}
+	return best
+}
+
+func isLikelyLiveOrNonMusic(entry *searchEntry) bool {
+	if entry.WasLive {
+		return true
+	}
+	status := strings.ToLower(entry.LiveStatus)
+	if status == "is_live" || status == "is_upcoming" {
+		return true
+	}
+	title := strings.ToLower(entry.Title)
+	for _, bad := range []string{"official trailer", "behind the scenes", "interview", "reaction", "live stream", "livestream"} {
+		if strings.Contains(title, bad) {
+			return true
+		}
+	}
+	if entry.Duration > 0 && (entry.Duration < 45 || entry.Duration > 20*60) {
+		return true
+	}
+	return false
+}
+
+func scoreEntry(entry *searchEntry, req Request) float64 {
+	title := normalizeText(entry.Title)
+	channel := normalizeText(entry.Uploader)
+	if channel == "" {
+		channel = normalizeText(entry.Channel)
+	}
+	wantTitle := normalizeText(req.Title)
+	wantArtist := normalizeText(req.Artist)
+	wantAlbum := normalizeText(req.Album)
+
+	score := 0.0
+	if wantTitle != "" && strings.Contains(title, wantTitle) {
+		score += 40
+	} else {
+		score += tokenOverlap(title, wantTitle) * 30
+	}
+	if wantArtist != "" {
+		if strings.Contains(title, wantArtist) || strings.Contains(channel, wantArtist) {
+			score += 30
+		} else {
+			score += tokenOverlap(title+" "+channel, wantArtist) * 20
+		}
+	}
+	if wantAlbum != "" && strings.Contains(title, wantAlbum) {
+		score += 10
+	}
+	for _, bonus := range []string{"official audio", "official music video", "topic", "lyrics"} {
+		if strings.Contains(title, normalizeText(bonus)) {
+			score += 5
+		}
+	}
+	if entry.Duration >= 90 && entry.Duration <= 8*60 {
+		score += 8
+	}
+	if entry.ViewCount > 0 {
+		score += minFloat(10, entry.ViewCount/1_000_000)
+	}
+	return score
+}
+
+func (r *Resolver) extractStream(ctx context.Context, entry *searchEntry) (*StreamInfo, error) {
+	target := entry.WebpageURL
+	if target == "" {
+		target = entry.URL
+	}
+	if target == "" && entry.ID != "" {
+		target = "https://www.youtube.com/watch?v=" + entry.ID
+	}
+	if target == "" {
+		return nil, ErrNotFound
+	}
+
+	// Prefer m4a/AAC for iOS Safari / PWA HTML5 audio.
+	format := "bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/bestaudio[acodec*=mp4a]/bestaudio[ext=mp4]/bestaudio/best"
+	args := append(r.commonArgs(),
+		"--no-playlist",
+		"-f", format,
+		"-J",
+		target,
+	)
+	cmd := exec.CommandContext(ctx, r.ytdlpPath, args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		return nil, fmt.Errorf("%w: extract: %s", ErrResolveFail, msg)
+	}
+
+	var payload struct {
+		ID               string        `json:"id"`
+		Title            string        `json:"title"`
+		URL              string        `json:"url"`
+		Ext              string        `json:"ext"`
+		ACodec           string        `json:"acodec"`
+		RequestedFormats []formatProbe `json:"requested_formats"`
+		Formats          []formatProbe `json:"formats"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		return nil, fmt.Errorf("%w: decode extract: %v", ErrResolveFail, err)
+	}
+
+	streamURL := payload.URL
+	ext := payload.Ext
+	acodec := payload.ACodec
+	if streamURL == "" {
+		for _, f := range payload.RequestedFormats {
+			if f.URL != "" && (f.Vcodec == "" || f.Vcodec == "none") {
+				streamURL = f.URL
+				ext = f.Ext
+				acodec = f.ACodec
+				break
+			}
+		}
+	}
+	if streamURL == "" {
+		for _, f := range payload.Formats {
+			if f.URL == "" {
+				continue
+			}
+			if f.Vcodec != "" && f.Vcodec != "none" {
+				continue
+			}
+			if strings.Contains(f.Protocol, "m3u8") {
+				continue
+			}
+			streamURL = f.URL
+			ext = f.Ext
+			acodec = f.ACodec
+			if ext == "m4a" || strings.Contains(acodec, "mp4a") {
+				break
+			}
+		}
+	}
+	if streamURL == "" {
+		return nil, ErrNotFound
+	}
+
+	videoID := payload.ID
+	if videoID == "" {
+		videoID = entry.ID
+	}
+	title := payload.Title
+	if title == "" {
+		title = entry.Title
+	}
+
+	return &StreamInfo{
+		URL:         streamURL,
+		ContentType: contentTypeFor(ext, acodec),
+		Title:       title,
+		VideoID:     videoID,
+		Ext:         ext,
+	}, nil
+}
+
+func contentTypeFor(ext, acodec string) string {
+	ext = strings.ToLower(ext)
+	acodec = strings.ToLower(acodec)
+	switch {
+	case ext == "m4a" || ext == "mp4" || strings.Contains(acodec, "mp4a"):
+		return "audio/mp4"
+	case ext == "webm" || strings.Contains(acodec, "opus") || strings.Contains(acodec, "vorbis"):
+		return "audio/webm"
+	case ext == "mp3" || strings.Contains(acodec, "mp3"):
+		return "audio/mpeg"
+	case ext == "ogg":
+		return "audio/ogg"
+	default:
+		return "application/octet-stream"
+	}
+}
+
+func normalizeText(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	var b strings.Builder
+	b.Grow(len(value))
+	prevSpace := false
+	for _, r := range value {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+			prevSpace = false
+			continue
+		}
+		if !prevSpace {
+			b.WriteByte(' ')
+			prevSpace = true
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func tokenOverlap(haystack, needle string) float64 {
+	needleTokens := strings.Fields(needle)
+	if len(needleTokens) == 0 {
+		return 0
+	}
+	hits := 0
+	for _, token := range needleTokens {
+		if len(token) < 2 {
+			continue
+		}
+		if strings.Contains(haystack, token) {
+			hits++
+		}
+	}
+	return float64(hits) / float64(len(needleTokens))
+}
+
+func minFloat(a, b float64) float64 {
+	if a < b {
+		return a
+	}
+	return b
+}

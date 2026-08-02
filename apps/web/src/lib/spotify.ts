@@ -6,6 +6,7 @@ import {
   type SpotifyBrowseResponse,
   type SpotifyCatalogRow,
   type SpotifySearchResponse,
+  type SpotifyTrack,
 } from "@jedflix/stream-client";
 
 export type AlbumItem = SpotifyAlbum;
@@ -15,6 +16,7 @@ export type ArtistDetails = SpotifyArtistDetails;
 export type MusicBrowseResponse = SpotifyBrowseResponse;
 export type MusicCatalogRow = SpotifyCatalogRow;
 export type MusicSearchResults = SpotifySearchResponse;
+export type TrackItem = SpotifyTrack;
 
 const streamClient = createStreamClient({
   apiBase: import.meta.env.VITE_STREAM_API_URL ?? "/stream-api",
@@ -62,6 +64,24 @@ export async function getAlbumDetails(albumId: string): Promise<AlbumDetails> {
 
 export async function getArtistDetails(artistId: string): Promise<ArtistDetails> {
   return streamClient.fetchSpotifyArtist(artistId);
+}
+
+export function getYoutubeAudioUrl(params: {
+  artist: string;
+  title: string;
+  album?: string;
+}): string {
+  return streamClient.getYoutubeAudioUrl(params);
+}
+
+export function formatTrackDuration(durationMs: number): string {
+  if (!Number.isFinite(durationMs) || durationMs <= 0) {
+    return "0:00";
+  }
+  const totalSec = Math.floor(durationMs / 1000);
+  const minutes = Math.floor(totalSec / 60);
+  const seconds = totalSec % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
 export function pickRandomAlbum(albums: AlbumItem[]): AlbumItem | undefined {

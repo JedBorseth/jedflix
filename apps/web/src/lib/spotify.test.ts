@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { normalizeSpotifyId, pickRandomAlbum } from "@/lib/spotify";
+import { normalizeSpotifyId, pickRandomAlbum, formatTrackDuration } from "@/lib/spotify";
 
 describe("spotify helpers", () => {
   test("normalizeSpotifyId accepts Spotify ids and URIs", () => {
@@ -16,5 +16,11 @@ describe("spotify helpers", () => {
 
   test("pickRandomAlbum returns undefined for empty lists", () => {
     expect(pickRandomAlbum([])).toBeUndefined();
+  });
+
+  test("formatTrackDuration formats mm:ss", () => {
+    expect(formatTrackDuration(0)).toBe("0:00");
+    expect(formatTrackDuration(65_000)).toBe("1:05");
+    expect(formatTrackDuration(3_600_000)).toBe("60:00");
   });
 });

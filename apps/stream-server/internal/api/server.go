@@ -18,6 +18,7 @@ import (
 	"github.com/jedborseth/jeds-movies/stream-server/internal/resolvejobs"
 	"github.com/jedborseth/jeds-movies/stream-server/internal/resolver"
 	"github.com/jedborseth/jeds-movies/stream-server/internal/spotify"
+	"github.com/jedborseth/jeds-movies/stream-server/internal/youtube"
 )
 
 type Server struct {
@@ -27,6 +28,7 @@ type Server struct {
 	letterboxd  *letterboxd.Client
 	openLibrary *openlibrary.Client
 	spotify     *spotify.Client
+	youtube     *youtube.Resolver
 }
 
 func NewServer(
@@ -35,7 +37,11 @@ func NewServer(
 	letterboxdClient *letterboxd.Client,
 	openLibraryClient *openlibrary.Client,
 	spotifyClient *spotify.Client,
+	youtubeResolver *youtube.Resolver,
 ) *Server {
+	if youtubeResolver == nil {
+		youtubeResolver = youtube.NewResolver()
+	}
 	return &Server{
 		cfg:         cfg,
 		resolver:    resolverService,
@@ -43,6 +49,7 @@ func NewServer(
 		letterboxd:  letterboxdClient,
 		openLibrary: openLibraryClient,
 		spotify:     spotifyClient,
+		youtube:     youtubeResolver,
 	}
 }
 
@@ -86,6 +93,8 @@ func (s *Server) Router() http.Handler {
 		r.Get("/spotify/search", s.handleSpotifySearch)
 		r.Get("/spotify/albums/{albumId}", s.handleSpotifyAlbum)
 		r.Get("/spotify/artists/{artistId}", s.handleSpotifyArtist)
+		r.Get("/youtube/audio", s.handleYouTubeAudio)
+		r.Head("/youtube/audio", s.handleYouTubeAudio)
 	})
 
 	return r
@@ -413,6 +422,60 @@ func (s *Server) handleSpotifyArtist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleYouTubeAudio(w http.ResponseWriter, r *http.Request) {
+	artist := strings.TrimSpace(r.URL.Query().Get("artist"))
+	title := strings.TrimSpace(r.URL.Query().Get("title"))
+	album := strings.TrimSpace(r.URL.Query().Get("album"))
+	if artist == "" || title == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "artist and title are required"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), youtube.ResolveTimeout)
+	defer cancel()
+
+	info, err := s.youtube.Resolve(ctx, youtube.Request{
+		Artist: artist,
+		Title:  title,
+		Album:  album,
+	})
+	if err != nil {
+		writeYouTubeError(w, err)
+		return
+	}
+
+	if err := youtube.Proxy(w, r, info); err != nil {
+		// Headers may already be written while streaming; only report JSON if not.
+		if !headersWritten(w) {
+			writeYouTubeError(w, err)
+		}
+	}
+}
+
+func writeYouTubeError(w http.ResponseWriter, err error) {
+	status := http.StatusBadGateway
+	switch {
+	case errors.Is(err, youtube.ErrBadRequest):
+		status = http.StatusBadRequest
+	case errors.Is(err, youtube.ErrNotFound):
+		status = http.StatusNotFound
+	case errors.Is(err, youtube.ErrYtdlpMissing):
+		status = http.StatusServiceUnavailable
+	case errors.Is(err, context.Canceled):
+		status = http.StatusRequestTimeout
+	case errors.Is(err, context.DeadlineExceeded):
+		status = http.StatusGatewayTimeout
+	}
+	writeJSON(w, status, map[string]string{"error": err.Error()})
+}
+
+func headersWritten(w http.ResponseWriter) bool {
+	if rw, ok := w.(interface{ Written() bool }); ok {
+		return rw.Written()
+	}
+	return false
 }
 
 func writeImage(w http.ResponseWriter, contentType string, data []byte) {
