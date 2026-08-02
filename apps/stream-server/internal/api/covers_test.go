@@ -41,7 +41,7 @@ func TestOpenLibraryCoverProxyServesShrunkJPEG(t *testing.T) {
 		CORSOrigins:                []string{"http://localhost:5173"},
 	}
 	client := openlibrary.NewClient(cfg)
-	server := NewServer(cfg, nil, nil, client)
+	server := NewServer(cfg, nil, nil, client, nil)
 	router := server.Router()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/openlibrary/covers/b/id/99.jpg", nil)

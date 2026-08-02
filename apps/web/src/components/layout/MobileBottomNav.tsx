@@ -6,6 +6,7 @@ import {
   HomeIcon,
   LayersIcon,
   ReaderIcon,
+  SpeakerLoudIcon,
   VideoIcon,
 } from "@radix-ui/react-icons";
 import { AppLink } from "@/components/layout/AppLink";
@@ -26,6 +27,7 @@ const navItems: NavItem[] = [
   { to: "/shows", label: "Shows", icon: LayersIcon, contentType: "movies_shows" },
   { to: "/movies", label: "Movies", icon: VideoIcon, contentType: "movies_shows" },
   { to: "/audiobooks", label: "Audiobooks", icon: ReaderIcon, contentType: "audiobooks" },
+  { to: "/music", label: "Music", icon: SpeakerLoudIcon, contentType: "music" },
   { to: "/video-games", label: "Games", icon: CubeIcon, contentType: "video_games" },
   { to: "/my-list", label: "My List", icon: BookmarkIcon, requiresAuth: true },
 ];
@@ -62,13 +64,34 @@ export function MobileBottomNav() {
               to={to}
               label={label}
               icon={Icon}
-              isActive={pathname === to}
+              isActive={isNavItemActive(pathname, to)}
             />
           );
         })}
       </div>
     </nav>
   );
+}
+
+function isNavItemActive(pathname: string, to: string): boolean {
+  if (to === "/") {
+    return pathname === "/";
+  }
+  if (to === "/music") {
+    return (
+      pathname === "/music" ||
+      pathname.startsWith("/album/") ||
+      pathname.startsWith("/music-artist/")
+    );
+  }
+  if (to === "/audiobooks") {
+    return (
+      pathname === "/audiobooks" ||
+      pathname.startsWith("/audiobook/") ||
+      pathname.startsWith("/author/")
+    );
+  }
+  return pathname === to || pathname.startsWith(`${to}/`);
 }
 
 function NavLink({

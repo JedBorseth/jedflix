@@ -17,6 +17,7 @@ import (
 	"github.com/jedborseth/jeds-movies/stream-server/internal/openlibrary"
 	"github.com/jedborseth/jeds-movies/stream-server/internal/resolvejobs"
 	"github.com/jedborseth/jeds-movies/stream-server/internal/resolver"
+	"github.com/jedborseth/jeds-movies/stream-server/internal/spotify"
 )
 
 type Server struct {
@@ -25,6 +26,7 @@ type Server struct {
 	jobs        *resolvejobs.Store
 	letterboxd  *letterboxd.Client
 	openLibrary *openlibrary.Client
+	spotify     *spotify.Client
 }
 
 func NewServer(
@@ -32,6 +34,7 @@ func NewServer(
 	resolverService *resolver.Service,
 	letterboxdClient *letterboxd.Client,
 	openLibraryClient *openlibrary.Client,
+	spotifyClient *spotify.Client,
 ) *Server {
 	return &Server{
 		cfg:         cfg,
@@ -39,6 +42,7 @@ func NewServer(
 		jobs:        resolvejobs.NewStore(30 * time.Minute),
 		letterboxd:  letterboxdClient,
 		openLibrary: openLibraryClient,
+		spotify:     spotifyClient,
 	}
 }
 
@@ -78,6 +82,10 @@ func (s *Server) Router() http.Handler {
 		r.Get("/openlibrary/search", s.handleOpenLibrarySearch)
 		r.Get("/openlibrary/works/{workId}", s.handleOpenLibraryWork)
 		r.Get("/openlibrary/authors/{authorId}", s.handleOpenLibraryAuthor)
+		r.Get("/spotify/browse", s.handleSpotifyBrowse)
+		r.Get("/spotify/search", s.handleSpotifySearch)
+		r.Get("/spotify/albums/{albumId}", s.handleSpotifyAlbum)
+		r.Get("/spotify/artists/{artistId}", s.handleSpotifyArtist)
 	})
 
 	return r
@@ -340,6 +348,73 @@ func (s *Server) handleOpenLibraryAuthorPhotoOLID(w http.ResponseWriter, r *http
 	writeImage(w, contentType, data)
 }
 
+func (s *Server) handleSpotifyBrowse(w http.ResponseWriter, r *http.Request) {
+	if s.spotify == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "spotify is not configured"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	defer cancel()
+
+	result, err := s.spotify.Browse(ctx)
+	if err != nil {
+		writeSpotifyError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleSpotifySearch(w http.ResponseWriter, r *http.Request) {
+	if s.spotify == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "spotify is not configured"})
+		return
+	}
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	defer cancel()
+
+	result, err := s.spotify.Search(ctx, query)
+	if err != nil {
+		writeSpotifyError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleSpotifyAlbum(w http.ResponseWriter, r *http.Request) {
+	if s.spotify == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "spotify is not configured"})
+		return
+	}
+	albumID := chi.URLParam(r, "albumId")
+	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	defer cancel()
+
+	result, err := s.spotify.GetAlbum(ctx, albumID)
+	if err != nil {
+		writeSpotifyError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleSpotifyArtist(w http.ResponseWriter, r *http.Request) {
+	if s.spotify == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "spotify is not configured"})
+		return
+	}
+	artistID := chi.URLParam(r, "artistId")
+	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	defer cancel()
+
+	result, err := s.spotify.GetArtist(ctx, artistID)
+	if err != nil {
+		writeSpotifyError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 func writeImage(w http.ResponseWriter, contentType string, data []byte) {
 	if contentType == "" {
 		contentType = "image/jpeg"
@@ -357,6 +432,19 @@ func writeOpenLibraryError(w http.ResponseWriter, err error) {
 		status = http.StatusBadRequest
 	case errors.Is(err, openlibrary.ErrNotFound):
 		status = http.StatusNotFound
+	}
+	writeJSON(w, status, map[string]string{"error": err.Error()})
+}
+
+func writeSpotifyError(w http.ResponseWriter, err error) {
+	status := http.StatusBadGateway
+	switch {
+	case errors.Is(err, spotify.ErrBadRequest):
+		status = http.StatusBadRequest
+	case errors.Is(err, spotify.ErrNotFound):
+		status = http.StatusNotFound
+	case errors.Is(err, spotify.ErrNotConfigured):
+		status = http.StatusServiceUnavailable
 	}
 	writeJSON(w, status, map[string]string{"error": err.Error()})
 }

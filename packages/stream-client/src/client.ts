@@ -146,6 +146,53 @@ export type OpenLibrarySearchResponse = {
   authors: OpenLibraryAuthorSummary[];
 };
 
+export type SpotifyAlbum = {
+  id: string;
+  name: string;
+  artists: string[];
+  artistIds: string[];
+  imageUrl: string;
+  releaseDate?: string;
+  year: number | null;
+  albumType?: string;
+  totalTracks?: number;
+  label?: string;
+  genres: string[];
+  popularity?: number;
+};
+
+export type SpotifyArtist = {
+  id: string;
+  name: string;
+  imageUrl: string;
+  genres: string[];
+  followers?: number;
+  popularity?: number;
+};
+
+export type SpotifyArtistDetails = SpotifyArtist & {
+  albums: SpotifyAlbum[];
+};
+
+export type SpotifyCatalogRow = {
+  title: string;
+  key: string;
+  kind: "albums" | "artists";
+  albums?: SpotifyAlbum[];
+  artists?: SpotifyArtist[];
+};
+
+export type SpotifyBrowseResponse = {
+  newReleases: SpotifyAlbum[];
+  rows: SpotifyCatalogRow[];
+  cachedAt: number;
+};
+
+export type SpotifySearchResponse = {
+  albums: SpotifyAlbum[];
+  artists: SpotifyArtist[];
+};
+
 export type StreamClientConfig = {
   apiBase: string;
   apiKey?: string;
@@ -167,6 +214,10 @@ export type StreamClient = {
   searchOpenLibrary: (query: string) => Promise<OpenLibrarySearchResponse>;
   fetchOpenLibraryWork: (workId: string) => Promise<OpenLibraryBook>;
   fetchOpenLibraryAuthor: (authorId: string) => Promise<OpenLibraryAuthorDetails>;
+  fetchSpotifyBrowse: () => Promise<SpotifyBrowseResponse>;
+  searchSpotify: (query: string) => Promise<SpotifySearchResponse>;
+  fetchSpotifyAlbum: (albumId: string) => Promise<SpotifyAlbum>;
+  fetchSpotifyArtist: (artistId: string) => Promise<SpotifyArtistDetails>;
 };
 
 /** JSON contract mirrors apps/stream-server/internal/resolver/resolver.go */
@@ -466,6 +517,61 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
     };
   }
 
+  async function fetchSpotifyBrowse(): Promise<SpotifyBrowseResponse> {
+    const response = await fetch(`${apiBase}/api/v1/spotify/browse`, {
+      headers: headers(),
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(payload?.error ?? `Spotify browse failed (${response.status})`);
+    }
+    return normalizeSpotifyBrowseResponse(await response.json());
+  }
+
+  async function searchSpotify(query: string): Promise<SpotifySearchResponse> {
+    const params = new URLSearchParams({ q: query.trim() });
+    const response = await fetch(`${apiBase}/api/v1/spotify/search?${params.toString()}`, {
+      headers: headers(),
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(payload?.error ?? `Spotify search failed (${response.status})`);
+    }
+    const payload = (await response.json()) as SpotifySearchResponse;
+    return {
+      albums: (payload.albums ?? []).map(normalizeSpotifyAlbum),
+      artists: (payload.artists ?? []).map(normalizeSpotifyArtist),
+    };
+  }
+
+  async function fetchSpotifyAlbum(albumId: string): Promise<SpotifyAlbum> {
+    const encoded = encodeURIComponent(albumId.trim());
+    const response = await fetch(`${apiBase}/api/v1/spotify/albums/${encoded}`, {
+      headers: headers(),
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(payload?.error ?? `Spotify album failed (${response.status})`);
+    }
+    return normalizeSpotifyAlbum(await response.json());
+  }
+
+  async function fetchSpotifyArtist(artistId: string): Promise<SpotifyArtistDetails> {
+    const encoded = encodeURIComponent(artistId.trim());
+    const response = await fetch(`${apiBase}/api/v1/spotify/artists/${encoded}`, {
+      headers: headers(),
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(payload?.error ?? `Spotify artist failed (${response.status})`);
+    }
+    const payload = (await response.json()) as SpotifyArtistDetails;
+    return {
+      ...normalizeSpotifyArtist(payload),
+      albums: (payload.albums ?? []).map(normalizeSpotifyAlbum),
+    };
+  }
+
   return {
     resolveStreamUrl,
     getPlaybackUrl,
@@ -478,6 +584,10 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
     searchOpenLibrary,
     fetchOpenLibraryWork,
     fetchOpenLibraryAuthor,
+    fetchSpotifyBrowse,
+    searchSpotify,
+    fetchSpotifyAlbum,
+    fetchSpotifyArtist,
   };
 }
 
@@ -530,6 +640,36 @@ function normalizeBook(book: OpenLibraryBook): OpenLibraryBook {
     subjects: book.subjects ?? [],
     year: book.year ?? null,
     pageCount: book.pageCount ?? null,
+  };
+}
+
+function normalizeSpotifyBrowseResponse(payload: SpotifyBrowseResponse): SpotifyBrowseResponse {
+  return {
+    newReleases: (payload.newReleases ?? []).map(normalizeSpotifyAlbum),
+    rows: (payload.rows ?? []).map((row) => ({
+      ...row,
+      kind: row.kind === "artists" ? "artists" : "albums",
+      albums: (row.albums ?? []).map(normalizeSpotifyAlbum),
+      artists: (row.artists ?? []).map(normalizeSpotifyArtist),
+    })),
+    cachedAt: payload.cachedAt,
+  };
+}
+
+function normalizeSpotifyAlbum(album: SpotifyAlbum): SpotifyAlbum {
+  return {
+    ...album,
+    artists: album.artists ?? [],
+    artistIds: album.artistIds ?? [],
+    genres: album.genres ?? [],
+    year: album.year ?? null,
+  };
+}
+
+function normalizeSpotifyArtist(artist: SpotifyArtist): SpotifyArtist {
+  return {
+    ...artist,
+    genres: artist.genres ?? [],
   };
 }
 

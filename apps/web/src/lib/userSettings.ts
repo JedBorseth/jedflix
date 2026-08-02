@@ -4,10 +4,15 @@ const SETTINGS_CHANGED_EVENT = "jedflix:user-settings-changed";
 
 export type ExternalPlayer = "disabled" | "vlc" | "outplayer";
 export type DeviceType = "desktop" | "mobile" | "tv";
-export type ContentType = "movies_shows" | "audiobooks" | "video_games";
+export type ContentType = "movies_shows" | "audiobooks" | "music" | "video_games";
 
 export const DEVICE_TYPES: DeviceType[] = ["desktop", "mobile", "tv"];
-export const CONTENT_TYPES: ContentType[] = ["movies_shows", "audiobooks", "video_games"];
+export const CONTENT_TYPES: ContentType[] = [
+  "movies_shows",
+  "audiobooks",
+  "music",
+  "video_games",
+];
 export const EXTERNAL_PLAYERS: ExternalPlayer[] = ["disabled", "vlc", "outplayer"];
 
 export type UserSettings = {
@@ -139,7 +144,12 @@ function isDeviceType(value: unknown): value is DeviceType {
 }
 
 function isContentType(value: unknown): value is ContentType {
-  return value === "movies_shows" || value === "audiobooks" || value === "video_games";
+  return (
+    value === "movies_shows" ||
+    value === "audiobooks" ||
+    value === "music" ||
+    value === "video_games"
+  );
 }
 
 function isExternalPlayer(value: unknown): value is ExternalPlayer {

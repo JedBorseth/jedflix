@@ -16,6 +16,7 @@ import (
 	"github.com/jedborseth/jeds-movies/stream-server/internal/realdebrid"
 	"github.com/jedborseth/jeds-movies/stream-server/internal/resolver"
 	"github.com/jedborseth/jeds-movies/stream-server/internal/search"
+	"github.com/jedborseth/jeds-movies/stream-server/internal/spotify"
 )
 
 func main() {
@@ -45,8 +46,15 @@ func main() {
 	letterboxdClient := letterboxd.NewClient(cfg)
 	openLibraryClient := openlibrary.NewClient(cfg)
 	openLibraryClient.Start(ctx)
+	spotifyClient := spotify.NewClient(cfg)
+	if spotifyClient.Configured() {
+		log.Println("Spotify client credentials configured")
+	} else {
+		log.Println("warning: SPOTIFY_CLIENT_ID/SPOTIFY_CLIENT_SECRET not set; music catalog disabled")
+	}
+	spotifyClient.Start(ctx)
 
-	server := api.NewServer(cfg, resolverService, letterboxdClient, openLibraryClient)
+	server := api.NewServer(cfg, resolverService, letterboxdClient, openLibraryClient, spotifyClient)
 	log.Printf("stream-server listening on %s", cfg.Addr)
 	if err := http.ListenAndServe(cfg.Addr, server.Router()); err != nil {
 		log.Println(err)

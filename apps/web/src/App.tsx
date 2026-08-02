@@ -4,10 +4,13 @@ import { RootLayout } from "@/components/layout/RootLayout";
 import { StartupGate } from "@/components/startup/StartupGate";
 import { AudiobookDetailPage } from "@/pages/AudiobookDetailPage";
 import { AudiobooksPage } from "@/pages/AudiobooksPage";
+import { AlbumDetailPage } from "@/pages/AlbumDetailPage";
 import { AuthorPage } from "@/pages/AuthorPage";
 import { BrowsePage } from "@/pages/BrowsePage";
 import { ComingSoonPage } from "@/pages/ComingSoonPage";
 import { MovieDetailPage } from "@/pages/MovieDetailPage";
+import { MusicArtistPage } from "@/pages/MusicArtistPage";
+import { MusicPage } from "@/pages/MusicPage";
 import { MyListPage } from "@/pages/MyListPage";
 import { OnboardingPage } from "@/pages/OnboardingPage";
 import { SignInForm } from "@/components/auth/SignInForm";
@@ -66,6 +69,7 @@ const router = createBrowserRouter([
       { path: "/movies", element: <BrowsePage mediaType="movie" /> },
       { path: "/shows", element: <BrowsePage mediaType="tv" /> },
       { path: "/audiobooks", element: <AudiobooksPage /> },
+      { path: "/music", element: <MusicPage /> },
       {
         path: "/video-games",
         element: (
@@ -79,6 +83,8 @@ const router = createBrowserRouter([
       { path: "/show/:mediaId", element: <MovieDetailPage mediaType="tv" /> },
       { path: "/audiobook/:workId", element: <AudiobookDetailPage /> },
       { path: "/author/:authorId", element: <AuthorPage /> },
+      { path: "/album/:albumId", element: <AlbumDetailPage /> },
+      { path: "/music-artist/:artistId", element: <MusicArtistPage /> },
       { path: "/watch/movie/:mediaId", element: <LazyWatchPage /> },
       { path: "/watch/tv/:mediaId/:season/:episode", element: <LazyWatchPage /> },
       { path: "/watch/:mediaType/:mediaId", element: <LazyWatchPage /> },

@@ -10,26 +10,31 @@ import (
 )
 
 type Config struct {
-	Addr                   string
-	RealDebridToken        string
-	TorrentioURL           string
-	MaxVideoSizeGB         float64
-	MinSeeders             int
-	PreferInstant          bool
-	BlockedKeywords        []string
-	RDBlockedFilenameRegex string
-	MaxResolution          int
-	StreamServerAPIKey     string
-	CORSOrigins            []string
-	HTTPProxy              string
-	HTTPSProxy             string
-	ResolveTimeout         time.Duration
-	LetterboxdBaseURL      string
-	LetterboxdCacheTTL     time.Duration
+	Addr                       string
+	RealDebridToken            string
+	TorrentioURL               string
+	MaxVideoSizeGB             float64
+	MinSeeders                 int
+	PreferInstant              bool
+	BlockedKeywords            []string
+	RDBlockedFilenameRegex     string
+	MaxResolution              int
+	StreamServerAPIKey         string
+	CORSOrigins                []string
+	HTTPProxy                  string
+	HTTPSProxy                 string
+	ResolveTimeout             time.Duration
+	LetterboxdBaseURL          string
+	LetterboxdCacheTTL         time.Duration
 	OpenLibraryBaseURL         string
 	OpenLibraryCacheTTL        time.Duration
 	OpenLibraryCoverPublicBase string
 	OpenLibraryCoversBaseURL   string
+	SpotifyClientID            string
+	SpotifyClientSecret        string
+	SpotifyAPIBaseURL          string
+	SpotifyAuthURL             string
+	SpotifyCacheTTL            time.Duration
 	AbbBaseURL                 string
 	AbbUsername                string
 	AbbPassword                string
@@ -37,26 +42,31 @@ type Config struct {
 
 func Load() Config {
 	cfg := Config{
-		Addr:                   envOr("ADDR", ":8080"),
-		RealDebridToken:        strings.TrimSpace(os.Getenv("REALDEBRID_TOKEN")),
-		TorrentioURL:           strings.TrimRight(envOr("TORRENTIO_URL", "https://torrentio.strem.fun"), "/"),
-		MaxVideoSizeGB:         envFloat("MAX_VIDEO_SIZE_GB", 50),
-		MinSeeders:             envInt("MIN_SEEDERS", 3),
-		PreferInstant:          envBool("PREFER_INSTANT", true),
-		BlockedKeywords:        splitCSV(envOr("BLOCKED_KEYWORDS", "cam,ts,telesync,hdcam")),
-		RDBlockedFilenameRegex: envOr("RD_BLOCKED_FILENAME_REGEX", `web-dl|webrip|bdrip|hdrip|dvdrip|BluRay\.x264|HDTV\.x264|HDTV\.XviD|WEB\.x264|WEB\.h264`),
-		MaxResolution:          envInt("MAX_RESOLUTION", 2160),
-		StreamServerAPIKey:     os.Getenv("STREAM_SERVER_API_KEY"),
-		CORSOrigins:            splitCSV(envOr("CORS_ORIGINS", "http://localhost:5173")),
-		HTTPProxy:              os.Getenv("HTTP_PROXY"),
-		HTTPSProxy:             os.Getenv("HTTPS_PROXY"),
-		ResolveTimeout:         time.Duration(envInt("RESOLVE_TIMEOUT_SECONDS", 600)) * time.Second,
-		LetterboxdBaseURL:      strings.TrimRight(envOr("LETTERBOXD_BASE_URL", "https://letterboxd.com"), "/"),
-		LetterboxdCacheTTL:     envDuration("LETTERBOXD_CACHE_TTL", time.Hour),
+		Addr:                       envOr("ADDR", ":8080"),
+		RealDebridToken:            strings.TrimSpace(os.Getenv("REALDEBRID_TOKEN")),
+		TorrentioURL:               strings.TrimRight(envOr("TORRENTIO_URL", "https://torrentio.strem.fun"), "/"),
+		MaxVideoSizeGB:             envFloat("MAX_VIDEO_SIZE_GB", 50),
+		MinSeeders:                 envInt("MIN_SEEDERS", 3),
+		PreferInstant:              envBool("PREFER_INSTANT", true),
+		BlockedKeywords:            splitCSV(envOr("BLOCKED_KEYWORDS", "cam,ts,telesync,hdcam")),
+		RDBlockedFilenameRegex:     envOr("RD_BLOCKED_FILENAME_REGEX", `web-dl|webrip|bdrip|hdrip|dvdrip|BluRay\.x264|HDTV\.x264|HDTV\.XviD|WEB\.x264|WEB\.h264`),
+		MaxResolution:              envInt("MAX_RESOLUTION", 2160),
+		StreamServerAPIKey:         os.Getenv("STREAM_SERVER_API_KEY"),
+		CORSOrigins:                splitCSV(envOr("CORS_ORIGINS", "http://localhost:5173")),
+		HTTPProxy:                  os.Getenv("HTTP_PROXY"),
+		HTTPSProxy:                 os.Getenv("HTTPS_PROXY"),
+		ResolveTimeout:             time.Duration(envInt("RESOLVE_TIMEOUT_SECONDS", 600)) * time.Second,
+		LetterboxdBaseURL:          strings.TrimRight(envOr("LETTERBOXD_BASE_URL", "https://letterboxd.com"), "/"),
+		LetterboxdCacheTTL:         envDuration("LETTERBOXD_CACHE_TTL", time.Hour),
 		OpenLibraryBaseURL:         strings.TrimRight(envOr("OPEN_LIBRARY_BASE_URL", "https://openlibrary.org"), "/"),
 		OpenLibraryCacheTTL:        envDuration("OPEN_LIBRARY_CACHE_TTL", 12*time.Hour),
 		OpenLibraryCoverPublicBase: strings.TrimRight(envOr("OPEN_LIBRARY_COVER_PUBLIC_BASE", "/stream-api/api/v1/openlibrary/covers"), "/"),
 		OpenLibraryCoversBaseURL:   strings.TrimRight(envOr("OPEN_LIBRARY_COVERS_BASE_URL", "https://covers.openlibrary.org"), "/"),
+		SpotifyClientID:            strings.TrimSpace(os.Getenv("SPOTIFY_CLIENT_ID")),
+		SpotifyClientSecret:        strings.TrimSpace(os.Getenv("SPOTIFY_CLIENT_SECRET")),
+		SpotifyAPIBaseURL:          strings.TrimRight(envOr("SPOTIFY_API_BASE_URL", "https://api.spotify.com/v1"), "/"),
+		SpotifyAuthURL:             strings.TrimRight(envOr("SPOTIFY_AUTH_URL", "https://accounts.spotify.com/api/token"), "/"),
+		SpotifyCacheTTL:            envDuration("SPOTIFY_CACHE_TTL", 6*time.Hour),
 		AbbBaseURL:                 strings.TrimRight(envOr("ABB_BASE_URL", "https://audiobookbay.lu"), "/"),
 		AbbUsername:                strings.TrimSpace(os.Getenv("ABB_USERNAME")),
 		AbbPassword:                os.Getenv("ABB_PASSWORD"),

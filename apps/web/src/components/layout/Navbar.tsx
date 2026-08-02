@@ -11,7 +11,7 @@ import { api } from "@convex/_generated/api";
 import { MagnifyingGlassIcon, GearIcon } from "@radix-ui/react-icons";
 import { useUserSettings } from "@/hooks/useUserSettings";
 
-export type SearchMode = "media" | "books";
+export type SearchMode = "media" | "books" | "music";
 
 type NavbarProps = {
   searchMode?: SearchMode;
@@ -31,6 +31,20 @@ function isBooksPath(pathname: string, search: string): boolean {
   return false;
 }
 
+function isMusicPath(pathname: string, search: string): boolean {
+  if (
+    pathname.startsWith("/music") ||
+    pathname.startsWith("/album/") ||
+    pathname.startsWith("/music-artist/")
+  ) {
+    return true;
+  }
+  if (pathname.startsWith("/search")) {
+    return new URLSearchParams(search).get("type") === "music";
+  }
+  return false;
+}
+
 export function Navbar({ searchMode }: NavbarProps) {
   const user = useQuery(api.users.viewer);
   const { contentTypes } = useUserSettings();
@@ -41,13 +55,21 @@ export function Navbar({ searchMode }: NavbarProps) {
   const navigate = useNavigate();
   const showMoviesShows = contentTypes.includes("movies_shows");
   const showAudiobooks = contentTypes.includes("audiobooks");
+  const showMusic = contentTypes.includes("music");
   const showVideoGames = contentTypes.includes("video_games");
   const activeSearchMode: SearchMode =
-    searchMode ?? (isBooksPath(location.pathname, location.search) ? "books" : "media");
+    searchMode ??
+    (isMusicPath(location.pathname, location.search)
+      ? "music"
+      : isBooksPath(location.pathname, location.search)
+        ? "books"
+        : "media");
   const searchPlaceholder =
     activeSearchMode === "books"
       ? "Search books or authors"
-      : "Search movies, shows, or cast";
+      : activeSearchMode === "music"
+        ? "Search albums or artists"
+        : "Search movies, shows, or cast";
 
   function openSearch() {
     setIsSearchOpen(true);
@@ -65,6 +87,8 @@ export function Navbar({ searchMode }: NavbarProps) {
     const params = new URLSearchParams({ q: trimmedQuery });
     if (activeSearchMode === "books") {
       params.set("type", "books");
+    } else if (activeSearchMode === "music") {
+      params.set("type", "music");
     }
     void navigate(`/search?${params.toString()}`);
   }
@@ -93,6 +117,11 @@ export function Navbar({ searchMode }: NavbarProps) {
             {showAudiobooks ? (
               <AppLink to="/audiobooks" className="transition hover:text-white">
                 Audiobooks
+              </AppLink>
+            ) : null}
+            {showMusic ? (
+              <AppLink to="/music" className="transition hover:text-white">
+                Music
               </AppLink>
             ) : null}
             {showVideoGames ? (

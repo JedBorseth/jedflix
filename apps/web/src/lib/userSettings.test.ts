@@ -21,7 +21,7 @@ describe("userSettings onboarding fields", () => {
   test("sanitizeSettings keeps valid onboarding fields", () => {
     const sanitized = sanitizeSettings({
       deviceType: "tv",
-      contentTypes: ["movies_shows", "audiobooks", "not-real" as never],
+      contentTypes: ["movies_shows", "audiobooks", "music", "not-real" as never],
       letterboxdUsername: "  jed  ",
       virusWarningAccepted: true,
       ispWarningAccepted: false,
@@ -34,7 +34,7 @@ describe("userSettings onboarding fields", () => {
       realDebridApiKey: "token",
       externalPlayer: "vlc",
       deviceType: "tv",
-      contentTypes: ["movies_shows", "audiobooks"],
+      contentTypes: ["movies_shows", "audiobooks", "music"],
       letterboxdUsername: "jed",
       virusWarningAccepted: true,
       ispWarningAccepted: false,

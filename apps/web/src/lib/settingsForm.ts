@@ -9,6 +9,7 @@ export const DEVICE_TYPE_OPTIONS: Array<{ value: DeviceType; label: string }> = 
 export const CONTENT_TYPE_OPTIONS: Array<{ value: ContentType; label: string }> = [
   { value: "movies_shows", label: "Movies & Shows" },
   { value: "audiobooks", label: "Audiobooks" },
+  { value: "music", label: "Music" },
   { value: "video_games", label: "Video Games" },
 ];
 

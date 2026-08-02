@@ -1,7 +1,7 @@
 import { QueryClient } from "@tanstack/react-query";
 
 /**
- * Client cache for external HTTP catalogs (TMDB, Open Library, Letterboxd).
+ * Client cache for external HTTP catalogs (TMDB, Open Library, Letterboxd, Spotify).
  * Convex realtime data stays on convex/react useQuery.
  *
  * staleTime: Infinity ≈ once per browser session unless explicitly invalidated.
@@ -57,5 +57,12 @@ export const catalogQueryKeys = {
   },
   letterboxd: {
     films: (username: string) => ["letterboxd", "films", username] as const,
+  },
+  spotify: {
+    all: ["spotify"] as const,
+    browse: () => ["spotify", "browse"] as const,
+    album: (albumId: string) => ["spotify", "album", albumId] as const,
+    artist: (artistId: string) => ["spotify", "artist", artistId] as const,
+    search: (query: string) => ["spotify", "search", query] as const,
   },
 } as const;
