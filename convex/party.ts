@@ -658,9 +658,32 @@ export const applySpotifyChange = internalMutation({
       return null;
     }
     const queueDoc = await getQueue(ctx, args.partyId);
-    const queueIndex = args.track
-      ? (queueDoc?.tracks.findIndex((item) => item.id === args.track?.id) ?? -1)
-      : -1;
+    let queueIndex = -1;
+    if (args.track) {
+      const existingIndex =
+        queueDoc?.tracks.findIndex((item) => item.id === args.track?.id) ?? -1;
+      if (existingIndex >= 0) {
+        queueIndex = existingIndex;
+      } else {
+        // Spotify introduced a track outside the mirrored queue. Put it at the
+        // front so JedFlix clients play that song instead of falling back to
+        // whatever was previously first in the queue.
+        const tracks = trimQueue([
+          args.track,
+          ...(queueDoc?.tracks ?? []).filter((item) => item.id !== args.track?.id),
+        ]);
+        if (queueDoc) {
+          await ctx.db.patch(queueDoc._id, { tracks, updatedAt: Date.now() });
+        } else {
+          await ctx.db.insert("partyQueue", {
+            partyId: args.partyId,
+            tracks,
+            updatedAt: Date.now(),
+          });
+        }
+        queueIndex = 0;
+      }
+    }
 
     await commitPlayback(ctx, {
       partyId: args.partyId,

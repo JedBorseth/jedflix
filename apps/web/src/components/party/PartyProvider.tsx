@@ -64,9 +64,10 @@ export function PartyProvider({ children }: { children: ReactNode }) {
   }, [clientId, heartbeat, inParty]);
 
   const localTrackId = player.current?.id ?? null;
-  // `loading` counts as playing so the gap between picking a track and the
-  // audio actually starting is not mistaken for a pause.
-  const localPlaying = player.playing || player.loading;
+  // Count `loading` as playing only while the party itself is still playing.
+  // That covers the silent gap after picking a track without letting a Spotify
+  // pause get overwritten by a still-resolving audio load.
+  const localPlaying = player.playing || (player.loading && (party?.isPlaying ?? true));
 
   useEffect(() => {
     if (!party) {
@@ -92,7 +93,11 @@ export function PartyProvider({ children }: { children: ReactNode }) {
     if (decision.action === "apply") {
       if (remote.trackId !== local.trackId) {
         if (party.track) {
-          const queue = party.queue.length > 0 ? party.queue : [party.track];
+          // Keep the party track playable even when it is not already in the
+          // mirrored queue (common when someone picks a song on Spotify).
+          const queue = party.queue.some((track) => track.id === party.track!.id)
+            ? party.queue
+            : [party.track, ...party.queue];
           activePlayer.playTrack(party.track, queue);
           queueSignatureRef.current = queueSignature(queue.map((track) => track.id));
           // playTrack always starts audio, so record that as the expected local

@@ -170,16 +170,19 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
 
   const playTrack = useCallback(
     (track: MusicQueueTrack, nextQueue?: MusicQueueTrack[]) => {
-      const list = nextQueue && nextQueue.length > 0 ? nextQueue : [track];
-      const index = Math.max(
-        0,
-        list.findIndex((item) => item.id === track.id),
-      );
+      let list = nextQueue && nextQueue.length > 0 ? nextQueue : [track];
+      let index = list.findIndex((item) => item.id === track.id);
+      // A track outside the current queue (e.g. one picked on Spotify) must not
+      // collapse to index 0 — that would play the wrong song and bounce it back.
+      if (index < 0) {
+        list = [track, ...list.filter((item) => item.id !== track.id)];
+        index = 0;
+      }
       prefetchedIdsRef.current = new Set([track.id]);
       setQueue(list);
-      setQueueIndex(index >= 0 ? index : 0);
+      setQueueIndex(index);
       setQueueOpen(false);
-      loadAndPlay(list[index >= 0 ? index : 0] ?? track);
+      loadAndPlay(list[index] ?? track);
     },
     [loadAndPlay],
   );
