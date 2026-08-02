@@ -31,7 +31,7 @@
   font-family: "Outfit", "Avenir Next", "Segoe UI", sans-serif;
   font-weight: 800;
   font-size: 112px;
-  letter-spacing: -0.045em;
+  letter-spacing: -0.06em;
   font-synthesis: none;
 }
 
@@ -42,7 +42,7 @@
 }
 
 .jedflix-bloom {
-  transform-origin: 168px 100px;
+  transform-origin: 230px 100px;
   transform-box: view-box;
   will-change: transform, opacity;
 }
@@ -51,11 +51,15 @@
   will-change: transform, opacity;
 }
 
-/* App shell under the overlay — opacity owned by GSAP during the crossfade */
+/*
+ * App shell under the overlay.
+ * CRITICAL: do not put `transform`, `filter`, `perspective`, or
+ * `will-change: transform` here. Those make this element a containing block
+ * for `position: fixed`, which pins the mobile bottom nav to the page scroll
+ * instead of the viewport.
+ */
 .startup-app-shell {
   min-height: 100%;
-  transform: translate3d(0, 0, 0);
-  will-change: opacity;
 }
 
 .startup-app-shell[data-startup-pending="true"] {
@@ -70,8 +74,7 @@
   .jedflix-letter,
   .jedflix-bloom,
   .jedflix-shine-band,
-  .startup-overlay,
-  .startup-app-shell {
+  .startup-overlay {
     will-change: auto;
   }
 }

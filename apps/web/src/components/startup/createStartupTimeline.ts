@@ -1,5 +1,5 @@
 import gsap from "gsap";
-import { LETTER_X, TRAILING_LETTERS } from "./JedflixLogoSvg";
+import { LETTER_X, TRAILING_LETTERS, offsetToCenter } from "./logoLayout";
 
 export type StartupTimelineElements = {
   overlay: HTMLElement;
@@ -21,9 +21,9 @@ export type CreateStartupTimelineOptions = {
  *
  * Labels:
  * - black
- * - j-emerge   (0.15s)
+ * - j-emerge   (0.15s) — J centered
  * - j-bloom    (0.70s)
- * - unfold     (0.95s)
+ * - unfold     (0.95s) — J slides left, edflix unfolds; final word centered
  * - word-settle (1.45s)
  * - shine      (1.60s)
  * - glow-fade  (1.95s)
@@ -44,6 +44,8 @@ export function createStartupTimeline(
     shineBand,
   } = elements;
 
+  const jCenterOffset = offsetToCenter(LETTER_X.J);
+
   const tl = gsap.timeline({
     defaults: {
       ease: "power2.out",
@@ -59,7 +61,7 @@ export function createStartupTimeline(
       scale: 1,
       filter: "blur(0px)",
     });
-    gsap.set([bloom, shineBand], { autoAlpha: 0 });
+    gsap.set([bloom, shineBand], { autoAlpha: 0, x: 0 });
     tl.to({}, { duration: 0.35 });
     tl.addLabel("hold");
     tl.call(() => options.onIntroComplete?.());
@@ -67,21 +69,21 @@ export function createStartupTimeline(
   }
 
   // --- Initial state -------------------------------------------------------
+  // J (and bloom) sit at the viewBox center; trailing letters are stacked behind it.
   gsap.set(overlay, { autoAlpha: 1 });
   gsap.set(word, { autoAlpha: 1 });
   gsap.set(leadLetter, {
     autoAlpha: 0,
+    x: jCenterOffset,
     scale: 0.85,
     filter: "blur(10px)",
     transformOrigin: "50% 50%",
   });
   gsap.set(trailingLetters, {
     autoAlpha: 0,
-    // Stack behind the J (same screen position), then unfold to final x
     x: (_index, target) => {
       const letter = target.getAttribute("data-letter") as (typeof TRAILING_LETTERS)[number];
-      const finalX = LETTER_X[letter];
-      return LETTER_X.J - finalX;
+      return offsetToCenter(LETTER_X[letter]);
     },
     scale: 0.96,
     filter: "blur(6px)",
@@ -89,6 +91,7 @@ export function createStartupTimeline(
   });
   gsap.set(bloom, {
     autoAlpha: 0,
+    x: jCenterOffset,
     scale: 0.7,
     transformOrigin: `${LETTER_X.J}px 100px`,
   });
@@ -99,7 +102,7 @@ export function createStartupTimeline(
 
   tl.addLabel("black", 0);
 
-  // 0.15s — J materializes from darkness
+  // 0.15s — J materializes from darkness, centered
   tl.addLabel("j-emerge", 0.15);
   tl.fromTo(
     leadLetter,
@@ -118,7 +121,6 @@ export function createStartupTimeline(
     "j-emerge",
   );
 
-  // Soft glow presence via bloom layer under the J
   tl.fromTo(
     bloom,
     { autoAlpha: 0, scale: 0.65 },
@@ -154,8 +156,26 @@ export function createStartupTimeline(
     "j-bloom+=0.28",
   );
 
-  // 0.95s — edflix unfolds from behind the J
+  // 0.95s — J slides left; edflix unfolds into the centered wordmark
   tl.addLabel("unfold", 0.95);
+  tl.to(
+    leadLetter,
+    {
+      x: 0,
+      duration: 0.55,
+      ease: "power3.inOut",
+    },
+    "unfold",
+  );
+  tl.to(
+    bloom,
+    {
+      x: 0,
+      duration: 0.55,
+      ease: "power3.inOut",
+    },
+    "unfold",
+  );
   tl.to(
     trailingLetters,
     {
@@ -165,7 +185,7 @@ export function createStartupTimeline(
       filter: "blur(0px)",
       duration: 0.55,
       stagger: {
-        each: 0.045,
+        each: 0.04,
         from: "start",
         ease: "power1.out",
       },
@@ -176,17 +196,14 @@ export function createStartupTimeline(
 
   // 1.45s — slight tracking expand, then settle to final kerning
   tl.addLabel("word-settle", 1.45);
-  const trackingSpread = trailingLetters.map((el, index) => ({
-    el,
-    spread: 3 + index * 1.15,
-  }));
+  const trackingSpread = trailingLetters.map((_el, index) => 2 + index * 0.75);
 
   tl.to(
     trailingLetters,
     {
       x: (_i, target) => {
         const index = trailingLetters.indexOf(target as HTMLElement);
-        return trackingSpread[index]?.spread ?? 4;
+        return trackingSpread[index] ?? 2;
       },
       duration: 0.22,
       ease: "power1.out",
@@ -220,7 +237,7 @@ export function createStartupTimeline(
   tl.to(
     shineBand,
     {
-      x: 780,
+      x: 720,
       duration: 0.55,
       ease: "power2.inOut",
     },
@@ -256,7 +273,11 @@ export function createStartupTimeline(
   return tl;
 }
 
-/** Crossfade the overlay out while the app shell fades in. */
+/**
+ * Crossfade the overlay out while the app shell fades in.
+ * Opacity-only on the shell — never apply transforms, or `position: fixed`
+ * descendants (mobile bottom nav) become stuck to the scrolling container.
+ */
 export function playStartupExit(options: {
   overlay: HTMLElement;
   appShell?: HTMLElement | null;
@@ -268,19 +289,25 @@ export function playStartupExit(options: {
 
   if (appShell) {
     appShell.dataset.startupPending = "false";
-    // Keep shell invisible until the shared crossfade tween runs.
-    gsap.set(appShell, { opacity: 0, visibility: "visible" });
+    gsap.set(appShell, { opacity: 0, visibility: "visible", clearProps: "transform" });
   }
 
   const exit = gsap.timeline({
     defaults: { ease: "power2.inOut" },
-    onComplete,
+    onComplete: () => {
+      if (appShell) {
+        // Ensure no leftover transform creates a fixed-position containing block.
+        gsap.set(appShell, { clearProps: "transform,will-change" });
+        appShell.style.transform = "";
+        appShell.style.willChange = "";
+      }
+      onComplete?.();
+    },
   });
 
-  // Promote HTML layers for the crossfade (SVG letter tweens avoid force3D).
-  exit.to(overlay, { autoAlpha: 0, duration, force3D: true }, 0);
+  exit.to(overlay, { autoAlpha: 0, duration }, 0);
   if (appShell) {
-    exit.to(appShell, { autoAlpha: 1, duration, force3D: true }, 0);
+    exit.to(appShell, { opacity: 1, duration }, 0);
   }
 
   return exit;

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import gsap from "gsap";
+import { LETTER_X, VIEWBOX_CENTER_X, offsetToCenter } from "./logoLayout";
 import { createStartupTimeline, playStartupExit } from "./createStartupTimeline";
 
 function requireEl<T extends Element>(root: ParentNode, selector: string): T {
@@ -51,6 +52,12 @@ describe("createStartupTimeline", () => {
     gsap.globalTimeline.clear();
   });
 
+  test("final letter layout is centered in the viewBox", () => {
+    const mid = (LETTER_X.J + LETTER_X.x) / 2;
+    expect(Math.abs(mid - VIEWBOX_CENTER_X)).toBeLessThan(5);
+    expect(offsetToCenter(LETTER_X.J)).toBe(VIEWBOX_CENTER_X - LETTER_X.J);
+  });
+
   test("builds a labeled master timeline that reports intro complete at hold", () => {
     const overlay = mountOverlay();
     let complete = false;
@@ -89,7 +96,7 @@ describe("createStartupTimeline", () => {
     tl.kill();
   });
 
-  test("exit crossfade reveals the app shell", () => {
+  test("exit crossfade reveals the app shell without leaving a transform", () => {
     const overlay = mountOverlay();
     const appShell = document.createElement("div");
     appShell.className = "startup-app-shell";
@@ -108,6 +115,7 @@ describe("createStartupTimeline", () => {
     exit.progress(1);
 
     expect(appShell.dataset.startupPending).toBe("false");
+    expect(appShell.style.transform).toBe("");
     expect(done).toBe(true);
     exit.kill();
   });

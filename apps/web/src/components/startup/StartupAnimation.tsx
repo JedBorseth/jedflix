@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import gsap from "gsap";
-import { JedflixLogoSvg, TRAILING_LETTERS } from "./JedflixLogoSvg";
+import { JedflixLogoSvg } from "./JedflixLogoSvg";
+import { TRAILING_LETTERS } from "./logoLayout";
 import {
   createStartupTimeline,
   playStartupExit,

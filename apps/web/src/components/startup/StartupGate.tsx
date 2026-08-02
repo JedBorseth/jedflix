@@ -30,7 +30,8 @@ export function StartupGate({ children }: StartupGateProps) {
     if (!appShell || !overlayMounted) {
       return;
     }
-    gsap.set(appShell, { autoAlpha: 0 });
+    // Opacity only — never set transform on the shell (breaks position:fixed nav).
+    gsap.set(appShell, { opacity: 0, visibility: "hidden", clearProps: "transform" });
   }, [appShell, overlayMounted]);
 
   const handleIntroComplete = useCallback(() => {
@@ -39,7 +40,17 @@ export function StartupGate({ children }: StartupGateProps) {
 
   const handleExitComplete = useCallback(() => {
     setOverlayMounted(false);
-  }, []);
+    if (appShell) {
+      gsap.set(appShell, {
+        clearProps: "transform,opacity,visibility,will-change",
+      });
+      appShell.style.transform = "";
+      appShell.style.willChange = "";
+      appShell.style.opacity = "";
+      appShell.style.visibility = "";
+      appShell.dataset.startupPending = "false";
+    }
+  }, [appShell]);
 
   return (
     <>

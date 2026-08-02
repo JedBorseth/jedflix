@@ -3,23 +3,12 @@
  * Letter nodes expose `data-letter` hooks for the GSAP timeline.
  */
 
-export const STARTUP_LOGO_VIEWBOX = "0 0 720 180";
-
-/** Trailing letters that unfold from behind the lead J. */
-export const TRAILING_LETTERS = ["e", "d", "f", "l", "i", "x"] as const;
-
-/** Horizontal centers for J + trailing letters (viewBox units). */
-export const LETTER_X = {
-  J: 168,
-  e: 248,
-  d: 324,
-  f: 398,
-  l: 460,
-  i: 514,
-  x: 584,
-} as const;
-
-export const LETTER_BASELINE_Y = 118;
+import {
+  LETTER_BASELINE_Y,
+  LETTER_X,
+  STARTUP_LOGO_VIEWBOX,
+  TRAILING_LETTERS,
+} from "./logoLayout";
 
 type JedflixLogoSvgProps = {
   className?: string;
