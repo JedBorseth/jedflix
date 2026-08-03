@@ -1,15 +1,20 @@
 import { AppLink } from "@/components/layout/AppLink";
 import { MediaPlayButton } from "@/components/browse/MediaPlayButton";
 import { Button } from "@/components/ui/button";
+import { useHasRealDebridApiKey } from "@/hooks/useHasRealDebridApiKey";
+import { blockDebridMediaNavigation } from "@/lib/debridAccess";
 import type { MediaItem } from "@/lib/types";
 import { formatDuration } from "@/lib/types";
 import { getMediaDetailPath, getWatchPath } from "@/lib/tmdb";
+import { cn } from "@/lib/utils";
 
 type HeroBannerProps = {
   movie: MediaItem;
 };
 
 export function HeroBanner({ movie }: HeroBannerProps) {
+  const hasDebridKey = useHasRealDebridApiKey();
+
   return (
     <section className="relative h-[70vh] min-h-[420px] w-full overflow-hidden">
       <img
@@ -37,6 +42,7 @@ export function HeroBanner({ movie }: HeroBannerProps) {
         <div className="flex flex-wrap items-start gap-3">
           <MediaPlayButton
             media={movie}
+            requireDebrid
             to={
               movie.mediaType === "movie"
                 ? getWatchPath("movie", movie.id)
@@ -47,9 +53,21 @@ export function HeroBanner({ movie }: HeroBannerProps) {
             asChild
             size="lg"
             variant="secondary"
-            className="bg-zinc-500/40 text-white hover:bg-zinc-500/60"
+            className={cn(
+              "bg-zinc-500/40 text-white hover:bg-zinc-500/60",
+              !hasDebridKey && "cursor-not-allowed opacity-50",
+            )}
           >
-            <AppLink to={getMediaDetailPath(movie)} state={{ preview: movie }}>
+            <AppLink
+              to={getMediaDetailPath(movie)}
+              state={{ preview: movie }}
+              aria-disabled={!hasDebridKey}
+              onClick={(event) => {
+                if (blockDebridMediaNavigation()) {
+                  event.preventDefault();
+                }
+              }}
+            >
               More Info
             </AppLink>
           </Button>

@@ -35,9 +35,11 @@ import {
   CONTENT_TYPE_OPTIONS,
   DEVICE_TYPE_OPTIONS,
   EXTERNAL_PLAYER_OPTIONS,
+  isContentTypeLockedWithoutDebrid,
   toggleContentType,
 } from "@/lib/settingsForm";
 import type { DeviceType, ExternalPlayer } from "@/lib/userSettings";
+import { withoutDebridContentTypes } from "@/lib/userSettings";
 
 export function SettingsPage() {
   const navigate = useNavigate();
@@ -68,7 +70,16 @@ export function SettingsPage() {
   }, [letterboxdUsername]);
 
   const handleSaveApiKey = () => {
-    saveSettings({ realDebridApiKey: apiKey.trim() || undefined });
+    const trimmed = apiKey.trim();
+    if (!trimmed) {
+      const nextTypes = withoutDebridContentTypes(contentTypes);
+      saveSettings({
+        realDebridApiKey: undefined,
+        contentTypes: nextTypes.length > 0 ? nextTypes : ["music"],
+      });
+    } else {
+      saveSettings({ realDebridApiKey: trimmed });
+    }
     setSaved(true);
     window.setTimeout(() => setSaved(false), 2000);
   };
@@ -160,17 +171,26 @@ export function SettingsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
+              {!realDebridApiKey.trim() ? (
+                <p className="mb-2 text-sm text-amber-200/90">
+                  Movies, shows, audiobooks, and games need a Real Debrid API key below.
+                </p>
+              ) : null}
               {CONTENT_TYPE_OPTIONS.map((option) => {
                 const checked = contentTypes.includes(option.value);
+                const locked = isContentTypeLockedWithoutDebrid(option.value, realDebridApiKey);
                 return (
                   <label
                     key={option.value}
-                    className="flex cursor-pointer items-center gap-3 rounded-md border border-zinc-800 bg-zinc-950/50 px-3 py-3 text-sm"
+                    className={`flex items-center gap-3 rounded-md border border-zinc-800 bg-zinc-950/50 px-3 py-3 text-sm ${
+                      locked ? "cursor-not-allowed opacity-50" : "cursor-pointer"
+                    }`}
                   >
                     <input
                       type="checkbox"
-                      className="h-4 w-4 accent-red-500"
+                      className="h-4 w-4 accent-red-500 disabled:cursor-not-allowed"
                       checked={checked}
+                      disabled={locked}
                       onChange={(event) => {
                         const next = toggleContentType(
                           contentTypes,
@@ -183,7 +203,12 @@ export function SettingsPage() {
                         saveSettings({ contentTypes: next });
                       }}
                     />
-                    {option.label}
+                    <span>
+                      {option.label}
+                      {locked ? (
+                        <span className="mt-0.5 block text-xs text-zinc-500">Needs Real Debrid</span>
+                      ) : null}
+                    </span>
                   </label>
                 );
               })}
@@ -194,8 +219,7 @@ export function SettingsPage() {
             <CardHeader>
               <CardTitle>Real Debrid API Key</CardTitle>
               <CardDescription className="text-zinc-400">
-                Real Debrid keys are never sent to our servers and are only used for streaming from
-                debrid to client.
+                Required for movies, shows, audiobooks, and games. Music works without a key.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">

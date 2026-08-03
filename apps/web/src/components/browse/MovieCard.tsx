@@ -1,8 +1,11 @@
 import { useRef, type MouseEvent } from "react";
 import { AppLink } from "@/components/layout/AppLink";
+import { useHasRealDebridApiKey } from "@/hooks/useHasRealDebridApiKey";
+import { blockDebridMediaNavigation } from "@/lib/debridAccess";
 import type { MediaItem } from "@/lib/types";
 import { getMediaDetailPath } from "@/lib/tmdb";
 import { markPosterTransitionSource } from "@/lib/posterTransition";
+import { cn } from "@/lib/utils";
 
 type MovieCardProps = {
   movie: MediaItem;
@@ -11,8 +14,13 @@ type MovieCardProps = {
 export function MovieCard({ movie }: MovieCardProps) {
   const posterRef = useRef<HTMLImageElement>(null);
   const detailPath = getMediaDetailPath(movie);
+  const hasDebridKey = useHasRealDebridApiKey();
 
-  function handleClick(_event: MouseEvent<HTMLAnchorElement>) {
+  function handleClick(event: MouseEvent<HTMLAnchorElement>) {
+    if (blockDebridMediaNavigation()) {
+      event.preventDefault();
+      return;
+    }
     markPosterTransitionSource(posterRef.current, movie);
   }
 
@@ -21,7 +29,11 @@ export function MovieCard({ movie }: MovieCardProps) {
       to={detailPath}
       state={{ preview: movie }}
       onClick={handleClick}
-      className="group relative block w-36 shrink-0 snap-start md:w-44"
+      aria-disabled={!hasDebridKey}
+      className={cn(
+        "group relative block w-36 shrink-0 snap-start md:w-44",
+        !hasDebridKey && "cursor-not-allowed opacity-50",
+      )}
       data-testid="movie-card"
     >
       <div className="overflow-hidden rounded-md transition duration-300 group-hover:scale-105 group-hover:shadow-xl group-hover:shadow-black/50">

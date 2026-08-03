@@ -1,5 +1,8 @@
 import { Link } from "react-router-dom";
+import type { MouseEvent } from "react";
 import { Button } from "@/components/ui/button";
+import { useHasRealDebridApiKey } from "@/hooks/useHasRealDebridApiKey";
+import { blockDebridMediaNavigation } from "@/lib/debridAccess";
 import { cn } from "@/lib/utils";
 import { isMediaReleased, type MediaItem } from "@/lib/types";
 
@@ -9,6 +12,8 @@ type MediaPlayButtonProps = {
   label?: string;
   className?: string;
   useAnchor?: boolean;
+  /** When true, block navigation without a Real Debrid API key. */
+  requireDebrid?: boolean;
 };
 
 export function MediaPlayButton({
@@ -17,8 +22,17 @@ export function MediaPlayButton({
   label = "Play",
   className,
   useAnchor = false,
+  requireDebrid = false,
 }: MediaPlayButtonProps) {
   const notReleased = !isMediaReleased(media);
+  const hasDebridKey = useHasRealDebridApiKey();
+  const locked = requireDebrid && !hasDebridKey;
+
+  function handleClick(event: MouseEvent) {
+    if (requireDebrid && blockDebridMediaNavigation()) {
+      event.preventDefault();
+    }
+  }
 
   return (
     <div className="relative inline-flex">
@@ -30,9 +44,21 @@ export function MediaPlayButton({
       <Button
         asChild
         size="lg"
-        className={cn("bg-white text-black hover:bg-zinc-200", className)}
+        className={cn(
+          "bg-white text-black hover:bg-zinc-200",
+          locked && "cursor-not-allowed opacity-50",
+          className,
+        )}
       >
-        {useAnchor ? <a href={to}>{label}</a> : <Link to={to}>{label}</Link>}
+        {useAnchor ? (
+          <a href={to} aria-disabled={locked} onClick={handleClick}>
+            {label}
+          </a>
+        ) : (
+          <Link to={to} aria-disabled={locked} onClick={handleClick}>
+            {label}
+          </Link>
+        )}
       </Button>
     </div>
   );

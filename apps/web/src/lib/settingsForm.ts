@@ -1,4 +1,10 @@
-import type { ContentType, DeviceType, ExternalPlayer } from "@/lib/userSettings";
+import {
+  contentTypeRequiresRealDebrid,
+  contentTypesRequiringRealDebrid,
+  type ContentType,
+  type DeviceType,
+  type ExternalPlayer,
+} from "@/lib/userSettings";
 
 export const DEVICE_TYPE_OPTIONS: Array<{ value: DeviceType; label: string }> = [
   { value: "desktop", label: "Desktop" },
@@ -61,14 +67,15 @@ export const ONBOARDING_STEPS: Array<{
     description: "We will remember this preference for later features.",
   },
   {
+    id: "realDebridApiKey",
+    title: "Add your Real Debrid key",
+    description:
+      "Needed for movies, shows, audiobooks, and games. Skip if you only want music.",
+  },
+  {
     id: "contentTypes",
     title: "What do you want to browse?",
     description: "Pick the library tabs to show. You can change this later.",
-  },
-  {
-    id: "realDebridApiKey",
-    title: "Add your Real Debrid key",
-    description: "Required for direct streaming from your browser.",
   },
   {
     id: "externalPlayer",
@@ -103,10 +110,18 @@ export function validateOnboardingStep(
       return undefined;
     case "deviceType":
       return values.deviceType ? undefined : "Select a device type.";
-    case "contentTypes":
-      return values.contentTypes.length > 0 ? undefined : "Select at least one content type.";
+    case "contentTypes": {
+      if (values.contentTypes.length === 0) {
+        return "Select at least one content type.";
+      }
+      if (!values.realDebridApiKey.trim() && contentTypesRequiringRealDebrid(values.contentTypes).length > 0) {
+        return "Movies, shows, audiobooks, and games need a Real Debrid key. Select Music, or go back and add a key.";
+      }
+      return undefined;
+    }
     case "realDebridApiKey":
-      return values.realDebridApiKey.trim() ? undefined : "Enter your Real Debrid API key.";
+      // Optional — music works without a key. Debrid content types are gated on the next step.
+      return undefined;
     case "externalPlayer":
       return values.externalPlayer ? undefined : "Select a player preference.";
     case "virusWarning":
@@ -137,4 +152,11 @@ export function toggleContentType(
     return current.includes(value) ? current : [...current, value];
   }
   return current.filter((item) => item !== value);
+}
+
+export function isContentTypeLockedWithoutDebrid(
+  type: ContentType,
+  realDebridApiKey: string,
+): boolean {
+  return contentTypeRequiresRealDebrid(type) && !realDebridApiKey.trim();
 }

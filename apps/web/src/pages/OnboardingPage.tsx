@@ -13,12 +13,14 @@ import {
   ONBOARDING_STEPS,
   type OnboardingFormValues,
   type OnboardingStepId,
+  isContentTypeLockedWithoutDebrid,
   toggleContentType,
   validateOnboardingStep,
   validateOnboardingValues,
   VIRUS_WARNING_TEXT,
 } from "@/lib/settingsForm";
 import type { DeviceType, ExternalPlayer } from "@/lib/userSettings";
+import { withoutDebridContentTypes } from "@/lib/userSettings";
 import { cn } from "@/lib/utils";
 import "./onboarding.css";
 
@@ -53,7 +55,7 @@ export function OnboardingPage() {
       saveSettings({
         deviceType: value.deviceType as DeviceType,
         contentTypes: value.contentTypes,
-        realDebridApiKey: value.realDebridApiKey.trim(),
+        realDebridApiKey: value.realDebridApiKey.trim() || undefined,
         externalPlayer: value.externalPlayer as ExternalPlayer,
         letterboxdUsername: value.letterboxdUsername.trim() || undefined,
         virusWarningAccepted: true,
@@ -76,14 +78,32 @@ export function OnboardingPage() {
     setStepIndex((current) => Math.max(0, current - 1));
   }
 
-  async function goNext() {
+  async function goNext(options?: { skipRealDebrid?: boolean }) {
     if (isWelcomeExiting) return;
+
+    if (options?.skipRealDebrid && step.id === "realDebridApiKey") {
+      form.setFieldValue("realDebridApiKey", "");
+      form.setFieldValue(
+        "contentTypes",
+        withoutDebridContentTypes(form.state.values.contentTypes),
+      );
+      setStepError(null);
+      setStepIndex((current) => Math.min(ONBOARDING_STEPS.length - 1, current + 1));
+      return;
+    }
 
     const values = form.state.values;
     const error = validateOnboardingStep(step.id, values);
     if (error) {
       setStepError(error);
       return;
+    }
+
+    if (step.id === "realDebridApiKey" && !values.realDebridApiKey.trim()) {
+      form.setFieldValue(
+        "contentTypes",
+        withoutDebridContentTypes(values.contentTypes),
+      );
     }
 
     if (step.id === "welcome") {
@@ -200,23 +220,36 @@ export function OnboardingPage() {
                     Back
                   </Button>
                 ) : null}
-                <Button
-                  type="button"
-                  size={isFirst ? "lg" : "default"}
-                  className={cn(isFirst && "onboarding-cta min-w-[12rem] px-10 text-base")}
-                  disabled={isSubmitting || isVerifying || isWelcomeExiting}
-                  onClick={() => void goNext()}
-                >
-                  {isVerifying
-                    ? "Checking Letterboxd..."
-                    : isSubmitting
-                      ? "Saving..."
-                      : isFirst
-                        ? "Get started"
-                        : isLast
-                          ? "Finish"
-                          : "Continue"}
-                </Button>
+                <div className="flex items-center gap-3">
+                  {step.id === "realDebridApiKey" ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="text-zinc-400 hover:bg-zinc-900 hover:text-white"
+                      disabled={isSubmitting || isVerifying || isWelcomeExiting}
+                      onClick={() => void goNext({ skipRealDebrid: true })}
+                    >
+                      Skip
+                    </Button>
+                  ) : null}
+                  <Button
+                    type="button"
+                    size={isFirst ? "lg" : "default"}
+                    className={cn(isFirst && "onboarding-cta min-w-[12rem] px-10 text-base")}
+                    disabled={isSubmitting || isVerifying || isWelcomeExiting}
+                    onClick={() => void goNext()}
+                  >
+                    {isVerifying
+                      ? "Checking Letterboxd..."
+                      : isSubmitting
+                        ? "Saving..."
+                        : isFirst
+                          ? "Get started"
+                          : isLast
+                            ? "Finish"
+                            : "Continue"}
+                  </Button>
+                </div>
               </div>
             )}
           </form.Subscribe>
@@ -287,38 +320,68 @@ function StepFields({
       );
     case "contentTypes":
       return (
-        <form.Field name="contentTypes">
-          {(field) => (
-            <div className="grid gap-3 sm:grid-cols-3">
-              {CONTENT_TYPE_OPTIONS.map((option) => {
-                const checked = field.state.value.includes(option.value);
-                return (
-                  <label
-                    key={option.value}
-                    className={cn(
-                      "flex cursor-pointer items-center gap-3 rounded-md border px-4 py-4 text-sm transition sm:flex-col sm:items-start sm:gap-2",
-                      checked
-                        ? "border-red-500 bg-red-500/10 text-white"
-                        : "border-zinc-800 bg-zinc-900/60 text-zinc-300 hover:border-zinc-600",
-                    )}
-                  >
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 accent-red-500"
-                      checked={checked}
-                      onChange={(event) =>
-                        field.handleChange(
-                          toggleContentType(field.state.value, option.value, event.target.checked),
-                        )
-                      }
-                    />
-                    {option.label}
-                  </label>
-                );
-              })}
-            </div>
+        <form.Subscribe selector={(state) => state.values.realDebridApiKey}>
+          {(realDebridApiKey) => (
+            <form.Field name="contentTypes">
+              {(field) => (
+                <div className="space-y-4">
+                  {!realDebridApiKey.trim() ? (
+                    <p className="rounded-md border border-amber-800/50 bg-amber-950/30 px-3 py-2 text-sm text-amber-100">
+                      Without a Real Debrid key, only Music can be selected.
+                      Movies, shows, audiobooks, and games stay locked.
+                    </p>
+                  ) : null}
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    {CONTENT_TYPE_OPTIONS.map((option) => {
+                      const locked = isContentTypeLockedWithoutDebrid(
+                        option.value,
+                        realDebridApiKey,
+                      );
+                      const checked = field.state.value.includes(option.value);
+                      return (
+                        <label
+                          key={option.value}
+                          className={cn(
+                            "flex items-center gap-3 rounded-md border px-4 py-4 text-sm transition sm:flex-col sm:items-start sm:gap-2",
+                            locked
+                              ? "cursor-not-allowed border-zinc-900 bg-zinc-950/40 text-zinc-600"
+                              : checked
+                                ? "cursor-pointer border-red-500 bg-red-500/10 text-white"
+                                : "cursor-pointer border-zinc-800 bg-zinc-900/60 text-zinc-300 hover:border-zinc-600",
+                          )}
+                        >
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 accent-red-500 disabled:cursor-not-allowed"
+                            checked={checked}
+                            disabled={locked}
+                            onChange={(event) =>
+                              field.handleChange(
+                                toggleContentType(
+                                  field.state.value,
+                                  option.value,
+                                  event.target.checked,
+                                ),
+                              )
+                            }
+                          />
+                          <span>
+                            {option.label}
+                            {locked ? (
+                              <span className="mt-1 block text-xs text-zinc-600">
+                                Needs Real Debrid
+                              </span>
+                            ) : null}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </form.Field>
           )}
-        </form.Field>
+        </form.Subscribe>
       );
     case "realDebridApiKey":
       return (
@@ -340,6 +403,9 @@ function StepFields({
                   Get API key from Real-Debrid
                 </a>
               </Button>
+              <p className="text-sm text-zinc-500">
+                Music works without Real Debrid. Skip if you only want to listen.
+              </p>
             </div>
           )}
         </form.Field>

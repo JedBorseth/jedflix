@@ -13,7 +13,29 @@ export const CONTENT_TYPES: ContentType[] = [
   "music",
   "video_games",
 ];
+/** Content types that need a Real Debrid API key. Music does not. */
+export const DEBRID_REQUIRED_CONTENT_TYPES: ContentType[] = [
+  "movies_shows",
+  "audiobooks",
+  "video_games",
+];
 export const EXTERNAL_PLAYERS: ExternalPlayer[] = ["disabled", "vlc", "outplayer"];
+
+export function contentTypeRequiresRealDebrid(type: ContentType): boolean {
+  return DEBRID_REQUIRED_CONTENT_TYPES.includes(type);
+}
+
+export function hasRealDebridApiKey(settings: UserSettings = getUserSettings()): boolean {
+  return typeof settings.realDebridApiKey === "string" && settings.realDebridApiKey.trim().length > 0;
+}
+
+export function contentTypesRequiringRealDebrid(contentTypes: ContentType[]): ContentType[] {
+  return contentTypes.filter(contentTypeRequiresRealDebrid);
+}
+
+export function withoutDebridContentTypes(contentTypes: ContentType[]): ContentType[] {
+  return contentTypes.filter((type) => !contentTypeRequiresRealDebrid(type));
+}
 
 export type UserSettings = {
   realDebridApiKey?: string;
@@ -103,17 +125,24 @@ export function isOnboardingComplete(settings: UserSettings = getUserSettings())
 }
 
 export function hasRequiredOnboardingFields(settings: UserSettings): boolean {
-  return (
-    isDeviceType(settings.deviceType) &&
-    Array.isArray(settings.contentTypes) &&
-    settings.contentTypes.length > 0 &&
-    settings.contentTypes.every(isContentType) &&
-    typeof settings.realDebridApiKey === "string" &&
-    settings.realDebridApiKey.trim().length > 0 &&
-    isExternalPlayer(settings.externalPlayer) &&
-    settings.virusWarningAccepted === true &&
-    settings.ispWarningAccepted === true
-  );
+  if (
+    !isDeviceType(settings.deviceType) ||
+    !Array.isArray(settings.contentTypes) ||
+    settings.contentTypes.length === 0 ||
+    !settings.contentTypes.every(isContentType) ||
+    !isExternalPlayer(settings.externalPlayer) ||
+    settings.virusWarningAccepted !== true ||
+    settings.ispWarningAccepted !== true
+  ) {
+    return false;
+  }
+
+  const needsDebrid = settings.contentTypes.some(contentTypeRequiresRealDebrid);
+  if (needsDebrid && !hasRealDebridApiKey(settings)) {
+    return false;
+  }
+
+  return true;
 }
 
 export function sanitizeSettings(settings: UserSettings & { streamMode?: unknown }): UserSettings {

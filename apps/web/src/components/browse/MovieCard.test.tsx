@@ -1,8 +1,9 @@
-import { test, expect } from "bun:test";
+import { afterEach, test, expect } from "bun:test";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { MovieCard } from "./MovieCard";
 import type { MediaItem } from "@/lib/types";
+import { clearUserSettings, saveUserSettings } from "@/lib/userSettings";
 
 const movie: MediaItem = {
   id: 123,
@@ -17,6 +18,10 @@ const movie: MediaItem = {
   durationMinutes: 128,
   rating: "PG-13",
 };
+
+afterEach(() => {
+  clearUserSettings();
+});
 
 function renderMovieCard() {
   const router = createMemoryRouter(
@@ -39,6 +44,7 @@ function renderMovieCard() {
 }
 
 test("MovieCard renders title from props", () => {
+  saveUserSettings({ realDebridApiKey: "test-key" });
   renderMovieCard();
 
   expect(screen.getAllByText("Neon Horizon")).toHaveLength(2);
@@ -46,6 +52,7 @@ test("MovieCard renders title from props", () => {
 });
 
 test("MovieCard does not assign view-transition-name by default", () => {
+  saveUserSettings({ realDebridApiKey: "test-key" });
   renderMovieCard();
 
   const images = screen.getAllByRole("img");
@@ -55,18 +62,20 @@ test("MovieCard does not assign view-transition-name by default", () => {
 });
 
 test("MovieCard assigns transition name only to the clicked poster", () => {
+  saveUserSettings({ realDebridApiKey: "test-key" });
   renderMovieCard();
 
   const cards = screen.getAllByTestId("movie-card");
   const images = screen.getAllByRole("img");
 
-  fireEvent.click(cards[1]);
+  fireEvent.click(cards[1]!);
 
   expect(images[0]?.style.viewTransitionName || "").toBe("");
   expect(images[1]?.style.viewTransitionName).toBe("poster-expand");
 });
 
 test("MovieCard clears an existing poster transition name before navigation", () => {
+  saveUserSettings({ realDebridApiKey: "test-key" });
   renderMovieCard();
 
   const existingDetailPoster = document.createElement("img");
@@ -76,10 +85,22 @@ test("MovieCard clears an existing poster transition name before navigation", ()
   const cards = screen.getAllByTestId("movie-card");
   const images = screen.getAllByRole("img");
 
-  fireEvent.click(cards[0]);
+  fireEvent.click(cards[0]!);
 
   expect(existingDetailPoster.style.viewTransitionName).toBe("");
   expect(images[0]?.style.viewTransitionName).toBe("poster-expand");
 
   existingDetailPoster.remove();
+});
+
+test("MovieCard blocks navigation without a Real Debrid key", () => {
+  renderMovieCard();
+
+  const cards = screen.getAllByTestId("movie-card");
+  const images = screen.getAllByRole("img");
+
+  fireEvent.click(cards[0]!);
+
+  expect(images[0]?.style.viewTransitionName || "").toBe("");
+  expect(cards[0]).toHaveAttribute("aria-disabled", "true");
 });

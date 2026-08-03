@@ -1,6 +1,9 @@
 import { AppLink } from "@/components/layout/AppLink";
+import { useHasRealDebridApiKey } from "@/hooks/useHasRealDebridApiKey";
+import { blockDebridMediaNavigation } from "@/lib/debridAccess";
 import type { WatchHistoryItem } from "@/lib/watchHistory";
 import { getWatchPath } from "@/lib/tmdb";
+import { cn } from "@/lib/utils";
 
 type ContinueWatchingCardProps = {
   item: WatchHistoryItem;
@@ -9,6 +12,7 @@ type ContinueWatchingCardProps = {
 export function ContinueWatchingCard({ item }: ContinueWatchingCardProps) {
   const totalSeconds = (item.media.durationMinutes ?? 90) * 60;
   const progressPercent = Math.min((item.progressSeconds / totalSeconds) * 100, 100);
+  const hasDebridKey = useHasRealDebridApiKey();
 
   return (
     <AppLink
@@ -19,7 +23,16 @@ export function ContinueWatchingCard({ item }: ContinueWatchingCardProps) {
         item.episode,
       )}
       state={{ preview: item.media }}
-      className="group relative block w-36 shrink-0 snap-start md:w-44"
+      aria-disabled={!hasDebridKey}
+      onClick={(event) => {
+        if (blockDebridMediaNavigation()) {
+          event.preventDefault();
+        }
+      }}
+      className={cn(
+        "group relative block w-36 shrink-0 snap-start md:w-44",
+        !hasDebridKey && "cursor-not-allowed opacity-50",
+      )}
     >
       <div className="overflow-hidden rounded-md transition duration-300 group-hover:scale-105 group-hover:shadow-xl group-hover:shadow-black/50">
         <img
