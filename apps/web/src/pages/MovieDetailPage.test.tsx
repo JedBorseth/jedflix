@@ -1,4 +1,4 @@
-import { afterEach, mock, test, expect } from "bun:test";
+import { afterEach, beforeEach, mock, test, expect } from "bun:test";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import type { MediaItem } from "@/lib/types";
@@ -10,6 +10,7 @@ import {
   resetPosterTransitionStateForTests,
   shouldApplyDetailPosterTransitionName,
 } from "@/lib/posterTransition";
+import { clearUserSettings, saveUserSettings } from "@/lib/userSettings";
 
 const currentMovie: MediaItem = {
   id: 863,
@@ -103,7 +104,13 @@ mock.module("@/lib/tmdb", () => ({
 import { withQueryClient } from "@/test/queryTestUtils";
 import { MovieDetailPage } from "./MovieDetailPage";
 
+beforeEach(() => {
+  // MovieCard blocks debrid navigation without a key; these tests need clicks to proceed.
+  saveUserSettings({ realDebridApiKey: "test-key" });
+});
+
 afterEach(() => {
+  clearUserSettings();
   resetPosterTransitionStateForTests();
   getMediaDetails.mockReset();
   getMediaDetails.mockImplementation(

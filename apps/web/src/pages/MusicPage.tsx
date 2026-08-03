@@ -70,8 +70,8 @@ export function MusicPage() {
 
         {rows === undefined && !error ? (
           <>
-            <CatalogRowSkeleton title="Pop" />
-            <CatalogRowSkeleton title="Hip-Hop" />
+            <CatalogRowSkeleton title="Popular Pop Artists" />
+            <CatalogRowSkeleton title="Popular Pop Albums" />
           </>
         ) : (
           (rows ?? []).map((row) => (

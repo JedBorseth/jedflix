@@ -22,14 +22,14 @@ const (
 	defaultAuthURL    = "https://accounts.spotify.com/api/token"
 	fallbackImage     = "https://placehold.co/640x640/18181b/a1a1aa?text=No+Cover"
 	// Development Mode caps GET /search (and several list endpoints) at limit=10.
-	defaultLimit         = 10
-	catalogPageCount     = 2 // 2 × 10 ≈ 20 items per shelf
-	featuredAlbumLimit   = 10
-	discographyMaxPages  = 5 // 5 × 10 = up to 50 releases
-	maxDetailCacheSize   = 400
-	maxArtistCacheSize   = 200
-	tokenRefreshSkew     = 60 * time.Second
-	defaultMarket        = "US"
+	defaultLimit        = 10
+	catalogPageCount    = 2 // 2 × 10 ≈ 20 items per shelf
+	featuredAlbumLimit  = 10
+	discographyMaxPages = 5 // 5 × 10 = up to 50 releases
+	maxDetailCacheSize  = 400
+	maxArtistCacheSize  = 200
+	tokenRefreshSkew    = 60 * time.Second
+	defaultMarket       = "US"
 )
 
 var spotifyIDPattern = regexp.MustCompile(`^[a-zA-Z0-9]{22}$`)
@@ -41,7 +41,7 @@ type Client struct {
 	clientSecret string
 	http         *http.Client
 	refreshTTL   time.Duration
-	rows         []RowConfig
+	genres       []GenreConfig
 
 	mu          sync.Mutex
 	accessToken string
@@ -85,13 +85,13 @@ type spotifyArtistRef struct {
 }
 
 type spotifyTrackPayload struct {
-	ID          string             `json:"id"`
-	Name        string             `json:"name"`
-	TrackNumber int                `json:"track_number"`
-	DiscNumber  int                `json:"disc_number"`
-	DurationMs  int                `json:"duration_ms"`
-	Explicit    bool               `json:"explicit"`
-	Artists     []spotifyArtistRef `json:"artists"`
+	ID          string               `json:"id"`
+	Name        string               `json:"name"`
+	TrackNumber int                  `json:"track_number"`
+	DiscNumber  int                  `json:"disc_number"`
+	DurationMs  int                  `json:"duration_ms"`
+	Explicit    bool                 `json:"explicit"`
+	Artists     []spotifyArtistRef   `json:"artists"`
 	Album       *spotifyAlbumPayload `json:"album"`
 }
 
@@ -169,7 +169,7 @@ func NewClient(cfg config.Config) *Client {
 		clientSecret: strings.TrimSpace(cfg.SpotifyClientSecret),
 		http:         httpClient,
 		refreshTTL:   ttl,
-		rows:         DefaultCatalogRows,
+		genres:       DefaultGenres,
 		now:          time.Now,
 	}
 }
@@ -220,24 +220,31 @@ func (c *Client) Refresh(ctx context.Context) error {
 		c.catalogMu.Unlock()
 	}()
 
-	rows := make([]CatalogRow, 0, len(c.rows))
+	rows := make([]CatalogRow, 0, len(c.genres)*3+1)
 	var newReleases []Album
 	var lastErr error
 
-	for _, row := range c.rows {
-		catalogRow, rowErr := c.fetchCatalogRow(ctx, row)
-		if rowErr != nil {
-			lastErr = rowErr
+	for _, genre := range c.genres {
+		genreRows, genreErr := c.fetchGenreRows(ctx, genre)
+		if genreErr != nil {
+			lastErr = genreErr
 			continue
 		}
-		if (catalogRow.Kind == "albums" && len(catalogRow.Albums) == 0) ||
-			(catalogRow.Kind == "artists" && len(catalogRow.Artists) == 0) {
-			continue
+		for _, catalogRow := range genreRows {
+			if (catalogRow.Kind == "albums" && len(catalogRow.Albums) == 0) ||
+				(catalogRow.Kind == "artists" && len(catalogRow.Artists) == 0) {
+				continue
+			}
+			rows = append(rows, catalogRow)
 		}
-		if row.Key == "new-releases" && catalogRow.Kind == "albums" {
-			newReleases = catalogRow.Albums
-		}
-		rows = append(rows, catalogRow)
+	}
+
+	// New Releases stays search-based (`tag:new`) — not a genre keyword shelf.
+	if newRow, newErr := c.fetchNewReleasesRow(ctx); newErr != nil {
+		lastErr = newErr
+	} else {
+		newReleases = newRow.Albums
+		rows = append(rows, newRow)
 	}
 
 	if len(rows) == 0 {
@@ -396,7 +403,7 @@ func (c *Client) GetArtist(ctx context.Context, artistID string) (*ArtistDetails
 		topTracks = []TopTrack{}
 	}
 
-	discography, err := c.fetchArtistAlbums(ctx, artistID, discographyMaxPages*defaultLimit)
+	discography, err := c.fetchArtistAlbums(ctx, artistID, discographyMaxPages*defaultLimit, "album,single,compilation")
 	if err != nil {
 		discography = []Album{}
 	}
@@ -929,16 +936,19 @@ func mapTopTracks(items []spotifyTrackPayload) []TopTrack {
 	return tracks
 }
 
-func (c *Client) fetchArtistAlbums(ctx context.Context, artistID string, maxItems int) ([]Album, error) {
+func (c *Client) fetchArtistAlbums(ctx context.Context, artistID string, maxItems int, includeGroups string) ([]Album, error) {
 	if maxItems <= 0 {
 		maxItems = featuredAlbumLimit
+	}
+	if strings.TrimSpace(includeGroups) == "" {
+		includeGroups = "album,single,compilation"
 	}
 	seen := make(map[string]struct{})
 	albums := make([]Album, 0, maxItems)
 
 	for offset := 0; len(albums) < maxItems; offset += defaultLimit {
 		params := url.Values{}
-		params.Set("include_groups", "album,single,compilation")
+		params.Set("include_groups", includeGroups)
 		params.Set("limit", strconv.Itoa(defaultLimit))
 		params.Set("offset", strconv.Itoa(offset))
 		params.Set("market", defaultMarket)

@@ -86,31 +86,59 @@ type SearchResponse struct {
 	Artists []Artist `json:"artists"`
 }
 
+// GenreConfig defines a curated genre shelf seeded by well-known artists.
+// Seed names are resolved to Spotify IDs, then expanded via Related Artists.
+type GenreConfig struct {
+	Key   string   // stable slug used in row keys, e.g. "pop"
+	Title string   // display title, e.g. "Pop"
+	Seeds []string // seed artist display names
+}
+
+// DefaultGenres drive the music home catalog. Each genre expands into
+// Popular Artists, Popular Albums, and Popular Singles rows.
+var DefaultGenres = []GenreConfig{
+	{
+		Key:   "pop",
+		Title: "Pop",
+		Seeds: []string{"Taylor Swift", "Dua Lipa", "Olivia Rodrigo", "Billie Eilish", "Ariana Grande"},
+	},
+	{
+		Key:   "rock",
+		Title: "Rock",
+		Seeds: []string{"Foo Fighters", "Linkin Park", "Green Day", "Muse", "Arctic Monkeys"},
+	},
+	{
+		Key:   "hipHop",
+		Title: "Hip-Hop",
+		Seeds: []string{"Drake", "Kendrick Lamar", "Travis Scott", "J. Cole", "Future"},
+	},
+	{
+		Key:   "rap",
+		Title: "Rap",
+		Seeds: []string{"Kanye West", "Nicki Minaj", "21 Savage", "Metro Boomin", "Tyler, The Creator"},
+	},
+	{
+		Key:   "electronic",
+		Title: "Electronic",
+		Seeds: []string{"David Guetta", "Calvin Harris", "Fred again..", "The Chainsmokers", "Skrillex"},
+	},
+	{
+		Key:   "country",
+		Title: "Country",
+		Seeds: []string{"Morgan Wallen", "Luke Combs", "Chris Stapleton", "Zach Bryan", "Kacey Musgraves"},
+	},
+	{
+		Key:   "rnb",
+		Title: "R&B",
+		Seeds: []string{"The Weeknd", "SZA", "Frank Ocean", "Bruno Mars", "H.E.R."},
+	},
+}
+
+// RowConfig is retained for playlist/search fallback helpers and tests.
 type RowConfig struct {
 	Title      string
 	Key        string
 	Kind       string // "albums" | "artists"
 	Query      string
 	PlaylistID string // when set, populate from a public Spotify playlist (albums or artists by Kind)
-}
-
-// Queries use plain keywords / search filters.
-//
-// Official editorial playlist IDs are kept as comments for reference, but
-// Development Mode (Feb/Mar 2026) returns 403 for playlist contents unless the
-// authenticated user owns/collaborates on the playlist. Extended Quota Mode
-// apps can set PlaylistID again; fetchCatalogRow falls back to Query on failure.
-// New Releases is last so featured shelves show first.
-var DefaultCatalogRows = []RowConfig{
-	{Title: "Pop", Key: "pop-albums", Kind: "albums", Query: "pop"},                                               // Today's Top Hits 37i9dQZF1DXcBWIGoYBM5M
-	{Title: "Popular Artists", Key: "popular-artists", Kind: "artists", Query: "pop"},                             // Today's Top Hits
-	{Title: "Hip-Hop", Key: "hiphop-playlist", Kind: "albums", Query: "hip hop"},                                  // RapCaviar 37i9dQZF1DX0XUsuxWHRQd
-	{Title: "Hip-Hop Artists", Key: "hiphop-artists", Kind: "artists", Query: "hip hop"},                          // RapCaviar
-	{Title: "Rock", Key: "rock-albums", Kind: "albums", Query: "rock"},                                            // Rock Classics 37i9dQZF1DWXRqgorJj26U
-	{Title: "Rock Artists", Key: "rock-artists", Kind: "artists", Query: "rock"},                                  // Rock Classics
-	{Title: "Electronic", Key: "electronic-albums", Kind: "albums", Query: "electronic"},                          // mint 37i9dQZF1DX4dyzvuaRJ0n
-	{Title: "R&B Artists", Key: "rnb-artists", Kind: "artists", Query: "r&b"},                                     // Chilled R&B 37i9dQZF1DX2UgsUIg75Vg
-	{Title: "Indie", Key: "indie-albums", Kind: "albums", Query: "indie"},                                         // Indie Pop 37i9dQZF1DWWEcRhUVtL8n
-	{Title: "Jazz Artists", Key: "jazz-artists", Kind: "artists", Query: "jazz"},                                  // Jazz Classics 37i9dQZF1DXbITWG1ZJKYt
-	{Title: "New Releases", Key: "new-releases", Kind: "albums", Query: "tag:new"},                                // New Music Friday 37i9dQZF1DX4JAvHpjipBk
 }
