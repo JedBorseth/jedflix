@@ -127,14 +127,20 @@ export function AudioPlaylistPlayer({
       initialPositionSec,
       seekAppliedRef,
     });
-    const error = await playMediaElement(audio);
-    if (error) {
-      setPlaybackError(`Could not start playback: ${error.message}`);
+    const result = await playMediaElement(audio);
+    if (result.status === "error") {
+      setPlaybackError(`Could not start playback: ${result.error.message}`);
       playIntentRef.current = false;
       setPlaying(false);
       return;
     }
-    setPlaybackError(undefined);
+    if (result.status === "playing") {
+      setPlaying(true);
+      setPlaybackError(undefined);
+      return;
+    }
+    // Aborted by a newer load/seek — keep intent; metadata handler may retry.
+    setPlaying(!audio.paused);
   }
 
   function playFile(index: number, autoplay: boolean) {
@@ -270,15 +276,17 @@ export function AudioPlaylistPlayer({
             if (!playIntentRef.current) {
               return;
             }
-            void playMediaElement(audio).then((error) => {
-              if (error) {
-                setPlaybackError(`Could not start playback: ${error.message}`);
+            void playMediaElement(audio).then((result) => {
+              if (result.status === "error") {
+                setPlaybackError(`Could not start playback: ${result.error.message}`);
                 playIntentRef.current = false;
                 setPlaying(false);
                 return;
               }
-              setPlaying(true);
-              setPlaybackError(undefined);
+              if (result.status === "playing") {
+                setPlaying(true);
+                setPlaybackError(undefined);
+              }
             });
           }}
           onError={(event) => {

@@ -3,6 +3,7 @@ import {
   artworkFromImageUrl,
   formatWatchSessionTitle,
   isPlayAbortError,
+  playMediaElement,
   toAbsoluteMediaUrl,
 } from "./mediaSession";
 
@@ -89,5 +90,47 @@ describe("isPlayAbortError", () => {
       ),
     ).toBe(true);
     expect(isPlayAbortError(new Error("NotAllowedError"))).toBe(false);
+  });
+});
+
+describe("playMediaElement", () => {
+  test("returns playing when play resolves and element is not paused", async () => {
+    const media = {
+      paused: false,
+      play: async () => undefined,
+    } as unknown as HTMLMediaElement;
+    await expect(playMediaElement(media)).resolves.toEqual({ status: "playing" });
+  });
+
+  test("returns aborted when play resolves but element is paused", async () => {
+    const media = {
+      paused: true,
+      play: async () => undefined,
+    } as unknown as HTMLMediaElement;
+    await expect(playMediaElement(media)).resolves.toEqual({ status: "aborted" });
+  });
+
+  test("returns aborted for AbortError without treating it as playing", async () => {
+    const media = {
+      paused: true,
+      play: async () => {
+        throw new DOMException("The operation was aborted.", "AbortError");
+      },
+    } as unknown as HTMLMediaElement;
+    await expect(playMediaElement(media)).resolves.toEqual({ status: "aborted" });
+  });
+
+  test("returns error for NotAllowedError", async () => {
+    const media = {
+      paused: true,
+      play: async () => {
+        throw new DOMException("Not allowed", "NotAllowedError");
+      },
+    } as unknown as HTMLMediaElement;
+    const result = await playMediaElement(media);
+    expect(result.status).toBe("error");
+    if (result.status === "error") {
+      expect(result.error.name).toBe("NotAllowedError");
+    }
   });
 });

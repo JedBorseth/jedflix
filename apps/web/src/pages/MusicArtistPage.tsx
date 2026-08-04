@@ -6,6 +6,7 @@ import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage
 import { AppLink } from "@/components/layout/AppLink";
 import { Navbar } from "@/components/layout/Navbar";
 import { useMusicPlayer } from "@/components/player/music/MusicPlayerContext";
+import { SwipeableTrackRow } from "@/components/player/music/SwipeableTrackRow";
 import { Button } from "@/components/ui/button";
 import { DetailPageSkeleton } from "@/components/ui/skeleton";
 import {
@@ -117,18 +118,21 @@ export function MusicArtistPage() {
         </div>
 
         {topTracks.length > 0 ? (
-          <section className="mb-10">
-            <h2 className="mb-4 text-xl font-semibold">Popular</h2>
-            <ol className="divide-y divide-zinc-900 rounded-lg border border-zinc-900">
+          <section className="mb-10 -mx-4 md:-mx-12">
+            <h2 className="mb-4 px-4 text-xl font-semibold md:px-12">Popular</h2>
+            <ol className="divide-y divide-zinc-900">
               {topTracks.map((track, index) => {
                 const isActive = activeTrackId === track.id;
+                const queueTrack = topTrackToQueueTrack(track);
                 return (
-                  <li key={track.id || `${track.name}-${index}`}>
-                    <button
-                      type="button"
-                      onClick={() => playTopFrom(index)}
+                  <SwipeableTrackRow
+                    key={track.id || `${track.name}-${index}`}
+                    onPlay={() => playTopFrom(index)}
+                    onAddToQueue={() => musicPlayer.addToQueue(queueTrack)}
+                  >
+                    <div
                       className={cn(
-                        "flex w-full items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-zinc-900/80",
+                        "flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-zinc-900/80 md:px-12",
                         isActive && "bg-zinc-900 text-white",
                       )}
                     >
@@ -156,8 +160,8 @@ export function MusicArtistPage() {
                       <span className="shrink-0 text-xs text-zinc-500">
                         {formatTrackDuration(track.durationMs)}
                       </span>
-                    </button>
-                  </li>
+                    </div>
+                  </SwipeableTrackRow>
                 );
               })}
             </ol>

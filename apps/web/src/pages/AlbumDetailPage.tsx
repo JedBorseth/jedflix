@@ -5,6 +5,7 @@ import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage
 import { AppLink } from "@/components/layout/AppLink";
 import { Navbar } from "@/components/layout/Navbar";
 import { useMusicPlayer } from "@/components/player/music/MusicPlayerContext";
+import { SwipeableTrackRow } from "@/components/player/music/SwipeableTrackRow";
 import { Button } from "@/components/ui/button";
 import { DetailPageSkeleton } from "@/components/ui/skeleton";
 import type { AlbumItem } from "@/lib/spotify";
@@ -165,18 +166,35 @@ export function AlbumDetailPage() {
         </div>
       </section>
 
-      {tracks.length > 0 ? (
-        <section className="mx-auto max-w-6xl px-4 pb-8 md:px-12">
-          <ol className="divide-y divide-zinc-900 rounded-lg border border-zinc-900">
+      {tracks.length > 0 && album ? (
+        <section className="mx-auto max-w-6xl pb-8">
+          <ol className="divide-y divide-zinc-900">
             {tracks.map((track, index) => {
               const isActive = activeTrackId === track.id;
+              const queueTrack = {
+                id:
+                  track.id ||
+                  `${album.id}-${track.discNumber}-${track.trackNumber}-${track.name}`,
+                title: track.name,
+                artists: track.artists.length > 0 ? track.artists : album.artists,
+                artistIds:
+                  track.artistIds && track.artistIds.length > 0
+                    ? track.artistIds
+                    : album.artistIds,
+                albumName: album.name,
+                albumId: album.id,
+                imageUrl: album.imageUrl,
+                durationMs: track.durationMs,
+              };
               return (
-                <li key={track.id || `${track.discNumber}-${track.trackNumber}-${track.name}`}>
-                  <button
-                    type="button"
-                    onClick={() => playFrom(index)}
+                <SwipeableTrackRow
+                  key={track.id || `${track.discNumber}-${track.trackNumber}-${track.name}`}
+                  onPlay={() => playFrom(index)}
+                  onAddToQueue={() => musicPlayer.addToQueue(queueTrack)}
+                >
+                  <div
                     className={cn(
-                      "flex w-full items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-zinc-900/80",
+                      "flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-zinc-900/80 md:px-12",
                       isActive && "bg-zinc-900 text-white",
                     )}
                   >
@@ -184,18 +202,25 @@ export function AlbumDetailPage() {
                       {isActive && musicPlayer.playing ? "▶" : track.trackNumber || index + 1}
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className={cn("truncate text-sm", isActive ? "text-red-400" : "text-white")}>
+                      <p
+                        className={cn(
+                          "truncate text-sm",
+                          isActive ? "text-red-400" : "text-white",
+                        )}
+                      >
                         {track.name}
                       </p>
                       <p className="truncate text-xs text-zinc-500">
-                        {(track.artists.length > 0 ? track.artists : displayAlbum.artists).join(", ")}
+                        {(track.artists.length > 0 ? track.artists : displayAlbum.artists).join(
+                          ", ",
+                        )}
                       </p>
                     </div>
                     <span className="shrink-0 text-xs text-zinc-500">
                       {formatTrackDuration(track.durationMs)}
                     </span>
-                  </button>
-                </li>
+                  </div>
+                </SwipeableTrackRow>
               );
             })}
           </ol>

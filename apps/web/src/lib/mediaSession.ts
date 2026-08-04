@@ -98,20 +98,29 @@ export function isPlayAbortError(error: unknown): boolean {
   );
 }
 
+export type PlayMediaResult =
+  | { status: "playing" }
+  | { status: "aborted" }
+  | { status: "error"; error: Error };
+
 /**
- * Start playback while ignoring AbortError from seek/src races.
- * Returns whether a real (non-abort) failure occurred.
+ * Start playback while distinguishing real failures from seek/src abort races.
+ * Callers must not treat `aborted` as "now playing" — check the element or wait
+ * for a later successful play (e.g. after Media Session src changes on iOS).
  */
-export async function playMediaElement(media: HTMLMediaElement): Promise<Error | null> {
+export async function playMediaElement(media: HTMLMediaElement): Promise<PlayMediaResult> {
   try {
     await media.play();
-    return null;
+    return media.paused ? { status: "aborted" } : { status: "playing" };
   } catch (error: unknown) {
     if (isPlayAbortError(error)) {
       // Seek, pause, or a newer play() interrupted this call — not a real failure.
-      return null;
+      return media.paused ? { status: "aborted" } : { status: "playing" };
     }
-    return error instanceof Error ? error : new Error("Could not start playback");
+    return {
+      status: "error",
+      error: error instanceof Error ? error : new Error("Could not start playback"),
+    };
   }
 }
 

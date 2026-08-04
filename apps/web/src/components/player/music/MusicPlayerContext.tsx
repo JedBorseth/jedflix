@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { useMediaSession } from "@/hooks/useMediaSession";
-import { mapMediaElementError, resolveStreamServerAudioError } from "@/components/player/shared/playbackErrors";
+import { resolveStreamServerAudioError } from "@/components/player/shared/playbackErrors";
 import { playMediaElement } from "@/lib/mediaSession";
 import { remapIndexAfterReorder, reorderItems } from "@/lib/musicQueue";
 import { getYoutubeAudioUrl, type TrackItem } from "@/lib/spotify";
@@ -55,6 +55,7 @@ type MusicPlayerContextValue = {
     startIndex?: number,
   ) => void;
   playQueueIndex: (index: number) => void;
+  addToQueue: (track: MusicQueueTrack) => void;
   reorderQueue: (fromIndex: number, toIndex: number) => void;
   removeFromQueue: (index: number) => void;
   toggle: () => void;
@@ -111,6 +112,7 @@ function toQueueTrack(
 export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const playIntentRef = useRef(false);
+  const loadGenerationRef = useRef(0);
   const prefetchedIdsRef = useRef<Set<string>>(new Set());
   /** Trusted catalog duration (seconds). Prefer over flaky stream metadata. */
   const catalogDurationSecRef = useRef(0);
@@ -126,40 +128,91 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
 
   const current = queue[queueIndex] ?? null;
 
-  const loadAndPlay = useCallback((track: MusicQueueTrack) => {
-    const audio = audioRef.current;
-    if (!audio) {
-      return;
-    }
-    recordRecentlyPlayedMusic({
-      id: track.id,
-      title: track.title,
-      artists: track.artists,
-      artistIds: track.artistIds,
-      albumName: track.albumName,
-      albumId: track.albumId,
-      imageUrl: track.imageUrl,
-      durationMs: track.durationMs,
-    });
-    const src = getYoutubeAudioUrl({
-      artist: artistLabel(track.artists),
-      title: track.title,
-      album: track.albumName,
-      durationMs: track.durationMs > 0 ? track.durationMs : undefined,
-    });
-    playIntentRef.current = true;
-    setLoading(true);
-    setError(null);
-    setCurrentTime(0);
-    const catalogSec = track.durationMs > 0 ? track.durationMs / 1000 : 0;
-    catalogDurationSecRef.current = catalogSec;
-    setDuration(catalogSec);
-    audio.src = src;
-    audio.load();
-    // Do not call play() here — eager play races the stream resolve and leaves
-    // the element in MEDIA_ERR_SRC_NOT_SUPPORTED, after which play() throws
-    // "The operation is not supported". onLoadedMetadata starts playback.
-  }, []);
+  const applyPlayResult = useCallback(
+    (audio: HTMLAudioElement, generation: number, result: Awaited<ReturnType<typeof playMediaElement>>) => {
+      if (generation !== loadGenerationRef.current) {
+        return;
+      }
+      if (result.status === "error") {
+        setError(result.error.message);
+        playIntentRef.current = false;
+        setPlaying(false);
+        setLoading(false);
+        return;
+      }
+      if (result.status === "playing" && !audio.paused) {
+        setPlaying(true);
+        setLoading(false);
+        setError(null);
+        return;
+      }
+      // Aborted or still buffering — keep play intent; loadedmetadata/canplay may retry.
+      // Never mark the UI as playing when the element is paused (iOS Media Session trap).
+      if (audio.paused) {
+        setPlaying(false);
+      }
+    },
+    [],
+  );
+
+  const startPlayback = useCallback(
+    (audio: HTMLAudioElement, generation: number) => {
+      if (generation !== loadGenerationRef.current || !playIntentRef.current) {
+        return;
+      }
+      void playMediaElement(audio).then((result) => {
+        applyPlayResult(audio, generation, result);
+      });
+    },
+    [applyPlayResult],
+  );
+
+  /**
+   * Load a track and start playback.
+   * `immediatePlay` must be true for Media Session / user-gesture skips so iOS
+   * keeps the activation token — waiting only for loadedmetadata loses it and
+   * leaves the UI "playing" with silent audio.
+   */
+  const loadAndPlay = useCallback(
+    (track: MusicQueueTrack, options?: { immediatePlay?: boolean }) => {
+      const audio = audioRef.current;
+      if (!audio) {
+        return;
+      }
+      const generation = ++loadGenerationRef.current;
+      recordRecentlyPlayedMusic({
+        id: track.id,
+        title: track.title,
+        artists: track.artists,
+        artistIds: track.artistIds,
+        albumName: track.albumName,
+        albumId: track.albumId,
+        imageUrl: track.imageUrl,
+        durationMs: track.durationMs,
+      });
+      const src = getYoutubeAudioUrl({
+        artist: artistLabel(track.artists),
+        title: track.title,
+        album: track.albumName,
+        durationMs: track.durationMs > 0 ? track.durationMs : undefined,
+      });
+      playIntentRef.current = true;
+      setLoading(true);
+      setError(null);
+      setCurrentTime(0);
+      const catalogSec = track.durationMs > 0 ? track.durationMs / 1000 : 0;
+      catalogDurationSecRef.current = catalogSec;
+      setDuration(catalogSec);
+      // Assigning src selects the resource. Avoid audio.load() here — it aborts a
+      // play() started in the same Media Session turn on iOS and can leave the
+      // element in MEDIA_ERR_SRC_NOT_SUPPORTED ("operation is not supported").
+      audio.src = src;
+      if (options?.immediatePlay) {
+        startPlayback(audio, generation);
+      }
+    },
+    [startPlayback],
+  );
 
   const playTrack = useCallback(
     (track: MusicQueueTrack, nextQueue?: MusicQueueTrack[]) => {
@@ -175,7 +228,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       setQueue(list);
       setQueueIndex(index);
       setQueueOpen(false);
-      loadAndPlay(list[index] ?? track);
+      loadAndPlay(list[index] ?? track, { immediatePlay: true });
     },
     [loadAndPlay],
   );
@@ -205,7 +258,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       setQueue(list);
       setQueueIndex(index);
       setQueueOpen(false);
-      loadAndPlay(startTrack);
+      loadAndPlay(startTrack, { immediatePlay: true });
     },
     [loadAndPlay],
   );
@@ -217,9 +270,20 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         return;
       }
       setQueueIndex(index);
-      loadAndPlay(track);
+      loadAndPlay(track, { immediatePlay: true });
     },
     [loadAndPlay, queue],
+  );
+
+  const addToQueue = useCallback(
+    (track: MusicQueueTrack) => {
+      if (queue.length === 0) {
+        playTrack(track);
+        return;
+      }
+      setQueue((prev) => [...prev, track]);
+    },
+    [playTrack, queue.length],
   );
 
   const reorderQueue = useCallback((fromIndex: number, toIndex: number) => {
@@ -236,6 +300,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       }
       if (queue.length === 1) {
         playIntentRef.current = false;
+        loadGenerationRef.current += 1;
         const audio = audioRef.current;
         if (audio) {
           audio.pause();
@@ -264,7 +329,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       if (removingCurrent) {
         const track = nextQueue[nextIndex];
         if (track) {
-          loadAndPlay(track);
+          loadAndPlay(track, { immediatePlay: true });
         }
       }
     },
@@ -285,21 +350,15 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     // A previous MEDIA_ERR_SRC_NOT_SUPPORTED leaves the element dead — calling
     // play() again throws "The operation is not supported". Reload the stream.
     if (audio.error || !audio.src) {
-      loadAndPlay(current);
+      loadAndPlay(current, { immediatePlay: true });
       return;
     }
     playIntentRef.current = true;
-    void playMediaElement(audio).then((playError) => {
-      if (playError) {
-        setError(playError.message);
-        playIntentRef.current = false;
-        setPlaying(false);
-        return;
-      }
-      setPlaying(true);
-      setError(null);
+    const generation = loadGenerationRef.current;
+    void playMediaElement(audio).then((result) => {
+      applyPlayResult(audio, generation, result);
     });
-  }, [current, loadAndPlay]);
+  }, [applyPlayResult, current, loadAndPlay]);
 
   const toggle = useCallback(() => {
     if (playing) {
@@ -319,7 +378,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       return;
     }
     setQueueIndex(index);
-    loadAndPlay(track);
+    // immediatePlay keeps iOS Media Session / Control Center activation.
+    loadAndPlay(track, { immediatePlay: true });
   }, [loadAndPlay, queue, queueIndex]);
 
   const previous = useCallback(() => {
@@ -342,7 +402,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       return;
     }
     setQueueIndex(index);
-    loadAndPlay(track);
+    loadAndPlay(track, { immediatePlay: true });
   }, [loadAndPlay, queue, queueIndex]);
 
   const seek = useCallback(
@@ -362,6 +422,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
 
   const clear = useCallback(() => {
     playIntentRef.current = false;
+    loadGenerationRef.current += 1;
     const audio = audioRef.current;
     if (audio) {
       audio.pause();
@@ -433,6 +494,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       playTrack,
       playAlbumTracks,
       playQueueIndex,
+      addToQueue,
       reorderQueue,
       removeFromQueue,
       toggle,
@@ -446,6 +508,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       clear,
     }),
     [
+      addToQueue,
       clear,
       current,
       currentTime,
@@ -486,9 +549,34 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           setLoading(false);
           setError(null);
         }}
-        onPause={() => setPlaying(false)}
+        onPause={() => {
+          // Only clear playing when pause was intentional or the element truly
+          // stopped — ignore transient pauses during src swaps if playIntent remains
+          // and a newer load is about to call play().
+          if (!playIntentRef.current) {
+            setPlaying(false);
+            return;
+          }
+          const audio = audioRef.current;
+          if (audio && !audio.paused) {
+            return;
+          }
+          // Src change fires pause before the next play() — keep UI optimistic
+          // only briefly via loading state, not a false "playing" with no audio.
+          setPlaying(false);
+        }}
         onWaiting={() => setLoading(true)}
-        onCanPlay={() => setLoading(false)}
+        onCanPlay={(event) => {
+          setLoading(false);
+          const audio = event.currentTarget;
+          if (
+            playIntentRef.current &&
+            audio.paused &&
+            !audio.error
+          ) {
+            startPlayback(audio, loadGenerationRef.current);
+          }
+        }}
         onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
         onLoadedMetadata={(event) => {
           const audio = event.currentTarget;
@@ -509,18 +597,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
             }
           }
           setLoading(false);
-          if (!playIntentRef.current) {
+          if (!playIntentRef.current || !audio.paused) {
             return;
           }
-          void playMediaElement(audio).then((playError) => {
-            if (playError) {
-              setError(playError.message);
-              playIntentRef.current = false;
-              setPlaying(false);
-              return;
-            }
-            setPlaying(true);
-          });
+          startPlayback(audio, loadGenerationRef.current);
         }}
         onError={(event) => {
           playIntentRef.current = false;

@@ -53,10 +53,10 @@ export function MusicPlayerBar() {
   const party = useOptionalParty();
 
   const [swipeOffset, setSwipeOffset] = useState({ x: 0, y: 0 });
+  const [miniSwipeX, setMiniSwipeX] = useState(0);
 
-  // Bind gestures only to the cover/handle zone — never the full overlay.
-  // Full-surface useDrag + touch-none + preventScroll blocks taps on iOS.
-  const bindSwipe = useDrag(
+  // Expanded player: swipe on cover/handle — never the full overlay (blocks iOS taps).
+  const bindExpandedSwipe = useDrag(
     ({ down, movement: [mx, my], velocity: [vx, vy], last }) => {
       if (down && !last) {
         const absX = Math.abs(mx);
@@ -97,6 +97,47 @@ export function MusicPlayerBar() {
     },
   );
 
+  // Collapsed mini player: horizontal swipe to skip/back (tap still expands).
+  const bindMiniSwipe = useDrag(
+    ({ down, movement: [mx, my], velocity: [vx], last, tap, event }) => {
+      if (tap) {
+        setMiniSwipeX(0);
+        setExpanded(true);
+        return;
+      }
+
+      const absX = Math.abs(mx);
+      const absY = Math.abs(my);
+
+      if (down && !last) {
+        if (absX > absY) {
+          event?.preventDefault?.();
+          setMiniSwipeX(mx);
+        }
+        return;
+      }
+
+      if (!last) {
+        return;
+      }
+
+      setMiniSwipeX(0);
+      if (absX > absY && absX > SWIPE_DISTANCE && (vx > SWIPE_VELOCITY || absX > 140)) {
+        if (mx < 0) {
+          next();
+        } else {
+          previous();
+        }
+      }
+    },
+    {
+      filterTaps: true,
+      threshold: 10,
+      axis: "x",
+      pointer: { touch: true },
+    },
+  );
+
   if (!current) {
     return null;
   }
@@ -115,7 +156,7 @@ export function MusicPlayerBar() {
   function openArtist(artistId: string) {
     setExpanded(false);
     setQueueOpen(false);
-    navigate(getArtistPath(artistId));
+    void navigate(getArtistPath(artistId));
   }
 
   function openAlbum() {
@@ -124,7 +165,7 @@ export function MusicPlayerBar() {
     }
     setExpanded(false);
     setQueueOpen(false);
-    navigate(albumPath);
+    void navigate(albumPath);
   }
 
   return (
@@ -136,16 +177,27 @@ export function MusicPlayerBar() {
         aria-label="Now playing"
       >
         <div className="mx-auto flex max-w-5xl items-center gap-3 px-3 py-2 md:px-6">
-          <button
-            type="button"
-            className="flex min-w-0 flex-1 items-center gap-3 text-left"
-            onClick={() => setExpanded(true)}
-            aria-label="Open now playing"
+          <div
+            className="flex min-w-0 flex-1 touch-pan-y items-center gap-3 text-left"
+            style={{
+              transform: miniSwipeX !== 0 ? `translateX(${miniSwipeX * 0.35}px)` : undefined,
+              transition: miniSwipeX === 0 ? "transform 180ms ease" : undefined,
+            }}
+            {...bindMiniSwipe()}
+            role="button"
+            tabIndex={0}
+            aria-label="Open now playing. Swipe left or right to change track."
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                setExpanded(true);
+              }
+            }}
           >
             <ProgressiveCoverImage
               src={current.imageUrl}
               alt=""
-              className="h-12 w-12 shrink-0 rounded object-cover"
+              className="pointer-events-none h-12 w-12 shrink-0 rounded object-cover"
             />
             <div className="min-w-0">
               <p className="truncate text-sm font-medium text-white">{current.title}</p>
@@ -153,7 +205,7 @@ export function MusicPlayerBar() {
                 {loading ? "Finding stream…" : error ? error : artist}
               </p>
             </div>
-          </button>
+          </div>
 
           <div className="flex items-center gap-1">
             {party ? (
@@ -249,7 +301,7 @@ export function MusicPlayerBar() {
             {/* Swipe zone: handle + cover — shrinks to fit short viewports */}
             <div
               className="flex min-h-0 w-full flex-1 touch-none flex-col items-center justify-center gap-3"
-              {...bindSwipe()}
+              {...bindExpandedSwipe()}
             >
               <div className="flex min-h-0 w-full flex-1 items-center justify-center">
                 <div className="aspect-square h-full max-h-[24rem] max-w-full">
