@@ -1,5 +1,6 @@
 import {
   ChevronDownIcon,
+  Cross2Icon,
   ListBulletIcon,
   PauseIcon,
   PersonIcon,
@@ -10,7 +11,7 @@ import {
 } from "@radix-ui/react-icons";
 import { useDrag } from "@use-gesture/react";
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
 import { useOptionalParty } from "@/components/party/partyContext";
 import { AddToPlaylistDialog } from "@/components/player/music/AddToPlaylistDialog";
@@ -32,8 +33,19 @@ function formatClock(sec: number) {
 const SWIPE_DISTANCE = 72;
 const SWIPE_VELOCITY = 0.35;
 
+/** Music home, library, liked, playlists, album & artist detail. */
+function isMusicRoute(pathname: string) {
+  return (
+    pathname === "/music" ||
+    pathname.startsWith("/music/") ||
+    pathname.startsWith("/album/") ||
+    pathname.startsWith("/music-artist/")
+  );
+}
+
 export function MusicPlayerBar() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [playlistDialogOpen, setPlaylistDialogOpen] = useState(false);
   const {
     current,
@@ -52,8 +64,10 @@ export function MusicPlayerBar() {
     setQueueOpen,
     queue,
     queueIndex,
+    clear,
   } = useMusicPlayer();
   const party = useOptionalParty();
+  const showKillPlayer = !isMusicRoute(location.pathname);
 
   const [swipeOffset, setSwipeOffset] = useState({ x: 0, y: 0 });
   const [miniSwipeX, setMiniSwipeX] = useState(0);
@@ -257,6 +271,19 @@ export function MusicPlayerBar() {
             >
               <TrackNextIcon className="h-5 w-5" />
             </button>
+            {showKillPlayer ? (
+              <button
+                type="button"
+                className="rounded-full p-2 text-zinc-400 hover:bg-zinc-800 hover:text-white"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  clear();
+                }}
+                aria-label="Close player"
+              >
+                <Cross2Icon className="h-5 w-5" />
+              </button>
+            ) : null}
           </div>
         </div>
         <div className="h-0.5 bg-zinc-900">

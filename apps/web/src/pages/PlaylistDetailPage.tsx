@@ -4,7 +4,6 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
-import { AppLink } from "@/components/layout/AppLink";
 import { Navbar } from "@/components/layout/Navbar";
 import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
 import {
@@ -35,15 +34,6 @@ export function PlaylistDetailPage() {
     <div className="min-h-screen bg-zinc-950 text-white">
       <Navbar searchMode="music" />
       <main className="pt-navbar mx-auto max-w-6xl pb-36 md:pb-32">
-        <div className="px-4 md:px-12">
-          <AppLink
-            to="/music/library"
-            className="mb-6 inline-block text-sm text-zinc-400 transition hover:text-white"
-          >
-            ← Back to library
-          </AppLink>
-        </div>
-
         <Unauthenticated>
           <div className="mx-4 rounded-lg border border-zinc-800 bg-zinc-900/50 p-8 text-center md:mx-12">
             <p className="mb-4 text-zinc-300">Sign in to view this playlist.</p>
@@ -84,7 +74,7 @@ function PlaylistDetail({ playlistId }: { playlistId: Id<"playlists"> }) {
       <div className="mx-4 rounded-lg border border-zinc-800 bg-zinc-900/50 p-8 text-center md:mx-12">
         <p className="mb-4 text-zinc-300">Playlist not found.</p>
         <Button asChild variant="outline" className="border-zinc-600">
-          <Link to="/music/library">Back to library</Link>
+          <Link to="/music/library">My Library</Link>
         </Button>
       </div>
     );

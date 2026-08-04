@@ -27,12 +27,6 @@ export function MusicLibraryPage() {
     <div className="min-h-screen bg-zinc-950 text-white">
       <Navbar searchMode="music" />
       <main className="pt-navbar mx-auto max-w-6xl px-4 pb-36 md:px-12 md:pb-32">
-        <AppLink
-          to="/music"
-          className="mb-6 inline-block text-sm text-zinc-400 transition hover:text-white"
-        >
-          ← Back to music
-        </AppLink>
         <div className="mb-8 flex items-end justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">My Library</h1>

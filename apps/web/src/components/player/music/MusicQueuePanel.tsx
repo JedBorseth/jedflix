@@ -131,6 +131,7 @@ export function MusicQueuePanel() {
     reorderQueue,
     playQueueIndex,
     removeFromQueue,
+    clearUpcoming,
   } = useMusicPlayer();
   const listRef = useRef<HTMLUListElement>(null);
   const [draggingVisualIndex, setDraggingVisualIndex] = useState<number | null>(null);
@@ -193,11 +194,26 @@ export function MusicQueuePanel() {
           {...bindSheetDismiss()}
         >
           <div className="mb-2 h-1 w-10 rounded-full bg-zinc-600" aria-hidden />
-          <div className="w-full text-left">
-            <p className="text-sm font-medium text-white">Queue</p>
-            <p className="text-xs text-zinc-500">
-              {visibleCount} {visibleCount === 1 ? "song" : "songs"}
-            </p>
+          <div className="flex w-full items-start justify-between gap-3">
+            <div className="min-w-0 text-left">
+              <p className="text-sm font-medium text-white">Queue</p>
+              <p className="text-xs text-zinc-500">
+                {visibleCount} {visibleCount === 1 ? "song" : "songs"}
+              </p>
+            </div>
+            {visibleCount > 1 ? (
+              <button
+                type="button"
+                className="shrink-0 rounded-full px-2.5 py-1 text-xs font-medium text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-white"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  clearUpcoming();
+                }}
+                onPointerDown={(event) => event.stopPropagation()}
+              >
+                Clear
+              </button>
+            ) : null}
           </div>
         </div>
 

@@ -2,7 +2,6 @@ import { Authenticated, Unauthenticated, useQuery } from "convex/react";
 import { HeartFilledIcon } from "@radix-ui/react-icons";
 import { Link } from "react-router-dom";
 import { api } from "@convex/_generated/api";
-import { AppLink } from "@/components/layout/AppLink";
 import { Navbar } from "@/components/layout/Navbar";
 import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
 import {
@@ -21,12 +20,6 @@ export function LikedSongsPage() {
       <Navbar searchMode="music" />
       <main className="pt-navbar mx-auto max-w-6xl pb-36 md:pb-32">
         <div className="px-4 md:px-12">
-          <AppLink
-            to="/music"
-            className="mb-6 inline-block text-sm text-zinc-400 transition hover:text-white"
-          >
-            ← Back to music
-          </AppLink>
           <div className="mb-8 flex items-center gap-4">
             <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-rose-600 to-rose-900 md:h-24 md:w-24">
               <HeartFilledIcon className="h-8 w-8 text-white md:h-10 md:w-10" />

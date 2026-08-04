@@ -58,6 +58,8 @@ type MusicPlayerContextValue = {
   addToQueue: (track: MusicQueueTrack) => void;
   reorderQueue: (fromIndex: number, toIndex: number) => void;
   removeFromQueue: (index: number) => void;
+  /** Drop every track after the one currently playing. */
+  clearUpcoming: () => void;
   toggle: () => void;
   pause: () => void;
   play: () => void;
@@ -66,6 +68,7 @@ type MusicPlayerContextValue = {
   seek: (timeSec: number) => void;
   setExpanded: (expanded: boolean) => void;
   setQueueOpen: (open: boolean) => void;
+  /** Stop playback and dismiss the player entirely. */
   clear: () => void;
 };
 
@@ -339,6 +342,17 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     [loadAndPlay, queue, queueIndex],
   );
 
+  const clearUpcoming = useCallback(() => {
+    setQueue((prev) => {
+      if (prev.length === 0) {
+        return prev;
+      }
+      const currentTrack = prev[queueIndex];
+      return currentTrack ? [currentTrack] : [];
+    });
+    setQueueIndex(0);
+  }, [queueIndex]);
+
   const pause = useCallback(() => {
     playIntentRef.current = false;
     audioRef.current?.pause();
@@ -519,6 +533,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       addToQueue,
       reorderQueue,
       removeFromQueue,
+      clearUpcoming,
       toggle,
       pause,
       play,
@@ -532,6 +547,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     [
       addToQueue,
       clear,
+      clearUpcoming,
       current,
       currentTime,
       duration,
