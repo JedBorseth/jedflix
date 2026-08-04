@@ -1,5 +1,5 @@
 import { Link } from "expo-router";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -14,26 +14,51 @@ import type { MediaItem } from "@jedflix/shared";
 import { getMobileMediaPath } from "@/lib/paths";
 import { tmdb } from "@/lib/tmdb";
 
+const SEARCH_DEBOUNCE_MS = 1500;
+
 export default function SearchScreen() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const requestIdRef = useRef(0);
 
-  async function runSearch() {
+  useEffect(() => {
     const trimmed = query.trim();
-    if (!trimmed) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await tmdb.searchAll(trimmed);
-      setResults(response.media);
-    } catch (searchError) {
-      setError(searchError instanceof Error ? searchError.message : "Search failed");
-    } finally {
+    if (!trimmed) {
+      setResults([]);
+      setError(null);
       setLoading(false);
+      return;
     }
-  }
+
+    setLoading(true);
+    const requestId = ++requestIdRef.current;
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const response = await tmdb.searchAll(trimmed);
+          if (requestId !== requestIdRef.current) {
+            return;
+          }
+          setResults(response.media);
+          setError(null);
+        } catch (searchError) {
+          if (requestId !== requestIdRef.current) {
+            return;
+          }
+          setError(searchError instanceof Error ? searchError.message : "Search failed");
+          setResults([]);
+        } finally {
+          if (requestId === requestIdRef.current) {
+            setLoading(false);
+          }
+        }
+      })();
+    }, SEARCH_DEBOUNCE_MS);
+
+    return () => clearTimeout(timer);
+  }, [query]);
 
   return (
     <View style={styles.container}>
@@ -45,17 +70,17 @@ export default function SearchScreen() {
           placeholderTextColor="#71717a"
           style={styles.input}
           returnKeyType="search"
-          onSubmitEditing={() => void runSearch()}
+          autoCorrect={false}
+          autoCapitalize="none"
+          clearButtonMode="while-editing"
         />
-        <Pressable style={styles.button} onPress={() => void runSearch()}>
-          <Text style={styles.buttonText}>Go</Text>
-        </Pressable>
       </View>
       {loading ? <ActivityIndicator color="#e50914" style={{ marginTop: 24 }} /> : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <FlatList
         data={results}
         keyExtractor={(item) => `${item.mediaType}-${item.id}`}
+        keyboardShouldPersistTaps="handled"
         contentContainerStyle={styles.list}
         renderItem={({ item }) => (
           <Link href={getMobileMediaPath(item)} asChild>
@@ -88,8 +113,6 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 16,
   },
-  button: { backgroundColor: "#e50914", borderRadius: 8, paddingHorizontal: 16, justifyContent: "center" },
-  buttonText: { color: "#fff", fontWeight: "600" },
   error: { color: "#fca5a5", marginTop: 12 },
   list: { paddingTop: 16, gap: 12 },
   resultRow: { flexDirection: "row", gap: 12, marginBottom: 12 },

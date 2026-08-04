@@ -2,7 +2,6 @@ import { Authenticated, Unauthenticated, useQuery } from "convex/react";
 import { HeartFilledIcon } from "@radix-ui/react-icons";
 import { Link } from "react-router-dom";
 import { api } from "@convex/_generated/api";
-import { Navbar } from "@/components/layout/Navbar";
 import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
 import {
   useMusicPlayer,
@@ -17,7 +16,6 @@ import { cn } from "@/lib/utils";
 export function LikedSongsPage() {
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
-      <Navbar searchMode="music" />
       <main className="pt-navbar mx-auto max-w-6xl pb-36 md:pb-32">
         <div className="px-4 md:px-12">
           <div className="mb-8 flex items-center gap-4">

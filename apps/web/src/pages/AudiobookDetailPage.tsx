@@ -3,7 +3,6 @@ import { useLocation, useParams } from "react-router-dom";
 import { BookCard } from "@/components/browse/BookCard";
 import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
 import { AppLink } from "@/components/layout/AppLink";
-import { Navbar } from "@/components/layout/Navbar";
 import { AddToMyListButton } from "@/components/mylist/AddToMyListButton";
 import { MediaReviews } from "@/components/reviews/MediaReviews";
 import { Button } from "@/components/ui/button";
@@ -71,7 +70,6 @@ export function AudiobookDetailPage() {
   if (book === undefined && !preview) {
     return (
       <div className="min-h-screen bg-zinc-950 text-white">
-        <Navbar searchMode="books" />
         <DetailPageSkeleton />
       </div>
     );
@@ -80,7 +78,6 @@ export function AudiobookDetailPage() {
   if (displayBook === null) {
     return (
       <div className="min-h-screen bg-zinc-950 text-white">
-        <Navbar searchMode="books" />
         <div className="flex h-[60vh] flex-col items-center justify-center gap-4">
           <p className="text-zinc-400">{error ?? "Book not found."}</p>
           <Button asChild variant="outline">
@@ -100,7 +97,6 @@ export function AudiobookDetailPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
-      <Navbar searchMode="books" />
       <section className="relative min-h-[60vh] overflow-hidden">
         <ProgressiveCoverImage
           src={displayBook.coverUrl}

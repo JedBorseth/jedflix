@@ -323,6 +323,70 @@ func TestResolveArtistByNamePrefersExactMatch(t *testing.T) {
 	}
 }
 
+func TestSearchSortsByPopularity(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/token":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"access_token": "test-token",
+				"token_type":   "Bearer",
+				"expires_in":   3600,
+			})
+		case r.URL.Path == "/search":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"artists": map[string]any{
+					"items": []map[string]any{
+						{
+							"id": "artistlow00000000000001", "name": "Low Pop", "popularity": 20,
+							"images": []map[string]any{{"url": "https://img/l.jpg", "width": 300}},
+						},
+						{
+							"id": "artisthigh0000000000001", "name": "High Pop", "popularity": 95,
+							"images": []map[string]any{{"url": "https://img/h.jpg", "width": 300}},
+						},
+					},
+				},
+				"albums": map[string]any{
+					"items": []map[string]any{
+						{
+							"id": "albumlow000000000000001", "name": "Quiet Album", "popularity": 10,
+							"images":  []map[string]any{{"url": "https://img/a.jpg", "width": 300}},
+							"artists": []map[string]any{{"id": "artistlow00000000000001", "name": "Low Pop"}},
+						},
+						{
+							"id": "albumhigh00000000000001", "name": "Hit Album", "popularity": 88,
+							"images":  []map[string]any{{"url": "https://img/b.jpg", "width": 300}},
+							"artists": []map[string]any{{"id": "artisthigh0000000000001", "name": "High Pop"}},
+						},
+					},
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer upstream.Close()
+
+	client := NewClient(config.Config{
+		SpotifyClientID:     "id",
+		SpotifyClientSecret: "secret",
+		SpotifyAPIBaseURL:   upstream.URL,
+		SpotifyAuthURL:      upstream.URL + "/api/token",
+		SpotifyCacheTTL:     time.Hour,
+	})
+
+	result, err := client.Search(context.Background(), "pop")
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(result.Artists) < 2 || result.Artists[0].Name != "High Pop" {
+		t.Fatalf("expected highest-popularity artist first, got %+v", result.Artists)
+	}
+	if len(result.Albums) < 2 || result.Albums[0].Name != "Hit Album" {
+		t.Fatalf("expected highest-popularity album first, got %+v", result.Albums)
+	}
+}
+
 func TestFetchPlaylistAlbums(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {

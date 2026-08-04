@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Navbar } from "@/components/layout/Navbar";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -125,7 +124,6 @@ export function SettingsPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
-      <Navbar />
       <main className="pt-navbar mx-auto max-w-4xl px-4 pb-28 md:px-12 md:pb-16">
         <div className="mb-8">
           <h1 className="text-3xl font-bold">Settings</h1>

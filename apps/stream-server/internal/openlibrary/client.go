@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -434,6 +435,8 @@ func (c *Client) searchBooks(ctx context.Context, query string, limit int) ([]Bo
 		"q":      {query},
 		"fields": {searchFields},
 		"limit":  {strconv.Itoa(limit)},
+		// edition_count is the best popularity proxy OL exposes without a local catalog.
+		"sort": {"editions"},
 	}, &payload); err != nil {
 		return nil, err
 	}
@@ -467,6 +470,17 @@ func (c *Client) searchAuthors(ctx context.Context, query string, limit int) ([]
 			WorkCount:    doc.WorkCount,
 		})
 	}
+	sort.SliceStable(authors, func(i, j int) bool {
+		left := 0
+		right := 0
+		if authors[i].WorkCount != nil {
+			left = *authors[i].WorkCount
+		}
+		if authors[j].WorkCount != nil {
+			right = *authors[j].WorkCount
+		}
+		return left > right
+	})
 	return authors, nil
 }
 

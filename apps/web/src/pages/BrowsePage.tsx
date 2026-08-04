@@ -4,7 +4,6 @@ import { HeroBanner } from "@/components/browse/HeroBanner";
 import { LetterboxdRow } from "@/components/browse/LetterboxdRow";
 import { MovieRow } from "@/components/browse/MovieRow";
 import { WatchHistoryRow } from "@/components/browse/WatchHistoryRow";
-import { Navbar } from "@/components/layout/Navbar";
 import { HeroBannerSkeleton } from "@/components/ui/skeleton";
 import { catalogQueryKeys } from "@/lib/queryClient";
 import type { MediaType } from "@/lib/types";
@@ -46,7 +45,6 @@ export function BrowsePage({ mediaType = "all" }: BrowsePageProps) {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
-      <Navbar />
       {heroMovie ? (
         <HeroBanner movie={heroMovie} />
       ) : error ? (

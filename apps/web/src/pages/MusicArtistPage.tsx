@@ -4,7 +4,6 @@ import { useParams } from "react-router-dom";
 import { AlbumCard } from "@/components/browse/AlbumCard";
 import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
 import { AppLink } from "@/components/layout/AppLink";
-import { Navbar } from "@/components/layout/Navbar";
 import { useMusicPlayer } from "@/components/player/music/MusicPlayerContext";
 import { SwipeableTrackRow } from "@/components/player/music/SwipeableTrackRow";
 import { Button } from "@/components/ui/button";
@@ -43,7 +42,6 @@ export function MusicArtistPage() {
   if (artist === undefined) {
     return (
       <div className="min-h-screen bg-zinc-950 text-white">
-        <Navbar searchMode="music" />
         <DetailPageSkeleton />
       </div>
     );
@@ -52,7 +50,6 @@ export function MusicArtistPage() {
   if (artist === null) {
     return (
       <div className="min-h-screen bg-zinc-950 text-white">
-        <Navbar searchMode="music" />
         <div className="flex h-[60vh] flex-col items-center justify-center gap-4">
           <p className="text-zinc-400">{error ?? "Artist not found."}</p>
           <Button asChild variant="outline">
@@ -82,7 +79,6 @@ export function MusicArtistPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
-      <Navbar searchMode="music" />
       <main className="pt-navbar mx-auto max-w-6xl px-4 pb-36 md:px-12 md:pb-32">
         <div className="mb-10 flex flex-col items-center gap-8 md:flex-row md:items-start">
           <ProgressiveCoverImage

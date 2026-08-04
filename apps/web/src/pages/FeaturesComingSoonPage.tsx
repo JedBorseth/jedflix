@@ -1,4 +1,3 @@
-import { Navbar } from "@/components/layout/Navbar";
 import { AppLink } from "@/components/layout/AppLink";
 
 const UPCOMING_FEATURES = [
@@ -11,7 +10,6 @@ const UPCOMING_FEATURES = [
 export function FeaturesComingSoonPage() {
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
-      <Navbar searchMode="music" />
       <main className="pt-navbar mx-auto flex max-w-3xl flex-col px-4 pb-36 md:px-12 md:pb-32">
         <AppLink
           to="/music"

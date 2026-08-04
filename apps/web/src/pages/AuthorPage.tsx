@@ -4,7 +4,6 @@ import { useParams } from "react-router-dom";
 import { BookCard } from "@/components/browse/BookCard";
 import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
 import { AppLink } from "@/components/layout/AppLink";
-import { Navbar } from "@/components/layout/Navbar";
 import { Button } from "@/components/ui/button";
 import { DetailPageSkeleton } from "@/components/ui/skeleton";
 import { getAuthorDetails, normalizeAuthorId } from "@/lib/openlibrary";
@@ -72,7 +71,6 @@ export function AuthorPage() {
   if (author === undefined) {
     return (
       <div className="min-h-screen bg-zinc-950 text-white">
-        <Navbar searchMode="books" />
         <DetailPageSkeleton />
       </div>
     );
@@ -81,7 +79,6 @@ export function AuthorPage() {
   if (author === null) {
     return (
       <div className="min-h-screen bg-zinc-950 text-white">
-        <Navbar searchMode="books" />
         <div className="flex h-[60vh] flex-col items-center justify-center gap-4">
           <p className="text-zinc-400">{error ?? "Author not found."}</p>
           <Button asChild variant="outline">
@@ -94,7 +91,6 @@ export function AuthorPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
-      <Navbar searchMode="books" />
       <main className="pt-navbar mx-auto max-w-6xl px-4 pb-24 md:px-12 md:pb-16">
         <div className="mb-10 flex flex-col gap-8 md:flex-row">
           <ProgressiveCoverImage

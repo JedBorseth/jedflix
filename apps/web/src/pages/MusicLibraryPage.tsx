@@ -10,7 +10,6 @@ import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import { AppLink } from "@/components/layout/AppLink";
-import { Navbar } from "@/components/layout/Navbar";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -25,7 +24,6 @@ import { Input } from "@/components/ui/input";
 export function MusicLibraryPage() {
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
-      <Navbar searchMode="music" />
       <main className="pt-navbar mx-auto max-w-6xl px-4 pb-36 md:px-12 md:pb-32">
         <div className="mb-8 flex items-end justify-between gap-4">
           <div>

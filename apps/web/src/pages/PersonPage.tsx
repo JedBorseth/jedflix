@@ -4,7 +4,6 @@ import { useParams } from "react-router-dom";
 import { FilmographyRow } from "@/components/browse/FilmographyRow";
 import { KnownForRow } from "@/components/browse/KnownForRow";
 import { AppLink } from "@/components/layout/AppLink";
-import { Navbar } from "@/components/layout/Navbar";
 import { Button } from "@/components/ui/button";
 import { DetailPageSkeleton } from "@/components/ui/skeleton";
 import { catalogQueryKeys } from "@/lib/queryClient";
@@ -72,7 +71,6 @@ export function PersonPage() {
   if (person === undefined) {
     return (
       <div className="min-h-screen bg-zinc-950 text-white">
-        <Navbar />
         <DetailPageSkeleton />
       </div>
     );
@@ -81,7 +79,6 @@ export function PersonPage() {
   if (person === null) {
     return (
       <div className="min-h-screen bg-zinc-950 text-white">
-        <Navbar />
         <div className="flex h-[60vh] flex-col items-center justify-center gap-4">
           <p className="text-zinc-400">{error ?? "Person not found."}</p>
           <Button asChild variant="outline">
@@ -97,7 +94,6 @@ export function PersonPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
-      <Navbar />
       <main className="pt-navbar mx-auto max-w-7xl px-4 pb-16 md:px-12">
         <div className="flex flex-col gap-8 py-8 md:flex-row md:items-start">
           <img

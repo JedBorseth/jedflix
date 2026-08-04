@@ -3,7 +3,6 @@ import { useLocation, useParams } from "react-router-dom";
 import { AlbumCard } from "@/components/browse/AlbumCard";
 import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
 import { AppLink } from "@/components/layout/AppLink";
-import { Navbar } from "@/components/layout/Navbar";
 import { useMusicPlayer } from "@/components/player/music/MusicPlayerContext";
 import { SwipeableTrackRow } from "@/components/player/music/SwipeableTrackRow";
 import { Button } from "@/components/ui/button";
@@ -65,7 +64,6 @@ export function AlbumDetailPage() {
   if (album === undefined && !preview) {
     return (
       <div className="min-h-screen bg-zinc-950 text-white">
-        <Navbar searchMode="music" />
         <DetailPageSkeleton />
       </div>
     );
@@ -74,7 +72,6 @@ export function AlbumDetailPage() {
   if (displayAlbum === null) {
     return (
       <div className="min-h-screen bg-zinc-950 text-white">
-        <Navbar searchMode="music" />
         <div className="flex h-[60vh] flex-col items-center justify-center gap-4">
           <p className="text-zinc-400">{error ?? "Album not found."}</p>
           <Button asChild variant="outline">
@@ -106,7 +103,6 @@ export function AlbumDetailPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
-      <Navbar searchMode="music" />
       <section className="relative min-h-[50vh] overflow-hidden">
         <ProgressiveCoverImage
           src={displayAlbum.imageUrl}

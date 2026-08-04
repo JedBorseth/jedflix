@@ -43,6 +43,7 @@ type TmdbListItem = {
   release_date?: string;
   first_air_date?: string;
   vote_average?: number;
+  popularity?: number;
   genre_ids?: number[];
   known_for?: TmdbListItem[];
 };
@@ -414,25 +415,31 @@ export async function searchAll(query: string): Promise<SearchResults> {
     query,
   });
 
-  const media: MediaItem[] = [];
-  const people: PersonSummary[] = [];
+  const media: Array<{ item: MediaItem; popularity: number }> = [];
+  const people: Array<{ person: PersonSummary; popularity: number }> = [];
 
   for (const item of data.results) {
     if (item.media_type === "person") {
       const person = normalizePersonSummary(item);
       if (person) {
-        people.push(person);
+        people.push({ person, popularity: item.popularity ?? 0 });
       }
       continue;
     }
 
     const normalized = normalizeMediaItem(item);
     if (normalized) {
-      media.push(normalized);
+      media.push({ item: normalized, popularity: item.popularity ?? 0 });
     }
   }
 
-  return { media, people };
+  media.sort((left, right) => right.popularity - left.popularity);
+  people.sort((left, right) => right.popularity - left.popularity);
+
+  return {
+    media: media.map((entry) => entry.item),
+    people: people.map((entry) => entry.person),
+  };
 }
 
 export async function getMediaCredits(

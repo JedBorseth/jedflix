@@ -1,7 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { BookHeroBanner } from "@/components/browse/BookHeroBanner";
 import { BookCard } from "@/components/browse/BookCard";
-import { Navbar } from "@/components/layout/Navbar";
 import { HeroBannerSkeleton, PosterRowSkeleton } from "@/components/ui/skeleton";
 import type { AudiobookBrowseResponse, BookItem } from "@/lib/openlibrary";
 import { getAudiobookBrowse, getWorkDetails, pickRandomBook } from "@/lib/openlibrary";
@@ -55,7 +54,6 @@ export function AudiobooksPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
-      <Navbar searchMode="books" />
       {heroBook ? (
         <BookHeroBanner book={heroBook} />
       ) : error ? (

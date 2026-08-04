@@ -60,12 +60,14 @@ describe("tmdb", () => {
           backdrop_path: "/backdrop.jpg",
           release_date: "2024-05-01",
           vote_average: 7.25,
+          popularity: 10,
         },
         {
           id: 17419,
           media_type: "person",
           name: "Bryan Cranston",
           profile_path: "/bryan.jpg",
+          popularity: 20,
           known_for: [{ title: "Breaking Bad" }, { name: "Malcolm in the Middle" }],
         },
       ],
@@ -82,6 +84,60 @@ describe("tmdb", () => {
       profileUrl: "https://image.tmdb.org/t/p/w500/bryan.jpg",
       knownFor: "Breaking Bad, Malcolm in the Middle",
     });
+  });
+
+  test("searchAll sorts media and people by popularity descending", async () => {
+    globalThis.fetch = mockFetch({
+      results: [
+        {
+          id: 1,
+          media_type: "movie",
+          title: "Obscure Film",
+          overview: "Overview",
+          poster_path: "/a.jpg",
+          backdrop_path: "/a-bg.jpg",
+          release_date: "2020-01-01",
+          vote_average: 6,
+          popularity: 5,
+        },
+        {
+          id: 2,
+          media_type: "movie",
+          title: "Blockbuster",
+          overview: "Overview",
+          poster_path: "/b.jpg",
+          backdrop_path: "/b-bg.jpg",
+          release_date: "2024-01-01",
+          vote_average: 8,
+          popularity: 90,
+        },
+        {
+          id: 10,
+          media_type: "person",
+          name: "Unknown Extra",
+          profile_path: "/extra.jpg",
+          popularity: 1,
+        },
+        {
+          id: 11,
+          media_type: "person",
+          name: "Famous Star",
+          profile_path: "/star.jpg",
+          popularity: 80,
+        },
+      ],
+    });
+
+    const results = await searchAll("block");
+
+    expect(results.media.map((item) => item.title)).toEqual([
+      "Blockbuster",
+      "Obscure Film",
+    ]);
+    expect(results.people.map((person) => person.name)).toEqual([
+      "Famous Star",
+      "Unknown Extra",
+    ]);
   });
 
   test("getMediaCredits normalizes cast name and character", async () => {

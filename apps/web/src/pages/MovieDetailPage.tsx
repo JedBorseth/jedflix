@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import { useLocation, useParams } from "react-router-dom";
 import { AppLink } from "@/components/layout/AppLink";
 import { MediaPlayButton } from "@/components/browse/MediaPlayButton";
-import { Navbar } from "@/components/layout/Navbar";
 import { Button } from "@/components/ui/button";
 import type { MediaType } from "@/lib/types";
 import { formatDuration } from "@/lib/types";
@@ -88,7 +87,6 @@ export function MovieDetailPage({ mediaType }: MovieDetailPageProps) {
   if (movie === undefined && !preview) {
     return (
       <div className="min-h-screen bg-zinc-950 text-white">
-        <Navbar />
         <DetailPageSkeleton />
       </div>
     );
@@ -97,7 +95,6 @@ export function MovieDetailPage({ mediaType }: MovieDetailPageProps) {
   if (displayMovie === null) {
     return (
       <div className="min-h-screen bg-zinc-950 text-white">
-        <Navbar />
         <div className="flex h-[60vh] flex-col items-center justify-center gap-4">
           <p className="text-zinc-400">{error ?? "Title not found."}</p>
           <Button asChild variant="outline">
@@ -112,7 +109,6 @@ export function MovieDetailPage({ mediaType }: MovieDetailPageProps) {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
-      <Navbar />
       <section className="relative min-h-[60vh]">
         <img
           src={displayMovie.backdropUrl}

@@ -1,4 +1,10 @@
-import { FormEvent, useRef, useState } from "react";
+import {
+  FormEvent,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Authenticated, Unauthenticated } from "convex/react";
 import { AppLink } from "@/components/layout/AppLink";
@@ -10,12 +16,12 @@ import { useQuery } from "convex/react";
 import { api } from "@convex/_generated/api";
 import { MagnifyingGlassIcon, GearIcon } from "@radix-ui/react-icons";
 import { useUserSettings } from "@/hooks/useUserSettings";
+import { cn } from "@/lib/utils";
 
 export type SearchMode = "media" | "books" | "music";
 
-type NavbarProps = {
-  searchMode?: SearchMode;
-};
+/** Wait this long after typing before hitting remote search APIs. */
+export const SEARCH_DEBOUNCE_MS = 1500;
 
 function isBooksPath(pathname: string, search: string): boolean {
   if (
@@ -45,25 +51,48 @@ function isMusicPath(pathname: string, search: string): boolean {
   return false;
 }
 
-export function Navbar({ searchMode }: NavbarProps) {
+function buildSearchPath(query: string, mode: SearchMode): string {
+  const params = new URLSearchParams();
+  const trimmed = query.trim();
+  if (trimmed) {
+    params.set("q", trimmed);
+  }
+  if (mode === "books") {
+    params.set("type", "books");
+  } else if (mode === "music") {
+    params.set("type", "music");
+  }
+  const qs = params.toString();
+  return qs ? `/search?${qs}` : "/search";
+}
+
+function readSearchQuery(search: string): string {
+  return new URLSearchParams(search).get("q") ?? "";
+}
+
+export function Navbar() {
   const user = useQuery(api.users.viewer);
   const { contentTypes } = useUserSettings();
   const location = useLocation();
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const isOnSearchPage = location.pathname.startsWith("/search");
+  const [isSearchOpen, setIsSearchOpen] = useState(isOnSearchPage);
+  const [query, setQuery] = useState(() =>
+    isOnSearchPage ? readSearchQuery(location.search) : "",
+  );
   const showMoviesShows = contentTypes.includes("movies_shows");
   const showAudiobooks = contentTypes.includes("audiobooks");
   const showMusic = contentTypes.includes("music");
   const showVideoGames = contentTypes.includes("video_games");
-  const activeSearchMode: SearchMode =
-    searchMode ??
-    (isMusicPath(location.pathname, location.search)
-      ? "music"
-      : isBooksPath(location.pathname, location.search)
-        ? "books"
-        : "media");
+  const activeSearchMode: SearchMode = isMusicPath(
+    location.pathname,
+    location.search,
+  )
+    ? "music"
+    : isBooksPath(location.pathname, location.search)
+      ? "books"
+      : "media";
   const searchPlaceholder =
     activeSearchMode === "books"
       ? "Search books or authors"
@@ -71,9 +100,70 @@ export function Navbar({ searchMode }: NavbarProps) {
         ? "Search albums or artists"
         : "Search movies, shows, or cast";
 
+  // Hydrate from the URL when a suggestion chip (or back/forward) changes it.
+  useEffect(() => {
+    if (!isOnSearchPage) {
+      return;
+    }
+    setIsSearchOpen(true);
+    const urlQuery = readSearchQuery(location.search);
+    if (document.activeElement === inputRef.current) {
+      return;
+    }
+    setQuery(urlQuery);
+  }, [isOnSearchPage, location.search]);
+
+  // After expand, ensure focus lands on the already-mounted input.
+  useLayoutEffect(() => {
+    if (!isSearchOpen) {
+      return;
+    }
+    const input = inputRef.current;
+    if (!input || document.activeElement === input) {
+      return;
+    }
+    input.focus({ preventScroll: true });
+    const length = input.value.length;
+    input.setSelectionRange(length, length);
+  }, [isSearchOpen]);
+
+  // Debounced live search — Navbar stays mounted across routes, so this
+  // update won't dismiss the iOS keyboard mid-typing.
+  useEffect(() => {
+    if (!isSearchOpen) {
+      return;
+    }
+
+    const trimmed = query.trim();
+    const timer = window.setTimeout(() => {
+      const current = `${window.location.pathname}${window.location.search}`;
+      const onSearch = window.location.pathname.startsWith("/search");
+
+      if (!trimmed) {
+        if (onSearch) {
+          const emptyPath = buildSearchPath("", activeSearchMode);
+          if (current !== emptyPath) {
+            void navigate(emptyPath, { replace: true });
+          }
+        }
+        return;
+      }
+
+      const nextPath = buildSearchPath(trimmed, activeSearchMode);
+      if (current === nextPath) {
+        return;
+      }
+      void navigate(nextPath, { replace: onSearch });
+    }, SEARCH_DEBOUNCE_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [query, activeSearchMode, isSearchOpen, navigate]);
+
   function openSearch() {
     setIsSearchOpen(true);
-    window.requestAnimationFrame(() => inputRef.current?.focus());
+    // Focus synchronously inside the tap handler so iOS opens the keyboard
+    // on the first press (input stays mounted even when collapsed).
+    inputRef.current?.focus({ preventScroll: true });
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -84,13 +174,11 @@ export function Navbar({ searchMode }: NavbarProps) {
       return;
     }
 
-    const params = new URLSearchParams({ q: trimmedQuery });
-    if (activeSearchMode === "books") {
-      params.set("type", "books");
-    } else if (activeSearchMode === "music") {
-      params.set("type", "music");
+    const nextPath = buildSearchPath(trimmedQuery, activeSearchMode);
+    const current = `${location.pathname}${location.search}`;
+    if (current !== nextPath) {
+      void navigate(nextPath, { replace: isOnSearchPage });
     }
-    void navigate(`/search?${params.toString()}`);
   }
 
   return (
@@ -140,14 +228,15 @@ export function Navbar({ searchMode }: NavbarProps) {
         <div className="flex items-center gap-3">
           <form onSubmit={handleSubmit} className="flex items-center justify-end">
             <div
-              className={`flex items-center overflow-hidden rounded-md border border-transparent bg-black/40 transition-all duration-200 ${
+              className={cn(
+                "flex items-center overflow-hidden rounded-md border border-transparent bg-black/40 transition-all duration-200",
                 isSearchOpen
                   ? "w-52 border-zinc-700 px-2 md:w-72"
-                  : "w-9 hover:border-zinc-700"
-              }`}
+                  : "w-9 hover:border-zinc-700",
+              )}
             >
               <button
-                type={isSearchOpen ? "submit" : "button"}
+                type={isSearchOpen && query.trim() ? "submit" : "button"}
                 className="flex h-10 w-9 shrink-0 items-center justify-center text-zinc-200 transition hover:text-white md:h-9"
                 aria-label={isSearchOpen ? "Search" : "Open search"}
                 onClick={() => {
@@ -158,20 +247,31 @@ export function Navbar({ searchMode }: NavbarProps) {
               >
                 <MagnifyingGlassIcon className="h-5 w-5" />
               </button>
-              {isSearchOpen ? (
-                <Input
-                  ref={inputRef}
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  onBlur={() => {
-                    if (!query.trim()) {
-                      setIsSearchOpen(false);
-                    }
-                  }}
-                  placeholder={searchPlaceholder}
-                  className="h-10 border-0 bg-transparent px-1 text-base text-white placeholder:text-zinc-500 focus-visible:ring-0 md:h-9 md:text-sm"
-                />
-              ) : null}
+              <Input
+                ref={inputRef}
+                value={query}
+                tabIndex={isSearchOpen ? 0 : -1}
+                aria-hidden={!isSearchOpen}
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                enterKeyHint="search"
+                onChange={(event) => {
+                  setIsSearchOpen(true);
+                  setQuery(event.target.value);
+                }}
+                onFocus={() => setIsSearchOpen(true)}
+                onBlur={() => {
+                  if (!query.trim() && !isOnSearchPage) {
+                    setIsSearchOpen(false);
+                  }
+                }}
+                placeholder={searchPlaceholder}
+                className={cn(
+                  "h-10 border-0 bg-transparent px-1 text-base text-white placeholder:text-zinc-500 focus-visible:ring-0 md:h-9 md:text-sm",
+                  !isSearchOpen && "pointer-events-none w-0 px-0 opacity-0",
+                )}
+              />
             </div>
           </form>
           <MobileNavMenu />

@@ -3,7 +3,6 @@ import { Link } from "react-router-dom";
 import { useQuery as useConvexQuery } from "convex/react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@convex/_generated/api";
-import { Navbar } from "@/components/layout/Navbar";
 import { MovieCard } from "@/components/browse/MovieCard";
 import { BookCard } from "@/components/browse/BookCard";
 import { PosterGridSkeleton } from "@/components/ui/skeleton";
@@ -69,7 +68,6 @@ export function MyListPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
-      <Navbar />
       <main className="pt-navbar mx-auto max-w-6xl px-4 pb-24 md:px-12 md:pb-16">
         <h1 className="mb-8 text-3xl font-bold">My List</h1>
 

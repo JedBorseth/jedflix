@@ -4,7 +4,6 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
-import { Navbar } from "@/components/layout/Navbar";
 import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
 import {
   useMusicPlayer,
@@ -22,7 +21,6 @@ export function PlaylistDetailPage() {
   if (!playlistId) {
     return (
       <div className="min-h-screen bg-zinc-950 text-white">
-        <Navbar searchMode="music" />
         <main className="pt-navbar px-4 md:px-12">
           <p className="text-zinc-400">Playlist not found.</p>
         </main>
@@ -32,7 +30,6 @@ export function PlaylistDetailPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
-      <Navbar searchMode="music" />
       <main className="pt-navbar mx-auto max-w-6xl pb-36 md:pb-32">
         <Unauthenticated>
           <div className="mx-4 rounded-lg border border-zinc-800 bg-zinc-900/50 p-8 text-center md:mx-12">
