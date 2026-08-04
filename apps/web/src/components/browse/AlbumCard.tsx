@@ -16,7 +16,7 @@ export function AlbumCard({ album, to }: AlbumCardProps) {
     <AppLink
       to={detailPath}
       state={to ? undefined : { preview: album }}
-      className="group relative block w-36 shrink-0 snap-start md:w-44"
+      className="group relative block w-36 shrink-0 snap-start md:w-40 lg:w-44 xl:w-48"
       data-testid="album-card"
     >
       <div className="overflow-hidden rounded-md transition duration-300 group-hover:scale-105 group-hover:shadow-xl group-hover:shadow-black/50">
@@ -27,9 +27,9 @@ export function AlbumCard({ album, to }: AlbumCardProps) {
           loading="lazy"
         />
       </div>
-      <p className="mt-2 truncate text-sm text-zinc-300 group-hover:text-white">{album.name}</p>
+      <p className="mt-2 truncate text-sm text-zinc-300 group-hover:text-white md:mt-2.5 md:text-[15px]">{album.name}</p>
       {subtitle ? (
-        <p className="truncate text-xs text-zinc-500 group-hover:text-zinc-400">{subtitle}</p>
+        <p className="truncate text-xs text-zinc-500 group-hover:text-zinc-400 md:text-sm">{subtitle}</p>
       ) : null}
     </AppLink>
   );

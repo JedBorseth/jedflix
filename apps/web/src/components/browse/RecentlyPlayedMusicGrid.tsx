@@ -36,8 +36,11 @@ export function RecentlyPlayedMusicGrid({ tracks }: RecentlyPlayedMusicGridProps
 
   return (
     <section className="px-4 md:px-12">
-      <h2 className="mb-3 text-lg font-semibold text-white md:text-xl">Recently Played</h2>
-      <div className="grid grid-cols-2 gap-2 md:gap-3">
+      <h2 className="mb-3 text-lg font-semibold text-white md:mb-4 md:text-2xl">
+        Recently Played
+      </h2>
+      {/* Mobile: 2-col Spotify chips. Desktop: wider grid so the home page fills. */}
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-3 md:gap-3 lg:grid-cols-4 lg:gap-3">
         {tracks.map((track, index) => {
           const isActive = musicPlayer.current?.id === track.id;
           const artist = track.artists.filter(Boolean).join(", ");
@@ -61,25 +64,27 @@ export function RecentlyPlayedMusicGrid({ tracks }: RecentlyPlayedMusicGridProps
             >
               <div
                 className={cn(
-                  "flex min-w-0 items-center gap-3 rounded-md bg-zinc-900/80 p-2 text-left transition-colors hover:bg-zinc-800",
+                  "flex min-w-0 items-center gap-3 rounded-md bg-zinc-900/80 p-2 text-left transition-colors hover:bg-zinc-800 md:gap-3.5 md:p-2.5",
                   isActive && "ring-1 ring-red-600/70",
                 )}
               >
                 <ProgressiveCoverImage
                   src={track.imageUrl}
                   alt=""
-                  className="h-12 w-12 shrink-0 rounded object-cover md:h-14 md:w-14"
+                  className="h-12 w-12 shrink-0 rounded object-cover md:h-16 md:w-16"
                 />
                 <div className="min-w-0 flex-1">
                   <p
                     className={cn(
-                      "truncate text-sm font-medium",
+                      "truncate text-sm font-medium md:text-[15px]",
                       isActive ? "text-red-400" : "text-white",
                     )}
                   >
                     {track.title}
                   </p>
-                  <p className="truncate text-xs text-zinc-500">{artist || track.albumName}</p>
+                  <p className="truncate text-xs text-zinc-500 md:text-sm">
+                    {artist || track.albumName}
+                  </p>
                 </div>
               </div>
             </SwipeableTrackRow>
