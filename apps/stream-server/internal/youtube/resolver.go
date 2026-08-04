@@ -34,13 +34,21 @@ type Resolver struct {
 	searchN     int
 	now         func() time.Time
 
-	mu    sync.Mutex
-	cache map[string]cachedURL
+	mu       sync.Mutex
+	cache    map[string]cachedURL
+	inflight map[string]*inflightResolve
 }
 
 type cachedURL struct {
 	info     StreamInfo
 	cachedAt time.Time
+}
+
+// inflightResolve coalesces concurrent identical Resolve calls (e.g. party members).
+type inflightResolve struct {
+	done chan struct{}
+	info *StreamInfo
+	err  error
 }
 
 // Request identifies a track to resolve.
@@ -49,6 +57,8 @@ type Request struct {
 	Title      string
 	Album      string
 	DurationMs int // Spotify track length; used to prefer audio over music videos
+	// When set, skip search and extract this video directly (party shared stream).
+	VideoID string
 }
 
 // StreamInfo is a resolved direct audio URL (ephemeral; not stored on disk).
@@ -92,6 +102,7 @@ func NewResolver() *Resolver {
 		searchN:     defaultSearchCount,
 		now:         time.Now,
 		cache:       make(map[string]cachedURL),
+		inflight:    make(map[string]*inflightResolve),
 	}
 }
 
@@ -99,11 +110,14 @@ func (r *Resolver) Resolve(ctx context.Context, req Request) (*StreamInfo, error
 	req.Artist = strings.TrimSpace(req.Artist)
 	req.Title = strings.TrimSpace(req.Title)
 	req.Album = strings.TrimSpace(req.Album)
-	if req.Title == "" {
-		return nil, fmt.Errorf("%w: title is required", ErrBadRequest)
-	}
-	if req.Artist == "" {
-		return nil, fmt.Errorf("%w: artist is required", ErrBadRequest)
+	req.VideoID = normalizeVideoID(req.VideoID)
+	if req.VideoID == "" {
+		if req.Title == "" {
+			return nil, fmt.Errorf("%w: title is required", ErrBadRequest)
+		}
+		if req.Artist == "" {
+			return nil, fmt.Errorf("%w: artist is required", ErrBadRequest)
+		}
 	}
 
 	key := cacheKey(req)
@@ -111,8 +125,59 @@ func (r *Resolver) Resolve(ctx context.Context, req Request) (*StreamInfo, error
 		return &info, nil
 	}
 
+	// Coalesce concurrent resolves for the same track (party members starting together).
+	r.mu.Lock()
+	if wait, ok := r.inflight[key]; ok {
+		r.mu.Unlock()
+		select {
+		case <-wait.done:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		if wait.err != nil {
+			return nil, wait.err
+		}
+		if wait.info == nil {
+			return nil, ErrResolveFail
+		}
+		copied := *wait.info
+		return &copied, nil
+	}
+	wait := &inflightResolve{done: make(chan struct{})}
+	r.inflight[key] = wait
+	r.mu.Unlock()
+
+	info, err := r.resolveUncached(ctx, req)
+	wait.info = info
+	wait.err = err
+	if err == nil && info != nil {
+		// Cache before releasing waiters so late arrivals hit cache, not a new search.
+		r.putCached(key, *info)
+		if req.VideoID == "" && info.VideoID != "" {
+			r.putCached(videoIDCacheKey(info.VideoID), *info)
+		}
+	}
+	r.mu.Lock()
+	delete(r.inflight, key)
+	r.mu.Unlock()
+	close(wait.done)
+
+	if err != nil {
+		return nil, err
+	}
+	return info, nil
+}
+
+func (r *Resolver) resolveUncached(ctx context.Context, req Request) (*StreamInfo, error) {
 	if _, err := exec.LookPath(r.ytdlpPath); err != nil {
 		return nil, ErrYtdlpMissing
+	}
+
+	if req.VideoID != "" {
+		return r.extractStream(ctx, &searchEntry{
+			ID:         req.VideoID,
+			WebpageURL: "https://www.youtube.com/watch?v=" + req.VideoID,
+		})
 	}
 
 	entries, err := r.search(ctx, req)
@@ -123,20 +188,36 @@ func (r *Resolver) Resolve(ctx context.Context, req Request) (*StreamInfo, error
 	if best == nil {
 		return nil, ErrNotFound
 	}
-
-	info, err := r.extractStream(ctx, best)
-	if err != nil {
-		return nil, err
-	}
-	r.putCached(key, *info)
-	return info, nil
+	return r.extractStream(ctx, best)
 }
 
 func cacheKey(req Request) string {
+	if req.VideoID != "" {
+		return videoIDCacheKey(req.VideoID)
+	}
 	return strings.ToLower(req.Artist) + "\x00" +
 		strings.ToLower(req.Title) + "\x00" +
 		strings.ToLower(req.Album) + "\x00" +
 		fmt.Sprintf("%d", req.DurationMs)
+}
+
+func videoIDCacheKey(videoID string) string {
+	return "videoId\x00" + videoID
+}
+
+// YouTube video ids are 11 URL-safe base64 characters.
+func normalizeVideoID(raw string) string {
+	id := strings.TrimSpace(raw)
+	if len(id) != 11 {
+		return ""
+	}
+	for _, r := range id {
+		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			continue
+		}
+		return ""
+	}
+	return id
 }
 
 func (r *Resolver) getCached(key string) (StreamInfo, bool) {

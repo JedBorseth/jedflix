@@ -95,6 +95,7 @@ func (s *Server) Router() http.Handler {
 		r.Get("/spotify/artists/{artistId}", s.handleSpotifyArtist)
 		r.Get("/youtube/audio", s.handleYouTubeAudio)
 		r.Head("/youtube/audio", s.handleYouTubeAudio)
+		r.Get("/youtube/resolve", s.handleYouTubeResolve)
 	})
 
 	return r
@@ -425,29 +426,16 @@ func (s *Server) handleSpotifyArtist(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleYouTubeAudio(w http.ResponseWriter, r *http.Request) {
-	artist := strings.TrimSpace(r.URL.Query().Get("artist"))
-	title := strings.TrimSpace(r.URL.Query().Get("title"))
-	album := strings.TrimSpace(r.URL.Query().Get("album"))
-	durationMs := 0
-	if raw := strings.TrimSpace(r.URL.Query().Get("durationMs")); raw != "" {
-		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
-			durationMs = parsed
-		}
-	}
-	if artist == "" || title == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "artist and title are required"})
+	req, err := parseYouTubeRequest(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), youtube.ResolveTimeout)
 	defer cancel()
 
-	info, err := s.youtube.Resolve(ctx, youtube.Request{
-		Artist:     artist,
-		Title:      title,
-		Album:      album,
-		DurationMs: durationMs,
-	})
+	info, err := s.youtube.Resolve(ctx, req)
 	if err != nil {
 		writeYouTubeError(w, err)
 		return
@@ -459,6 +447,55 @@ func (s *Server) handleYouTubeAudio(w http.ResponseWriter, r *http.Request) {
 			writeYouTubeError(w, err)
 		}
 	}
+}
+
+// handleYouTubeResolve returns resolved metadata without streaming audio bytes.
+// Party mode uses this so one member can share the YouTube video id with others.
+func (s *Server) handleYouTubeResolve(w http.ResponseWriter, r *http.Request) {
+	req, err := parseYouTubeRequest(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), youtube.ResolveTimeout)
+	defer cancel()
+
+	info, err := s.youtube.Resolve(ctx, req)
+	if err != nil {
+		writeYouTubeError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"videoId":     info.VideoID,
+		"title":       info.Title,
+		"contentType": info.ContentType,
+		"ext":         info.Ext,
+	})
+}
+
+func parseYouTubeRequest(r *http.Request) (youtube.Request, error) {
+	artist := strings.TrimSpace(r.URL.Query().Get("artist"))
+	title := strings.TrimSpace(r.URL.Query().Get("title"))
+	album := strings.TrimSpace(r.URL.Query().Get("album"))
+	videoID := strings.TrimSpace(r.URL.Query().Get("videoId"))
+	durationMs := 0
+	if raw := strings.TrimSpace(r.URL.Query().Get("durationMs")); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+			durationMs = parsed
+		}
+	}
+	if videoID == "" && (artist == "" || title == "") {
+		return youtube.Request{}, errors.New("artist and title are required (or provide videoId)")
+	}
+	return youtube.Request{
+		Artist:     artist,
+		Title:      title,
+		Album:      album,
+		DurationMs: durationMs,
+		VideoID:    videoID,
+	}, nil
 }
 
 func writeYouTubeError(w http.ResponseWriter, err error) {

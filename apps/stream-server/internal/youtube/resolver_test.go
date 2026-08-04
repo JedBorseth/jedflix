@@ -66,10 +66,22 @@ func TestIsBrowserSafeAudio(t *testing.T) {
 	}
 }
 
-func TestNormalizeText(t *testing.T) {
-	got := normalizeText("  Karma-Police (Official Audio)! ")
-	if got != "karma police official audio" {
+func TestNormalizeVideoID(t *testing.T) {
+	if got := normalizeVideoID(" dQw4w9WgXcQ "); got != "dQw4w9WgXcQ" {
 		t.Fatalf("got %q", got)
+	}
+	if normalizeVideoID("short") != "" {
+		t.Fatal("expected empty for short id")
+	}
+	if normalizeVideoID("bad id!!!!!!") != "" {
+		t.Fatal("expected empty for invalid chars")
+	}
+}
+
+func TestVideoIDCacheKey(t *testing.T) {
+	req := Request{VideoID: "dQw4w9WgXcQ", Artist: "ignored", Title: "ignored"}
+	if cacheKey(req) != videoIDCacheKey("dQw4w9WgXcQ") {
+		t.Fatal("videoId request should use videoId cache key")
 	}
 }
 

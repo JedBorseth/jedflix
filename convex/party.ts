@@ -14,6 +14,7 @@ import {
   estimatedPositionMs,
   generatePartyCode,
   isValidPartyCode,
+  isYoutubeVideoId,
   MEMBER_STALE_WINDOW_MS,
   normalizePartyCode,
   partyTrackValidator,
@@ -132,6 +133,8 @@ async function commitPlayback(
     isPlaying: nextPlaying,
     positionMs,
     positionUpdatedAt: now,
+    // Drop shared stream when the song changes; keep it across pause/seek.
+    youtubeVideoId: trackChanged ? undefined : existing?.youtubeVideoId,
     revision,
     updatedBy: args.updatedBy,
     updatedAt: now,
@@ -238,6 +241,8 @@ export const getState = query({
       isPlaying: v.boolean(),
       positionMs: v.number(),
       positionUpdatedAt: v.number(),
+      /** Shared YouTube id so members skip duplicate yt-dlp search. */
+      youtubeVideoId: v.union(v.string(), v.null()),
       revision: v.number(),
       updatedBy: v.string(),
       members: v.array(memberValidator),
@@ -317,6 +322,7 @@ export const getState = query({
       isPlaying: playback?.isPlaying ?? false,
       positionMs: playback?.positionMs ?? 0,
       positionUpdatedAt: playback?.positionUpdatedAt ?? playback?.updatedAt ?? 0,
+      youtubeVideoId: playback?.youtubeVideoId ?? null,
       revision: playback?.revision ?? 0,
       updatedBy: playback?.updatedBy ?? "",
       members,
@@ -554,6 +560,35 @@ export const setPosition = mutation({
       updatedBy: `member:${args.clientId}`,
       positionMs: nextPosition,
     });
+    return null;
+  },
+});
+
+/**
+ * Publishes the YouTube video id for the current party track so other members
+ * can reuse the same stream URL (skip search).
+ */
+export const setYoutubeVideoId = mutation({
+  args: {
+    clientId: v.string(),
+    trackId: v.string(),
+    youtubeVideoId: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { member } = await requireMembership(ctx, args.clientId);
+    const playback = await getPlayback(ctx, member.partyId);
+    if (!playback?.track || playback.track.id !== args.trackId) {
+      return null;
+    }
+    const videoId = args.youtubeVideoId.trim();
+    if (!isYoutubeVideoId(videoId)) {
+      throw new Error("Invalid YouTube video id");
+    }
+    if (playback.youtubeVideoId === videoId) {
+      return null;
+    }
+    await ctx.db.patch(playback._id, { youtubeVideoId: videoId });
     return null;
   },
 });

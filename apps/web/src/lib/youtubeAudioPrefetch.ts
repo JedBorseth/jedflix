@@ -6,6 +6,7 @@ export type PrefetchTrack = {
   artists: string[];
   albumName: string;
   durationMs: number;
+  youtubeVideoId?: string;
 };
 
 function artistLabel(artists: string[]): string {
@@ -13,6 +14,9 @@ function artistLabel(artists: string[]): string {
 }
 
 function trackUrl(track: PrefetchTrack): string {
+  if (track.youtubeVideoId) {
+    return getYoutubeAudioUrl({ videoId: track.youtubeVideoId });
+  }
   return getYoutubeAudioUrl({
     artist: artistLabel(track.artists),
     title: track.title,

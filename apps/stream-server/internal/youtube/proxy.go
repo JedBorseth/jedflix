@@ -69,7 +69,16 @@ func Proxy(w http.ResponseWriter, r *http.Request, info *StreamInfo) error {
 	if w.Header().Get("Accept-Ranges") == "" {
 		w.Header().Set("Accept-Ranges", "bytes")
 	}
-	w.Header().Set("Access-Control-Expose-Headers", "Content-Range, Accept-Ranges, Content-Length, Content-Type")
+	if info.VideoID != "" {
+		w.Header().Set("X-Jedflix-Youtube-Video-Id", info.VideoID)
+	}
+	if info.Title != "" {
+		w.Header().Set("X-Jedflix-Youtube-Title", info.Title)
+	}
+	w.Header().Set(
+		"Access-Control-Expose-Headers",
+		"Content-Range, Accept-Ranges, Content-Length, Content-Type, X-Jedflix-Youtube-Video-Id, X-Jedflix-Youtube-Title",
+	)
 
 	status := resp.StatusCode
 	if status == 0 {

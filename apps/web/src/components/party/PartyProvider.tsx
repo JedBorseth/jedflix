@@ -15,6 +15,7 @@ import {
   shouldSyncPosition,
   type PartySnapshot,
 } from "@/lib/partySync";
+import { resolveYoutubeAudio } from "@/lib/spotify";
 
 const HEARTBEAT_INTERVAL_MS = 20_000;
 
@@ -29,6 +30,16 @@ function toPartyTrack(track: MusicQueueTrack) {
     imageUrl: track.imageUrl,
     durationMs: track.durationMs,
   };
+}
+
+function withSharedStream(
+  track: MusicQueueTrack,
+  youtubeVideoId: string | null | undefined,
+): MusicQueueTrack {
+  if (!youtubeVideoId) {
+    return track;
+  }
+  return { ...track, youtubeVideoId };
 }
 
 export function PartyProvider({ children }: { children: ReactNode }) {
@@ -47,6 +58,7 @@ export function PartyProvider({ children }: { children: ReactNode }) {
   const setTrack = useMutation(api.party.setTrack);
   const setPlaying = useMutation(api.party.setPlaying);
   const setPosition = useMutation(api.party.setPosition);
+  const setYoutubeVideoId = useMutation(api.party.setYoutubeVideoId);
 
   // The player context changes identity on every timeupdate, so read it through
   // a ref and keep the sync effect keyed to the fields that actually matter.
@@ -146,11 +158,14 @@ export function PartyProvider({ children }: { children: ReactNode }) {
         if (party.track) {
           // Keep the party track playable even when it is not already in the
           // mirrored queue (common when someone picks a song on Spotify).
+          const shared = withSharedStream(party.track, party.youtubeVideoId);
           const queue = party.queue.some((track) => track.id === party.track!.id)
-            ? party.queue
-            : [party.track, ...party.queue];
+            ? party.queue.map((track) =>
+                track.id === shared.id ? withSharedStream(track, party.youtubeVideoId) : track,
+              )
+            : [shared, ...party.queue];
           failedTrackIdRef.current = null;
-          activePlayer.playTrack(party.track, queue);
+          activePlayer.playTrack(shared, queue);
           queueSignatureRef.current = queueSignature(queue.map((track) => track.id));
           // playTrack always starts audio, so record that as the expected local
           // state. If the party is paused the next pass will pause us.
@@ -210,6 +225,51 @@ export function PartyProvider({ children }: { children: ReactNode }) {
     playerError,
     setPlaying,
     setTrack,
+  ]);
+
+  // Resolve YouTube once and share the video id so other party members skip search.
+  useEffect(() => {
+    if (!party?.track || localTrackId !== party.track.id) {
+      return;
+    }
+    if (party.youtubeVideoId) {
+      return;
+    }
+    const track = party.track;
+    const artist = track.artists.filter(Boolean).join(", ") || "Unknown artist";
+    const controller = new AbortController();
+    void resolveYoutubeAudio({
+      artist,
+      title: track.title,
+      album: track.albumName,
+      durationMs: track.durationMs > 0 ? track.durationMs : undefined,
+      signal: controller.signal,
+    })
+      .then((info) => {
+        if (!info.videoId || controller.signal.aborted) {
+          return;
+        }
+        return setYoutubeVideoId({
+          clientId,
+          trackId: track.id,
+          youtubeVideoId: info.videoId,
+        });
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+    // Intentionally keyed to track id / shared video id — not the whole party
+    // snapshot — so pause/seek churn does not restart resolve.
+  }, [
+    clientId,
+    localTrackId,
+    party?.track?.albumName,
+    party?.track?.durationMs,
+    party?.track?.id,
+    party?.track?.title,
+    // Join artists so referential churn on the array does not re-fire resolve.
+    party?.track?.artists?.join("\0"),
+    party?.youtubeVideoId,
+    setYoutubeVideoId,
   ]);
 
   // Seek to a remote position when the party clock moved and we drifted > 5s.

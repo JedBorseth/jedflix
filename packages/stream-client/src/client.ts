@@ -218,6 +218,13 @@ export type StreamClientConfig = {
   apiKey?: string;
 };
 
+export type YoutubeAudioResolveResult = {
+  videoId: string;
+  title: string;
+  contentType: string;
+  ext: string;
+};
+
 export type StreamClient = {
   resolveStreamUrl: (relativeOrAbsolute: string) => string;
   getPlaybackUrl: (stream: StreamResult) => string;
@@ -239,11 +246,22 @@ export type StreamClient = {
   fetchSpotifyAlbum: (albumId: string) => Promise<SpotifyAlbum>;
   fetchSpotifyArtist: (artistId: string) => Promise<SpotifyArtistDetails>;
   getYoutubeAudioUrl: (params: {
-    artist: string;
-    title: string;
+    artist?: string;
+    title?: string;
     album?: string;
     durationMs?: number;
+    /** When set, stream-server skips yt-dlp search and extracts this video. */
+    videoId?: string;
   }) => string;
+  /** Resolve Spotify→YouTube metadata without streaming audio (for party sharing). */
+  resolveYoutubeAudio: (params: {
+    artist?: string;
+    title?: string;
+    album?: string;
+    durationMs?: number;
+    videoId?: string;
+    signal?: AbortSignal;
+  }) => Promise<YoutubeAudioResolveResult>;
 };
 
 /** JSON contract mirrors apps/stream-server/internal/resolver/resolver.go */
@@ -601,25 +619,75 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
   }
 
   function getYoutubeAudioUrl(params: {
-    artist: string;
-    title: string;
+    artist?: string;
+    title?: string;
     album?: string;
     durationMs?: number;
+    videoId?: string;
   }): string {
-    const query = new URLSearchParams({
-      artist: params.artist.trim(),
-      title: params.title.trim(),
-    });
-    if (params.album?.trim()) {
-      query.set("album", params.album.trim());
-    }
-    if (params.durationMs && Number.isFinite(params.durationMs) && params.durationMs > 0) {
-      query.set("durationMs", String(Math.round(params.durationMs)));
+    const query = new URLSearchParams();
+    const videoId = params.videoId?.trim();
+    if (videoId) {
+      query.set("videoId", videoId);
+    } else {
+      query.set("artist", (params.artist ?? "").trim());
+      query.set("title", (params.title ?? "").trim());
+      if (params.album?.trim()) {
+        query.set("album", params.album.trim());
+      }
+      if (params.durationMs && Number.isFinite(params.durationMs) && params.durationMs > 0) {
+        query.set("durationMs", String(Math.round(params.durationMs)));
+      }
     }
     if (apiKey) {
       query.set("apikey", apiKey);
     }
     return `${apiBase}/api/v1/youtube/audio?${query.toString()}`;
+  }
+
+  async function resolveYoutubeAudio(params: {
+    artist?: string;
+    title?: string;
+    album?: string;
+    durationMs?: number;
+    videoId?: string;
+    signal?: AbortSignal;
+  }): Promise<YoutubeAudioResolveResult> {
+    const query = new URLSearchParams();
+    const videoId = params.videoId?.trim();
+    if (videoId) {
+      query.set("videoId", videoId);
+    } else {
+      query.set("artist", (params.artist ?? "").trim());
+      query.set("title", (params.title ?? "").trim());
+      if (params.album?.trim()) {
+        query.set("album", params.album.trim());
+      }
+      if (params.durationMs && Number.isFinite(params.durationMs) && params.durationMs > 0) {
+        query.set("durationMs", String(Math.round(params.durationMs)));
+      }
+    }
+    if (apiKey) {
+      query.set("apikey", apiKey);
+    }
+    const response = await fetch(`${apiBase}/api/v1/youtube/resolve?${query.toString()}`, {
+      headers: headers(),
+      signal: params.signal,
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(payload?.error ?? `YouTube resolve failed (${response.status})`);
+    }
+    const payload = (await response.json()) as Partial<YoutubeAudioResolveResult>;
+    if (!payload.videoId) {
+      throw new Error("YouTube resolve did not return a video id.");
+    }
+    return {
+      videoId: payload.videoId,
+      title: payload.title ?? "",
+      contentType: payload.contentType ?? "",
+      ext: payload.ext ?? "",
+    };
   }
 
   return {
@@ -639,6 +707,7 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
     fetchSpotifyAlbum,
     fetchSpotifyArtist,
     getYoutubeAudioUrl,
+    resolveYoutubeAudio,
   };
 }
 

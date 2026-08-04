@@ -26,5 +26,6 @@ export type {
   StreamResult,
   StreamSource,
   VideoSourcesRequest,
+  YoutubeAudioResolveResult,
 } from "./client";
 export { createStreamClient, StreamResolveError } from "./client";
