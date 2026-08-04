@@ -29,6 +29,8 @@ export type MusicQueueTrack = {
   albumId?: string;
   imageUrl: string;
   durationMs: number;
+  /** Shared party stream: skip yt-dlp search when present. */
+  youtubeVideoId?: string;
 };
 
 type MusicPlayerContextValue = {
@@ -195,12 +197,14 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         imageUrl: track.imageUrl,
         durationMs: track.durationMs,
       });
-      const src = getYoutubeAudioUrl({
-        artist: artistLabel(track.artists),
-        title: track.title,
-        album: track.albumName,
-        durationMs: track.durationMs > 0 ? track.durationMs : undefined,
-      });
+      const src = track.youtubeVideoId
+        ? getYoutubeAudioUrl({ videoId: track.youtubeVideoId })
+        : getYoutubeAudioUrl({
+            artist: artistLabel(track.artists),
+            title: track.title,
+            album: track.albumName,
+            durationMs: track.durationMs > 0 ? track.durationMs : undefined,
+          });
       playIntentRef.current = true;
       setLoading(true);
       setError(null);

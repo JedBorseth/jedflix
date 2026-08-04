@@ -54,4 +54,30 @@ describe("youtubeAudioPrefetch", () => {
     expect(second).toEqual([]);
     expect(methods).toHaveLength(2);
   });
+
+  test("prefetchYoutubeAudioTracks prefers shared youtubeVideoId URLs", async () => {
+    const urls: string[] = [];
+    const fetchImpl: typeof fetch = async (input) => {
+      urls.push(String(input));
+      return new Response(null, { status: 200 });
+    };
+
+    await prefetchYoutubeAudioTracks(
+      [
+        {
+          id: "1",
+          title: "Song One",
+          artists: ["Artist"],
+          albumName: "Album",
+          durationMs: 180_000,
+          youtubeVideoId: "dQw4w9WgXcQ",
+        },
+      ],
+      { fetchImpl },
+    );
+
+    expect(urls).toHaveLength(1);
+    expect(urls[0]).toContain("videoId=dQw4w9WgXcQ");
+    expect(urls[0]).not.toContain("artist=");
+  });
 });

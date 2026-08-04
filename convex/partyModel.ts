@@ -99,6 +99,13 @@ export function isSpotifyTrackId(id: string): boolean {
   return SPOTIFY_ID_PATTERN.test(id);
 }
 
+/** YouTube watch ids are 11 URL-safe base64 characters. */
+const YOUTUBE_VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
+
+export function isYoutubeVideoId(id: string): boolean {
+  return YOUTUBE_VIDEO_ID_PATTERN.test(id.trim());
+}
+
 export function toSpotifyTrackUri(id: string): string | null {
   return isSpotifyTrackId(id) ? `spotify:track:${id}` : null;
 }

@@ -141,6 +141,11 @@ export default defineSchema({
     positionMs: v.optional(v.number()),
     /** Wall clock for `positionMs`; advance while `isPlaying` on the client. */
     positionUpdatedAt: v.optional(v.number()),
+    /**
+     * Shared YouTube video id for the current track so party members reuse one
+     * stream resolve instead of each running yt-dlp search.
+     */
+    youtubeVideoId: v.optional(v.string()),
     // Monotonic; lets a scheduled Spotify push detect that it has been superseded.
     revision: v.number(),
     // "member:<clientId>" or "spotify:<accountId>" — used to skip echoes.

@@ -69,12 +69,24 @@ export async function getArtistDetails(artistId: string): Promise<ArtistDetails>
 }
 
 export function getYoutubeAudioUrl(params: {
-  artist: string;
-  title: string;
+  artist?: string;
+  title?: string;
   album?: string;
   durationMs?: number;
+  videoId?: string;
 }): string {
   return streamClient.getYoutubeAudioUrl(params);
+}
+
+export async function resolveYoutubeAudio(params: {
+  artist?: string;
+  title?: string;
+  album?: string;
+  durationMs?: number;
+  videoId?: string;
+  signal?: AbortSignal;
+}) {
+  return streamClient.resolveYoutubeAudio(params);
 }
 
 export function formatTrackDuration(durationMs: number): string {
