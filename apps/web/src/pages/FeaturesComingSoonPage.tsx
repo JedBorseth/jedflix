@@ -2,7 +2,6 @@ import { Navbar } from "@/components/layout/Navbar";
 import { AppLink } from "@/components/layout/AppLink";
 
 const UPCOMING_FEATURES = [
-  "Playlist support",
   "Better home page data",
   "Improved searching UI",
   "Full Spotify bidirectional sync",

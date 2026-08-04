@@ -6,6 +6,7 @@ import {
   mediaTypeValidator,
   streamModeValidator,
 } from "@jedflix/shared";
+import { musicTrackValidator } from "./musicTrack";
 import { partyTrackValidator } from "./partyModel";
 
 export default defineSchema({
@@ -59,6 +60,37 @@ export default defineSchema({
     externalPlayer: v.optional(externalPlayerValidator),
     updatedAt: v.number(),
   }).index("by_user", ["userId"]),
+
+  // --- Music library --------------------------------------------------------
+
+  /** User-liked tracks (Spotify ids + denormalized metadata for offline render). */
+  likedSongs: defineTable({
+    userId: v.id("users"),
+    ...musicTrackValidator.fields,
+    addedAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_user_and_track", ["userId", "id"]),
+
+  /** User-created playlists. */
+  playlists: defineTable({
+    userId: v.id("users"),
+    name: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_user", ["userId"]),
+
+  /** Tracks in a playlist; metadata denormalized so we don't fetch Spotify. */
+  playlistTracks: defineTable({
+    playlistId: v.id("playlists"),
+    userId: v.id("users"),
+    ...musicTrackValidator.fields,
+    addedAt: v.number(),
+    position: v.number(),
+  })
+    .index("by_playlist", ["playlistId"])
+    .index("by_playlist_and_track", ["playlistId", "id"])
+    .index("by_user", ["userId"]),
 
   // --- Party mode -----------------------------------------------------------
 

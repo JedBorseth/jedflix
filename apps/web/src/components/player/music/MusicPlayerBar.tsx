@@ -4,6 +4,7 @@ import {
   PauseIcon,
   PersonIcon,
   PlayIcon,
+  PlusIcon,
   TrackNextIcon,
   TrackPreviousIcon,
 } from "@radix-ui/react-icons";
@@ -12,6 +13,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
 import { useOptionalParty } from "@/components/party/partyContext";
+import { AddToPlaylistDialog } from "@/components/player/music/AddToPlaylistDialog";
 import { useMusicPlayer } from "@/components/player/music/MusicPlayerContext";
 import { MusicQueuePanel } from "@/components/player/music/MusicQueuePanel";
 import { getAlbumDetailPath, getArtistPath } from "@/lib/spotify";
@@ -32,6 +34,7 @@ const SWIPE_VELOCITY = 0.35;
 
 export function MusicPlayerBar() {
   const navigate = useNavigate();
+  const [playlistDialogOpen, setPlaylistDialogOpen] = useState(false);
   const {
     current,
     playing,
@@ -315,42 +318,52 @@ export function MusicPlayerBar() {
             </div>
 
             <div className="mt-4 w-full shrink-0 space-y-4">
-              <div className="min-w-0 text-left">
-                {albumPath ? (
-                  <button
-                    type="button"
-                    className="block w-full truncate text-left text-xl font-semibold hover:underline sm:text-2xl"
-                    onClick={openAlbum}
-                  >
-                    {current.title}
-                  </button>
-                ) : (
-                  <h1 className="truncate text-xl font-semibold sm:text-2xl">{current.title}</h1>
-                )}
-                <p className="mt-1 truncate text-zinc-300">
-                  {artistEntries.length > 0
-                    ? artistEntries.map((entry, index) => (
-                        <span key={`${entry.name}-${index}`}>
-                          {index > 0 ? <span className="text-zinc-500">, </span> : null}
-                          {entry.id ? (
-                            <button
-                              type="button"
-                              className="hover:underline"
-                              onClick={() => openArtist(entry.id!)}
-                            >
-                              {entry.name}
-                            </button>
-                          ) : (
-                            entry.name
-                          )}
-                        </span>
-                      ))
-                    : artist}
-                </p>
-                {error ? <p className="mt-2 text-sm text-red-300">{error}</p> : null}
-                {loading && !error ? (
-                  <p className="mt-2 text-sm text-zinc-400">Resolving YouTube audio…</p>
-                ) : null}
+              <div className="flex min-w-0 items-start gap-3 text-left">
+                <div className="min-w-0 flex-1">
+                  {albumPath ? (
+                    <button
+                      type="button"
+                      className="block w-full truncate text-left text-xl font-semibold hover:underline sm:text-2xl"
+                      onClick={openAlbum}
+                    >
+                      {current.title}
+                    </button>
+                  ) : (
+                    <h1 className="truncate text-xl font-semibold sm:text-2xl">{current.title}</h1>
+                  )}
+                  <p className="mt-1 truncate text-zinc-300">
+                    {artistEntries.length > 0
+                      ? artistEntries.map((entry, index) => (
+                          <span key={`${entry.name}-${index}`}>
+                            {index > 0 ? <span className="text-zinc-500">, </span> : null}
+                            {entry.id ? (
+                              <button
+                                type="button"
+                                className="hover:underline"
+                                onClick={() => openArtist(entry.id!)}
+                              >
+                                {entry.name}
+                              </button>
+                            ) : (
+                              entry.name
+                            )}
+                          </span>
+                        ))
+                      : artist}
+                  </p>
+                  {error ? <p className="mt-2 text-sm text-red-300">{error}</p> : null}
+                  {loading && !error ? (
+                    <p className="mt-2 text-sm text-zinc-400">Resolving YouTube audio…</p>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  className="mt-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-zinc-600 text-white transition-colors hover:border-zinc-400 hover:bg-zinc-900"
+                  onClick={() => setPlaylistDialogOpen(true)}
+                  aria-label="Add to playlist"
+                >
+                  <PlusIcon className="h-5 w-5" />
+                </button>
               </div>
 
               <div className="w-full">
@@ -439,6 +452,12 @@ export function MusicPlayerBar() {
           <MusicQueuePanel />
         </div>
       ) : null}
+
+      <AddToPlaylistDialog
+        open={playlistDialogOpen}
+        onOpenChange={setPlaylistDialogOpen}
+        track={current}
+      />
     </>
   );
 }

@@ -1,30 +1,30 @@
-import { PlusIcon } from "@radix-ui/react-icons";
+import { HeartFilledIcon, HeartIcon } from "@radix-ui/react-icons";
 import { useDrag } from "@use-gesture/react";
 import { useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
-const SWIPE_QUEUE_DISTANCE = 72;
-const SWIPE_QUEUE_VELOCITY = 0.35;
+const SWIPE_LIKE_DISTANCE = 72;
+const SWIPE_LIKE_VELOCITY = 0.35;
 const MAX_REVEAL = 88;
 
 type SwipeableTrackRowProps = {
   onPlay: () => void;
-  onAddToQueue: () => void;
+  onLike: () => void;
   className?: string;
   children: ReactNode;
 };
 
 /**
- * Full-width track row: tap to play, swipe right to append to the play queue.
+ * Full-width track row: tap to play, swipe right to add to Liked Songs.
  */
 export function SwipeableTrackRow({
   onPlay,
-  onAddToQueue,
+  onLike,
   className,
   children,
 }: SwipeableTrackRowProps) {
   const [offsetX, setOffsetX] = useState(0);
-  const [queuedFlash, setQueuedFlash] = useState(false);
+  const [likedFlash, setLikedFlash] = useState(false);
 
   const bind = useDrag(
     ({ down, movement: [mx, my], velocity: [vx], last, tap }) => {
@@ -50,16 +50,16 @@ export function SwipeableTrackRow({
         return;
       }
 
-      const shouldQueue =
-        mx > SWIPE_QUEUE_DISTANCE &&
+      const shouldLike =
+        mx > SWIPE_LIKE_DISTANCE &&
         absX > absY &&
-        (vx > SWIPE_QUEUE_VELOCITY || mx > 120);
+        (vx > SWIPE_LIKE_VELOCITY || mx > 120);
 
       setOffsetX(0);
-      if (shouldQueue) {
-        onAddToQueue();
-        setQueuedFlash(true);
-        window.setTimeout(() => setQueuedFlash(false), 900);
+      if (shouldLike) {
+        onLike();
+        setLikedFlash(true);
+        window.setTimeout(() => setLikedFlash(false), 900);
       }
     },
     {
@@ -71,16 +71,20 @@ export function SwipeableTrackRow({
   );
 
   return (
-    <li className={cn("relative overflow-hidden", className)}>
+    <div className={cn("relative overflow-hidden", className)}>
       <div
         className={cn(
-          "absolute inset-y-0 left-0 flex w-24 items-center gap-1.5 bg-emerald-600 px-3 text-sm font-medium text-white transition-opacity",
-          offsetX > 12 || queuedFlash ? "opacity-100" : "opacity-0",
+          "absolute inset-y-0 left-0 flex w-24 items-center gap-1.5 bg-rose-600 px-3 text-sm font-medium text-white transition-opacity",
+          offsetX > 12 || likedFlash ? "opacity-100" : "opacity-0",
         )}
         aria-hidden
       >
-        <PlusIcon className="h-4 w-4" />
-        {queuedFlash ? "Added" : "Queue"}
+        {likedFlash ? (
+          <HeartFilledIcon className="h-4 w-4" />
+        ) : (
+          <HeartIcon className="h-4 w-4" />
+        )}
+        {likedFlash ? "Liked" : "Like"}
       </div>
       <div
         className="relative bg-zinc-950"
@@ -91,7 +95,7 @@ export function SwipeableTrackRow({
         {...bind()}
         role="button"
         tabIndex={0}
-        aria-label="Play track. Swipe right to add to queue."
+        aria-label="Play track. Swipe right to like."
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
@@ -101,6 +105,6 @@ export function SwipeableTrackRow({
       >
         {children}
       </div>
-    </li>
+    </div>
   );
 }

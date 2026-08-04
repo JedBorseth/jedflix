@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { HeartFilledIcon, StackIcon } from "@radix-ui/react-icons";
 import { useSyncExternalStore } from "react";
 import { AlbumCard } from "@/components/browse/AlbumCard";
 import { ArtistCard } from "@/components/browse/ArtistCard";
@@ -61,6 +62,27 @@ export function MusicPage() {
         {recentTracks.length > 0 ? (
           <RecentlyPlayedMusicGrid tracks={recentTracks} />
         ) : null}
+
+        <section className="grid grid-cols-2 gap-2 px-4 md:gap-3 md:px-12">
+          <AppLink
+            to="/music/liked"
+            className="flex min-h-14 items-center gap-3 rounded-md bg-gradient-to-br from-rose-700/80 to-zinc-900 px-3 py-3 transition-colors hover:from-rose-600/80 hover:to-zinc-800"
+          >
+            <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded bg-rose-500/30">
+              <HeartFilledIcon className="h-5 w-5 text-rose-200" />
+            </span>
+            <span className="truncate text-sm font-semibold text-white">Liked Songs</span>
+          </AppLink>
+          <AppLink
+            to="/music/library"
+            className="flex min-h-14 items-center gap-3 rounded-md bg-gradient-to-br from-teal-800/90 to-zinc-900 px-3 py-3 transition-colors hover:from-teal-700/90 hover:to-zinc-800"
+          >
+            <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded bg-teal-500/30">
+              <StackIcon className="h-5 w-5 text-teal-200" />
+            </span>
+            <span className="truncate text-sm font-semibold text-white">My Library</span>
+          </AppLink>
+        </section>
 
         {error ? (
           <div className="px-4 md:px-12">

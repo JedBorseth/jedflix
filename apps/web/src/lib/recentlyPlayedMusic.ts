@@ -1,5 +1,6 @@
 const STORAGE_KEY = "jedflix.music.recentlyPlayed";
-const MAX_RECENT = 12;
+/** 4 rows × 2 columns on the music home grid. */
+const MAX_RECENT = 8;
 const RECENT_EVENT = "jedflix-music-recent";
 
 export type RecentMusicTrack = {

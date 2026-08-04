@@ -12,8 +12,8 @@ describe("recentlyPlayedMusic", () => {
     resetRecentlyPlayedMusicCacheForTests();
   });
 
-  test("records unique tracks newest first and caps at 12", () => {
-    for (let i = 0; i < 15; i++) {
+  test("records unique tracks newest first and caps at 8", () => {
+    for (let i = 0; i < 12; i++) {
       recordRecentlyPlayedMusic({
         id: `id-${i}`,
         title: `Song ${i}`,
@@ -24,9 +24,9 @@ describe("recentlyPlayedMusic", () => {
       });
     }
     const list = loadRecentlyPlayedMusic();
-    expect(list).toHaveLength(12);
-    expect(list[0]?.id).toBe("id-14");
-    expect(list[11]?.id).toBe("id-3");
+    expect(list).toHaveLength(8);
+    expect(list[0]?.id).toBe("id-11");
+    expect(list[7]?.id).toBe("id-4");
   });
 
   test("moves replayed track to the front", () => {

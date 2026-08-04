@@ -9,6 +9,7 @@ import { useMusicPlayer } from "@/components/player/music/MusicPlayerContext";
 import { SwipeableTrackRow } from "@/components/player/music/SwipeableTrackRow";
 import { Button } from "@/components/ui/button";
 import { DetailPageSkeleton } from "@/components/ui/skeleton";
+import { useLikeTrack } from "@/hooks/useLikeTrack";
 import {
   formatTrackDuration,
   getArtistDetails,
@@ -21,6 +22,7 @@ import { cn } from "@/lib/utils";
 export function MusicArtistPage() {
   const { artistId } = useParams<{ artistId: string }>();
   const musicPlayer = useMusicPlayer();
+  const likeTrack = useLikeTrack();
   const normalizedId = normalizeSpotifyId(artistId ?? null);
 
   const artistQuery = useQuery({
@@ -120,7 +122,7 @@ export function MusicArtistPage() {
         {topTracks.length > 0 ? (
           <section className="mb-10 -mx-4 md:-mx-12">
             <h2 className="mb-4 px-4 text-xl font-semibold md:px-12">Popular</h2>
-            <ol className="divide-y divide-zinc-900">
+            <div className="divide-y divide-zinc-900">
               {topTracks.map((track, index) => {
                 const isActive = activeTrackId === track.id;
                 const queueTrack = topTrackToQueueTrack(track);
@@ -128,7 +130,7 @@ export function MusicArtistPage() {
                   <SwipeableTrackRow
                     key={track.id || `${track.name}-${index}`}
                     onPlay={() => playTopFrom(index)}
-                    onAddToQueue={() => musicPlayer.addToQueue(queueTrack)}
+                    onLike={() => void likeTrack(queueTrack)}
                   >
                     <div
                       className={cn(
@@ -164,7 +166,7 @@ export function MusicArtistPage() {
                   </SwipeableTrackRow>
                 );
               })}
-            </ol>
+            </div>
           </section>
         ) : null}
 

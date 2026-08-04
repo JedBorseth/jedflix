@@ -8,6 +8,7 @@ import { useMusicPlayer } from "@/components/player/music/MusicPlayerContext";
 import { SwipeableTrackRow } from "@/components/player/music/SwipeableTrackRow";
 import { Button } from "@/components/ui/button";
 import { DetailPageSkeleton } from "@/components/ui/skeleton";
+import { useLikeTrack } from "@/hooks/useLikeTrack";
 import type { AlbumItem } from "@/lib/spotify";
 import {
   formatTrackDuration,
@@ -27,6 +28,7 @@ export function AlbumDetailPage() {
   const { albumId } = useParams<{ albumId: string }>();
   const location = useLocation();
   const musicPlayer = useMusicPlayer();
+  const likeTrack = useLikeTrack();
   const normalizedId = normalizeSpotifyId(albumId ?? null);
   const preview =
     (location.state as LocationState | null)?.preview &&
@@ -168,7 +170,7 @@ export function AlbumDetailPage() {
 
       {tracks.length > 0 && album ? (
         <section className="mx-auto max-w-6xl pb-8">
-          <ol className="divide-y divide-zinc-900">
+          <div className="divide-y divide-zinc-900">
             {tracks.map((track, index) => {
               const isActive = activeTrackId === track.id;
               const queueTrack = {
@@ -190,7 +192,7 @@ export function AlbumDetailPage() {
                 <SwipeableTrackRow
                   key={track.id || `${track.discNumber}-${track.trackNumber}-${track.name}`}
                   onPlay={() => playFrom(index)}
-                  onAddToQueue={() => musicPlayer.addToQueue(queueTrack)}
+                  onLike={() => void likeTrack(queueTrack)}
                 >
                   <div
                     className={cn(
@@ -223,7 +225,7 @@ export function AlbumDetailPage() {
                 </SwipeableTrackRow>
               );
             })}
-          </ol>
+          </div>
         </section>
       ) : null}
 

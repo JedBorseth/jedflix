@@ -13,7 +13,10 @@ import { ComingSoonPage } from "@/pages/ComingSoonPage";
 import { FeaturesComingSoonPage } from "@/pages/FeaturesComingSoonPage";
 import { MovieDetailPage } from "@/pages/MovieDetailPage";
 import { MusicArtistPage } from "@/pages/MusicArtistPage";
+import { MusicLibraryPage } from "@/pages/MusicLibraryPage";
 import { MusicPage } from "@/pages/MusicPage";
+import { LikedSongsPage } from "@/pages/LikedSongsPage";
+import { PlaylistDetailPage } from "@/pages/PlaylistDetailPage";
 import { MyListPage } from "@/pages/MyListPage";
 import { OnboardingPage } from "@/pages/OnboardingPage";
 import { SignInForm } from "@/components/auth/SignInForm";
@@ -74,6 +77,21 @@ const router = createBrowserRouter([
       { path: "/shows", element: <BrowsePage mediaType="tv" /> },
       { path: "/audiobooks", element: <AudiobooksPage /> },
       { path: "/music", element: <MusicPage />, errorElement: <RouteErrorPage /> },
+      {
+        path: "/music/liked",
+        element: <LikedSongsPage />,
+        errorElement: <RouteErrorPage />,
+      },
+      {
+        path: "/music/library",
+        element: <MusicLibraryPage />,
+        errorElement: <RouteErrorPage />,
+      },
+      {
+        path: "/music/playlist/:playlistId",
+        element: <PlaylistDetailPage />,
+        errorElement: <RouteErrorPage />,
+      },
       {
         path: "/coming-soon",
         element: <FeaturesComingSoonPage />,
