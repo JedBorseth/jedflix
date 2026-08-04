@@ -18,7 +18,7 @@ export function ArtistCard({ artist }: ArtistCardProps) {
   return (
     <AppLink
       to={getArtistPath(artist.id)}
-      className="group block w-36 shrink-0 snap-start md:w-44"
+      className="group block w-36 shrink-0 snap-start md:w-40 lg:w-44 xl:w-48"
       data-testid="artist-card"
     >
       <div className="overflow-hidden rounded-full transition duration-300 group-hover:scale-105 group-hover:shadow-xl group-hover:shadow-black/50">
@@ -29,11 +29,11 @@ export function ArtistCard({ artist }: ArtistCardProps) {
           loading="lazy"
         />
       </div>
-      <p className="mt-2 truncate text-center text-sm font-medium text-zinc-200 group-hover:text-white">
+      <p className="mt-2 truncate text-center text-sm font-medium text-zinc-200 group-hover:text-white md:mt-2.5 md:text-[15px]">
         {artist.name}
       </p>
       {subtitle ? (
-        <p className="truncate text-center text-xs capitalize text-zinc-500 group-hover:text-zinc-400">
+        <p className="truncate text-center text-xs capitalize text-zinc-500 group-hover:text-zinc-400 md:text-sm">
           {subtitle}
         </p>
       ) : null}
