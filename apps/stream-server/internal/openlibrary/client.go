@@ -3,8 +3,10 @@ package openlibrary
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -25,6 +27,7 @@ const (
 	defaultUserAgent       = "JedFlix/1.0 (https://github.com/JedBorseth/jedflix)"
 	defaultLimit           = 24
 	minRequestGap          = 350 * time.Millisecond
+	jsonMaxAttempts        = 3
 	searchFields           = "key,title,author_name,author_key,first_publish_year,cover_i,subject,number_of_pages_median"
 	maxDetailCacheSize     = 500
 	maxAuthorCacheSize     = 200
@@ -49,6 +52,7 @@ type Client struct {
 	catalogMu     sync.RWMutex
 	catalog       *BrowseResponse
 	refreshing    bool
+	refreshWait   chan struct{} // closed when the in-flight refresh finishes
 	refreshErr    error
 	detailCache   sync.Map // workID -> cachedBook
 	authorCache   sync.Map // authorID -> cachedAuthor
@@ -123,33 +127,73 @@ func (c *Client) refreshLoop(ctx context.Context) {
 func (c *Client) Refresh(ctx context.Context) error {
 	c.catalogMu.Lock()
 	if c.refreshing {
+		wait := c.refreshWait
 		c.catalogMu.Unlock()
-		return nil
+		if wait == nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-wait:
+			return nil
+		}
 	}
+	done := make(chan struct{})
 	c.refreshing = true
+	c.refreshWait = done
 	c.catalogMu.Unlock()
 
 	defer func() {
 		c.catalogMu.Lock()
 		c.refreshing = false
+		close(done)
+		c.refreshWait = nil
 		c.catalogMu.Unlock()
 	}()
 
-	trending, err := c.fetchTrending(ctx, defaultLimit)
-	if err != nil {
-		c.catalogMu.Lock()
-		c.refreshErr = err
-		c.catalogMu.Unlock()
-		return err
+	return c.refreshCatalog(ctx)
+}
+
+// refreshCatalog fetches trending + subjects and merges into the in-memory catalog.
+// Failed subjects keep their previous rows instead of wiping a warm cache during OL outages.
+func (c *Client) refreshCatalog(ctx context.Context) error {
+	c.catalogMu.RLock()
+	prev := c.catalog
+	c.catalogMu.RUnlock()
+
+	trending, trendingErr := c.fetchTrending(ctx, defaultLimit)
+	if trendingErr != nil {
+		log.Printf("openlibrary: trending refresh failed: %v", trendingErr)
+		if prev != nil && len(prev.Trending) > 0 {
+			trending = prev.Trending
+		}
+	}
+
+	prevBySubject := make(map[string]SubjectRow, len(c.subjects))
+	if prev != nil {
+		for _, row := range prev.Rows {
+			prevBySubject[row.Subject] = row
+		}
 	}
 
 	rows := make([]SubjectRow, 0, len(c.subjects))
+	fetchedBooks := make([]Book, 0, defaultLimit*(len(c.subjects)+1))
+	if trendingErr == nil {
+		fetchedBooks = append(fetchedBooks, trending...)
+	}
+	subjectFailures := 0
 	for _, subject := range c.subjects {
 		books, subjectErr := c.fetchSubject(ctx, subject.Subject, defaultLimit)
 		if subjectErr != nil {
-			// Keep partial catalog; skip failed subjects.
+			subjectFailures++
+			log.Printf("openlibrary: subject %q refresh failed: %v", subject.Subject, subjectErr)
+			if prevRow, ok := prevBySubject[subject.Subject]; ok {
+				rows = append(rows, prevRow)
+			}
 			continue
 		}
+		fetchedBooks = append(fetchedBooks, books...)
 		rows = append(rows, SubjectRow{
 			Title:   subject.Title,
 			Subject: subject.Subject,
@@ -157,10 +201,29 @@ func (c *Client) Refresh(ctx context.Context) error {
 		})
 	}
 
+	if len(trending) == 0 && len(rows) == 0 {
+		err := trendingErr
+		if err == nil {
+			err = fmt.Errorf("%w: catalog unavailable", ErrFetchFailed)
+		}
+		c.catalogMu.Lock()
+		c.refreshErr = err
+		c.catalogMu.Unlock()
+		return err
+	}
+
+	// Prefer previous CachedAt when this pass produced no fresh rows (all subjects
+	// failed and trending fell back), so clients can still see how stale data is.
+	cachedAt := c.now().UnixMilli()
+	freshPass := trendingErr == nil || subjectFailures < len(c.subjects)
+	if !freshPass && prev != nil && prev.CachedAt > 0 {
+		cachedAt = prev.CachedAt
+	}
+
 	catalog := &BrowseResponse{
 		Trending: trending,
 		Rows:     rows,
-		CachedAt: c.now().UnixMilli(),
+		CachedAt: cachedAt,
 	}
 
 	c.catalogMu.Lock()
@@ -168,18 +231,15 @@ func (c *Client) Refresh(ctx context.Context) error {
 	c.refreshErr = nil
 	c.catalogMu.Unlock()
 
-	warmBooks := append([]Book(nil), trending...)
-	for _, row := range rows {
-		warmBooks = append(warmBooks, row.Books...)
+	if len(fetchedBooks) > 0 {
+		c.WarmImagesAsync(ctx, fetchedBooks, nil)
 	}
-	c.WarmImagesAsync(ctx, warmBooks, nil)
 	return nil
 }
 
 func (c *Client) Browse(ctx context.Context) (*BrowseResponse, error) {
 	c.catalogMu.RLock()
 	catalog := c.catalog
-	refreshErr := c.refreshErr
 	c.catalogMu.RUnlock()
 
 	if catalog != nil {
@@ -188,14 +248,25 @@ func (c *Client) Browse(ctx context.Context) (*BrowseResponse, error) {
 	}
 
 	if err := c.Refresh(ctx); err != nil {
+		c.catalogMu.RLock()
+		catalog = c.catalog
+		refreshErr := c.refreshErr
+		c.catalogMu.RUnlock()
+		if catalog != nil {
+			copied := *catalog
+			return &copied, nil
+		}
+		if refreshErr != nil {
+			return nil, refreshErr
+		}
 		return nil, err
 	}
 
 	c.catalogMu.RLock()
 	defer c.catalogMu.RUnlock()
 	if c.catalog == nil {
-		if refreshErr != nil {
-			return nil, refreshErr
+		if c.refreshErr != nil {
+			return nil, c.refreshErr
 		}
 		return nil, fmt.Errorf("%w: catalog unavailable", ErrFetchFailed)
 	}
@@ -549,6 +620,49 @@ func (c *Client) fetchAuthorName(ctx context.Context, authorID string) (string, 
 }
 
 func (c *Client) getJSON(ctx context.Context, path string, query url.Values, dest any) error {
+	var lastErr error
+	for attempt := 1; attempt <= jsonMaxAttempts; attempt++ {
+		if attempt > 1 {
+			backoff := time.Duration(attempt-1) * 500 * time.Millisecond
+			timer := time.NewTimer(backoff)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return ctx.Err()
+			case <-timer.C:
+			}
+		}
+
+		lastErr = c.getJSONOnce(ctx, path, query, dest)
+		if lastErr == nil {
+			return nil
+		}
+		if !isTransientOpenLibraryError(lastErr) {
+			return lastErr
+		}
+		if attempt < jsonMaxAttempts {
+			log.Printf("openlibrary: retry %d/%d for %s: %v", attempt, jsonMaxAttempts, path, lastErr)
+		}
+	}
+	return lastErr
+}
+
+func isTransientOpenLibraryError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, ErrNotFound) || errors.Is(err, ErrBadRequest) {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	// Only retry explicit upstream transient HTTP statuses — not dial/timeouts,
+	// which would stretch catalog refresh for minutes during an OL outage.
+	return strings.Contains(err.Error(), "transient status")
+}
+
+func (c *Client) getJSONOnce(ctx context.Context, path string, query url.Values, dest any) error {
 	c.mu.Lock()
 	wait := minRequestGap - c.now().Sub(c.lastRequest)
 	if wait > 0 {
@@ -596,6 +710,8 @@ func (c *Client) getJSON(ctx context.Context, path string, query url.Values, des
 		return nil
 	case http.StatusNotFound:
 		return ErrNotFound
+	case http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return fmt.Errorf("%w: transient status %d", ErrFetchFailed, res.StatusCode)
 	default:
 		return fmt.Errorf("%w: unexpected status %d", ErrFetchFailed, res.StatusCode)
 	}
