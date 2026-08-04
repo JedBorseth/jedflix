@@ -96,41 +96,77 @@ type GenreConfig struct {
 
 // DefaultGenres drive the music home catalog. Each genre expands into
 // Popular Artists, Popular Albums, and Popular Singles rows.
+// Seeds are the primary shelf source when Related Artists is unavailable (Dev Mode).
 var DefaultGenres = []GenreConfig{
 	{
 		Key:   "pop",
 		Title: "Pop",
-		Seeds: []string{"Taylor Swift", "Dua Lipa", "Olivia Rodrigo", "Billie Eilish", "Ariana Grande"},
+		Seeds: []string{
+			"Taylor Swift", "Dua Lipa", "Olivia Rodrigo", "Billie Eilish", "Ariana Grande",
+			"Harry Styles", "Sabrina Carpenter", "Doja Cat", "Charlie Puth", "Shawn Mendes",
+			"Ed Sheeran", "Miley Cyrus", "Lady Gaga", "Katy Perry", "The Kid LAROI",
+			"Justin Bieber", "Rihanna", "Beyoncé",
+		},
 	},
 	{
 		Key:   "rock",
 		Title: "Rock",
-		Seeds: []string{"Foo Fighters", "Linkin Park", "Green Day", "Muse", "Arctic Monkeys"},
+		Seeds: []string{
+			"Foo Fighters", "Linkin Park", "Green Day", "Muse", "Arctic Monkeys",
+			"Imagine Dragons", "Red Hot Chili Peppers", "The Killers", "Queens of the Stone Age", "Nirvana",
+			"Radiohead", "Paramore", "Twenty One Pilots", "Metallica", "Pearl Jam",
+			"The Strokes", "My Chemical Romance", "Fall Out Boy",
+		},
 	},
 	{
 		Key:   "hipHop",
 		Title: "Hip-Hop",
-		Seeds: []string{"Drake", "Kendrick Lamar", "Travis Scott", "J. Cole", "Future"},
+		Seeds: []string{
+			"Drake", "Kendrick Lamar", "Travis Scott", "J. Cole", "Future",
+			"Lil Baby", "Megan Thee Stallion", "Cardi B", "Lil Uzi Vert", "Playboi Carti",
+			"Gunna", "Young Thug", "Don Toliver", "A$AP Rocky", "Tyler, The Creator",
+			"Childish Gambino", "JID", "Latto",
+		},
 	},
 	{
 		Key:   "rap",
 		Title: "Rap",
-		Seeds: []string{"Kanye West", "Nicki Minaj", "21 Savage", "Metro Boomin", "Tyler, The Creator"},
+		Seeds: []string{
+			"Kanye West", "Nicki Minaj", "21 Savage", "Metro Boomin", "Tyler, The Creator",
+			"Eminem", "Jay-Z", "Lil Wayne", "Nas", "Ice Spice",
+			"Offset", "Quavo", "Lil Durk", "Polo G", "NBA YoungBoy",
+			"Central Cee", "Dave", "Jack Harlow",
+		},
 	},
 	{
 		Key:   "electronic",
 		Title: "Electronic",
-		Seeds: []string{"David Guetta", "Calvin Harris", "Fred again..", "The Chainsmokers", "Skrillex"},
+		Seeds: []string{
+			"David Guetta", "Calvin Harris", "Fred again..", "The Chainsmokers", "Skrillex",
+			"Marshmello", "Martin Garrix", "Tiësto", "Disclosure", "Flume",
+			"ODESZA", "Kygo", "Avicii", "Deadmau5", "Diplo",
+			"Peggy Gou", "RÜFÜS DU SOL", "Porter Robinson",
+		},
 	},
 	{
 		Key:   "country",
 		Title: "Country",
-		Seeds: []string{"Morgan Wallen", "Luke Combs", "Chris Stapleton", "Zach Bryan", "Kacey Musgraves"},
+		Seeds: []string{
+			"Morgan Wallen", "Luke Combs", "Chris Stapleton", "Zach Bryan", "Kacey Musgraves",
+			"Luke Bryan", "Carrie Underwood", "Kane Brown", "Thomas Rhett", "Lainey Wilson",
+			"Bailey Zimmerman", "Jelly Roll", "Cody Johnson", "Megan Moroney", "Riley Green",
+			"Blake Shelton", "Eric Church", "Miranda Lambert",
+		},
 	},
 	{
 		Key:   "rnb",
 		Title: "R&B",
-		Seeds: []string{"The Weeknd", "SZA", "Frank Ocean", "Bruno Mars", "H.E.R."},
+		Seeds: []string{
+			"The Weeknd", "SZA", "Frank Ocean", "Bruno Mars", "H.E.R.",
+			"Summer Walker", "Jhené Aiko", "Brent Faiyaz", "Giveon", "Daniel Caesar",
+			"Victoria Monét", "Chloe Bailey", "Usher", "Alicia Keys", "Chris Brown",
+			"Khalid", "Miguel", "Tinashe",
+		},
 	},
 }
 

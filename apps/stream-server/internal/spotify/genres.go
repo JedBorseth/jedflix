@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	genreArtistLimit       = 20
+	genreArtistLimit       = 28
 	genreReleaseLimit      = 20
 	releasesPerArtist      = 4
 	releaseArtistScanLimit = 10 // how many top artists to pull albums/singles from
