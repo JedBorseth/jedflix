@@ -192,6 +192,7 @@ export function AlbumDetailPage() {
                 <SwipeableTrackRow
                   key={track.id || `${track.discNumber}-${track.trackNumber}-${track.name}`}
                   onPlay={() => playFrom(index)}
+                  onAddToQueue={() => musicPlayer.addToQueue(queueTrack)}
                   onLike={() => void likeTrack(queueTrack)}
                 >
                   <div

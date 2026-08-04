@@ -74,10 +74,10 @@ function LikedSongsList() {
   if (liked.length === 0) {
     return (
       <div className="mx-4 rounded-lg border border-zinc-800 bg-zinc-900/50 p-8 text-center md:mx-12">
-        <p className="mb-2 text-zinc-300">No liked songs yet.</p>
-        <p className="mb-4 text-sm text-zinc-500">
-          Swipe right on any song to add it here.
-        </p>
+          <p className="mb-2 text-zinc-300">No liked songs yet.</p>
+          <p className="mb-4 text-sm text-zinc-500">
+            Swipe left on any song to add it here.
+          </p>
         <Button asChild variant="outline" className="border-zinc-600">
           <Link to="/music">Browse music</Link>
         </Button>
@@ -112,6 +112,7 @@ function LikedSongsList() {
             <SwipeableTrackRow
               key={track._id}
               onPlay={() => musicPlayer.playTrack(queueTrack, queue)}
+              onAddToQueue={() => musicPlayer.addToQueue(queueTrack)}
               onLike={() => void likeTrack(queueTrack)}
             >
               <div

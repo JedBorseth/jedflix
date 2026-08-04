@@ -56,6 +56,7 @@ export function RecentlyPlayedMusicGrid({ tracks }: RecentlyPlayedMusicGridProps
               key={`${track.id}-${track.playedAt}`}
               className="rounded-md"
               onPlay={() => playRecent(track, index)}
+              onAddToQueue={() => musicPlayer.addToQueue(queueTrack)}
               onLike={() => void likeTrack(queueTrack)}
             >
               <div

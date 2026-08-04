@@ -130,6 +130,7 @@ export function MusicArtistPage() {
                   <SwipeableTrackRow
                     key={track.id || `${track.name}-${index}`}
                     onPlay={() => playTopFrom(index)}
+                    onAddToQueue={() => musicPlayer.addToQueue(queueTrack)}
                     onLike={() => void likeTrack(queueTrack)}
                   >
                     <div

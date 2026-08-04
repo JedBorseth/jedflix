@@ -170,6 +170,7 @@ function PlaylistDetail({ playlistId }: { playlistId: Id<"playlists"> }) {
               <SwipeableTrackRow
                 key={track._id}
                 onPlay={() => musicPlayer.playTrack(queueTrack, queue)}
+                onAddToQueue={() => musicPlayer.addToQueue(queueTrack)}
                 onLike={() => void likeTrack(queueTrack)}
               >
                 <div
