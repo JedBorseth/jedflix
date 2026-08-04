@@ -11,6 +11,9 @@ export {
   getPersonPath,
   getWatchPath,
   mediaRows,
+  buildHomeCatalogRows,
+  buildMediaCatalogRows,
+  streamingProviderRows,
 } from "@jedflix/tmdb";
 
-export type { SearchResults, TvEpisode, TvSeasonSummary } from "@jedflix/tmdb";
+export type { CatalogRow, SearchResults, TvEpisode, TvSeasonSummary } from "@jedflix/tmdb";

@@ -9,12 +9,21 @@ type MovieRowProps = {
   title: string;
   mediaType: MediaType;
   genreId?: number;
+  watchProviderId?: number;
 };
 
-export function MovieRow({ title, mediaType, genreId }: MovieRowProps) {
+export function MovieRow({
+  title,
+  mediaType,
+  genreId,
+  watchProviderId,
+}: MovieRowProps) {
   const moviesQuery = useQuery({
-    queryKey: catalogQueryKeys.tmdb.discover(mediaType, genreId),
-    queryFn: () => discoverMedia(mediaType, { genreId }),
+    queryKey: catalogQueryKeys.tmdb.discover(mediaType, {
+      genreId,
+      watchProviderId,
+    }),
+    queryFn: () => discoverMedia(mediaType, { genreId, watchProviderId }),
   });
 
   const movies = moviesQuery.data;

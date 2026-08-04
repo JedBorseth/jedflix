@@ -116,6 +116,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const prefetchedIdsRef = useRef<Set<string>>(new Set());
   /** Trusted catalog duration (seconds). Prefer over flaky stream metadata. */
   const catalogDurationSecRef = useRef(0);
+  /** Prevents double-advance when catalog end and stream `ended` both fire. */
+  const catalogEndedRef = useRef(false);
   const [queue, setQueue] = useState<MusicQueueTrack[]>([]);
   const [queueIndex, setQueueIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -202,6 +204,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       setCurrentTime(0);
       const catalogSec = track.durationMs > 0 ? track.durationMs / 1000 : 0;
       catalogDurationSecRef.current = catalogSec;
+      catalogEndedRef.current = false;
       setDuration(catalogSec);
       // Assigning src selects the resource. Avoid audio.load() here — it aborts a
       // play() started in the same Media Session turn on iOS and can leave the
@@ -382,6 +385,24 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     loadAndPlay(track, { immediatePlay: true });
   }, [loadAndPlay, queue, queueIndex]);
 
+  /** Advance on catalog end (Spotify length) or real stream EOF — YouTube often outlasts the song. */
+  const handleTrackEnded = useCallback(() => {
+    if (catalogEndedRef.current) {
+      return;
+    }
+    catalogEndedRef.current = true;
+    if (queueIndex < queue.length - 1) {
+      next();
+      return;
+    }
+    playIntentRef.current = false;
+    setPlaying(false);
+    const audio = audioRef.current;
+    if (audio && !audio.paused) {
+      audio.pause();
+    }
+  }, [next, queue.length, queueIndex]);
+
   const previous = useCallback(() => {
     const audio = audioRef.current;
     if (audio && audio.currentTime > 3) {
@@ -430,6 +451,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       audio.load();
     }
     prefetchedIdsRef.current = new Set();
+    catalogDurationSecRef.current = 0;
+    catalogEndedRef.current = false;
     setQueue([]);
     setQueueIndex(0);
     setPlaying(false);
@@ -438,7 +461,6 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     setQueueOpen(false);
     setCurrentTime(0);
     setDuration(0);
-    catalogDurationSecRef.current = 0;
     setError(null);
   }, []);
 
@@ -577,7 +599,19 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
             startPlayback(audio, loadGenerationRef.current);
           }
         }}
-        onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+        onTimeUpdate={(event) => {
+          const time = event.currentTarget.currentTime;
+          const catalogSec = catalogDurationSecRef.current;
+          if (catalogSec > 0) {
+            setCurrentTime(Math.min(time, catalogSec));
+            // YouTube streams often continue past the real song; advance at catalog end.
+            if (time >= catalogSec - 0.25) {
+              handleTrackEnded();
+            }
+            return;
+          }
+          setCurrentTime(time);
+        }}
         onLoadedMetadata={(event) => {
           const audio = event.currentTarget;
           const streamSec = audio.duration;
@@ -618,12 +652,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           });
         }}
         onEnded={() => {
-          if (queueIndex < queue.length - 1) {
-            next();
-            return;
-          }
-          playIntentRef.current = false;
-          setPlaying(false);
+          handleTrackEnded();
         }}
       />
     </MusicPlayerContext.Provider>

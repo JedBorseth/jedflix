@@ -26,8 +26,17 @@ export const catalogQueryKeys = {
   tmdb: {
     all: ["tmdb"] as const,
     trending: () => ["tmdb", "trending"] as const,
-    discover: (mediaType: string, genreId?: number) =>
-      ["tmdb", "discover", mediaType, genreId ?? null] as const,
+    discover: (
+      mediaType: string,
+      options: { genreId?: number; watchProviderId?: number } = {},
+    ) =>
+      [
+        "tmdb",
+        "discover",
+        mediaType,
+        options.genreId ?? null,
+        options.watchProviderId ?? null,
+      ] as const,
     details: (mediaType: string, id: number) =>
       ["tmdb", "details", mediaType, id] as const,
     detailsByIds: (ids: Array<{ mediaType: string; movieId: number }>) =>

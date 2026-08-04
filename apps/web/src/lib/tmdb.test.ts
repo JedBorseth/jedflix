@@ -390,6 +390,77 @@ describe("tmdb", () => {
     expect(String(globalThis.fetch.mock.calls[0]?.[0])).toContain("/discover/tv");
   });
 
+  test("discoverMedia filters by watch provider and region", async () => {
+    globalThis.fetch = mockFetch({
+      results: [
+        {
+          id: 8,
+          title: "Netflix Hit",
+          overview: "Overview",
+          poster_path: "/n.jpg",
+          backdrop_path: "/nb.jpg",
+          release_date: "2024-02-01",
+          vote_average: 7.8,
+        },
+      ],
+    });
+
+    const results = await discoverMedia("movie", { watchProviderId: 8 });
+
+    expect(results).toHaveLength(1);
+    expect(results[0]?.title).toBe("Netflix Hit");
+    const url = String(globalThis.fetch.mock.calls[0]?.[0]);
+    expect(url).toContain("/discover/movie");
+    expect(url).toContain("with_watch_providers=8");
+    expect(url).toContain("watch_region=CA");
+    expect(url).toContain("with_watch_monetization_types=flatrate");
+    expect(url).toContain("sort_by=popularity.desc");
+  });
+
+  test("buildHomeCatalogRows pins streaming shelves around Popular Movies", async () => {
+    const { buildHomeCatalogRows, WATCH_PROVIDER_IDS } = await import("@jedflix/tmdb");
+    const rows = buildHomeCatalogRows();
+    const titles = rows.map((row) => row.title);
+
+    expect(titles.slice(0, 5)).toEqual([
+      "Netflix",
+      "Disney+",
+      "Popular Movies",
+      "Crave",
+      "Apple TV+",
+    ]);
+    expect(rows[0]?.watchProviderId).toBe(WATCH_PROVIDER_IDS.netflix);
+    expect(rows[1]?.watchProviderId).toBe(WATCH_PROVIDER_IDS.disneyPlus);
+    expect(rows[2]?.genreId).toBeUndefined();
+    expect(rows[3]?.watchProviderId).toBe(WATCH_PROVIDER_IDS.crave);
+    expect(rows[4]?.watchProviderId).toBe(WATCH_PROVIDER_IDS.appleTvPlus);
+    expect(titles).toContain("Action Movies");
+    expect(titles).toContain("Popular Shows");
+  });
+
+  test("buildMediaCatalogRows adds providers on movies and shows pages", async () => {
+    const { buildMediaCatalogRows } = await import("@jedflix/tmdb");
+    const movieTitles = buildMediaCatalogRows("movie").map((row) => row.title);
+    const tvTitles = buildMediaCatalogRows("tv").map((row) => row.title);
+
+    expect(movieTitles.slice(0, 5)).toEqual([
+      "Netflix",
+      "Disney+",
+      "Popular Movies",
+      "Crave",
+      "Apple TV+",
+    ]);
+    expect(tvTitles.slice(0, 5)).toEqual([
+      "Netflix",
+      "Disney+",
+      "Popular Shows",
+      "Crave",
+      "Apple TV+",
+    ]);
+    expect(movieTitles).toContain("Horror Movies");
+    expect(tvTitles).toContain("Reality Shows");
+  });
+
   test("getMediaDetails includes runtime and genres", async () => {
     globalThis.fetch = mockFetch({
       id: 5,

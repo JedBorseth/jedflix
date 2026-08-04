@@ -212,6 +212,115 @@ export const mediaRows = {
 /** How many movie/TV genre rows to surface on the mixed home browse page. */
 export const HOME_ROW_LIMIT = 5;
 
+/** TMDB JustWatch provider IDs for flatrate streaming shelves. */
+export const WATCH_PROVIDER_IDS = {
+  netflix: 8,
+  disneyPlus: 337,
+  crave: 230,
+  appleTvPlus: 350,
+} as const;
+
+/** Region for `with_watch_providers` (Crave is Canada-only). */
+export const DEFAULT_WATCH_REGION = "CA";
+
+/** Streaming platform shelves sorted by popularity via TMDB discover. */
+export const streamingProviderRows = [
+  { title: "Netflix", watchProviderId: WATCH_PROVIDER_IDS.netflix },
+  { title: "Disney+", watchProviderId: WATCH_PROVIDER_IDS.disneyPlus },
+  { title: "Crave", watchProviderId: WATCH_PROVIDER_IDS.crave },
+  { title: "Apple TV+", watchProviderId: WATCH_PROVIDER_IDS.appleTvPlus },
+] as const;
+
+export type CatalogRow = {
+  title: string;
+  type: MediaType;
+  genreId?: number;
+  watchProviderId?: number;
+};
+
+/**
+ * Movies/Shows page order: Netflix → Disney+ → Popular → Crave → Apple TV+ → remaining genres.
+ */
+export function buildMediaCatalogRows(
+  mediaType: Extract<MediaType, "movie" | "tv">,
+): CatalogRow[] {
+  const rows = mediaRows[mediaType];
+  const popular = rows[0];
+  const rest = rows.slice(1);
+  const [netflix, disney, crave, apple] = streamingProviderRows;
+  if (!popular || !netflix || !disney || !crave || !apple) {
+    return rows.map((row) => ({
+      title: row.title,
+      type: mediaType,
+      genreId: row.genreId,
+    }));
+  }
+  return [
+    { title: netflix.title, type: mediaType, watchProviderId: netflix.watchProviderId },
+    { title: disney.title, type: mediaType, watchProviderId: disney.watchProviderId },
+    { title: popular.title, type: mediaType, genreId: popular.genreId },
+    { title: crave.title, type: mediaType, watchProviderId: crave.watchProviderId },
+    { title: apple.title, type: mediaType, watchProviderId: apple.watchProviderId },
+    ...rest.map((row) => ({
+      title: row.title,
+      type: mediaType,
+      genreId: row.genreId,
+    })),
+  ];
+}
+
+/**
+ * Home catalog shelves after Continue Watching / Letterboxd:
+ * Netflix → Disney+ → Popular Movies → Crave → Apple TV+ → remaining movie genres → TV rows.
+ */
+export function buildHomeCatalogRows(): CatalogRow[] {
+  const popularMovies = mediaRows.movie[0];
+  const restMovies = mediaRows.movie.slice(1);
+  const [netflix, disney, crave, apple] = streamingProviderRows;
+  if (!popularMovies || !netflix || !disney || !crave || !apple) {
+    return [
+      ...mediaRows.movie.slice(0, HOME_ROW_LIMIT).map((row) => ({
+        title: row.title,
+        type: "movie" as const,
+        genreId: row.genreId,
+      })),
+      ...mediaRows.tv.slice(0, HOME_ROW_LIMIT).map((row) => ({
+        title: row.title,
+        type: "tv" as const,
+        genreId: row.genreId,
+      })),
+    ];
+  }
+  return [
+    { title: netflix.title, type: "movie", watchProviderId: netflix.watchProviderId },
+    { title: disney.title, type: "movie", watchProviderId: disney.watchProviderId },
+    {
+      title: popularMovies.title,
+      type: "movie",
+      genreId: popularMovies.genreId,
+    },
+    { title: crave.title, type: "movie", watchProviderId: crave.watchProviderId },
+    { title: apple.title, type: "movie", watchProviderId: apple.watchProviderId },
+    ...restMovies.slice(0, HOME_ROW_LIMIT - 1).map((row) => ({
+      title: row.title,
+      type: "movie" as const,
+      genreId: row.genreId,
+    })),
+    ...mediaRows.tv.slice(0, HOME_ROW_LIMIT).map((row) => ({
+      title: row.title,
+      type: "tv" as const,
+      genreId: row.genreId,
+    })),
+  ];
+}
+
+export type DiscoverMediaOptions = {
+  genreId?: number;
+  watchProviderId?: number;
+  watchRegion?: string;
+  query?: string;
+};
+
 function normalizeListResponse(
   data: TmdbListResponse<TmdbListItem>,
   fallbackMediaType?: MediaType,
@@ -223,14 +332,22 @@ function normalizeListResponse(
 
 const TRENDING_PATH = "/trending/all/week";
 
-function discoverFetchOptions(genreId?: number): FetchOptions {
-  return {
+function discoverFetchOptions(options: DiscoverMediaOptions = {}): FetchOptions {
+  const params: FetchOptions = {
     include_adult: false,
     language: "en-US",
     page: 1,
     sort_by: "popularity.desc",
-    with_genres: genreId,
   };
+  if (options.genreId !== undefined) {
+    params.with_genres = options.genreId;
+  }
+  if (options.watchProviderId !== undefined) {
+    params.with_watch_providers = options.watchProviderId;
+    params.watch_region = options.watchRegion ?? DEFAULT_WATCH_REGION;
+    params.with_watch_monetization_types = "flatrate";
+  }
+  return params;
 }
 
 /** Sync read of cached trending titles for this session (no network). */
@@ -242,11 +359,11 @@ export function peekTrendingMedia(): MediaItem[] | undefined {
 /** Sync read of cached discover titles for this session (no network). */
 export function peekDiscoverMedia(
   mediaType: MediaType,
-  options: { genreId?: number } = {},
+  options: DiscoverMediaOptions = {},
 ): MediaItem[] | undefined {
   const data = peekTmdbSessionCache<TmdbListResponse<TmdbListItem>>(
     `/discover/${mediaType}`,
-    discoverFetchOptions(options.genreId),
+    discoverFetchOptions(options),
   );
   return data ? normalizeListResponse(data, mediaType) : undefined;
 }
@@ -258,7 +375,7 @@ export async function getTrendingMedia(): Promise<MediaItem[]> {
 
 export async function discoverMedia(
   mediaType: MediaType,
-  options: { genreId?: number; query?: string } = {},
+  options: DiscoverMediaOptions = {},
 ): Promise<MediaItem[]> {
   if (options.query) {
     return searchMedia(options.query, mediaType);
@@ -266,7 +383,7 @@ export async function discoverMedia(
 
   const data = await tmdbFetch<TmdbListResponse<TmdbListItem>>(
     `/discover/${mediaType}`,
-    discoverFetchOptions(options.genreId),
+    discoverFetchOptions(options),
   );
 
   return normalizeListResponse(data, mediaType);

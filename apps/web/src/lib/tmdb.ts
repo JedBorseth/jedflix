@@ -30,6 +30,19 @@ export {
   getWatchPath,
   HOME_ROW_LIMIT,
   mediaRows,
+  streamingProviderRows,
+  WATCH_PROVIDER_IDS,
+  DEFAULT_WATCH_REGION,
+  buildHomeCatalogRows,
+  buildMediaCatalogRows,
 } from "@jedflix/tmdb";
 
-export type { SearchResults, TvEpisode, TvSeasonSummary, TmdbClient, TmdbClientConfig } from "@jedflix/tmdb";
+export type {
+  CatalogRow,
+  DiscoverMediaOptions,
+  SearchResults,
+  TvEpisode,
+  TvSeasonSummary,
+  TmdbClient,
+  TmdbClientConfig,
+} from "@jedflix/tmdb";

@@ -12,7 +12,7 @@ import {
 } from "react-native";
 import type { MediaItem } from "@jedflix/shared";
 import { getMobileMediaPath } from "@/lib/paths";
-import { mediaRows, tmdb } from "@/lib/tmdb";
+import { buildHomeCatalogRows, tmdb } from "@/lib/tmdb";
 
 function PosterCard({ item }: { item: MediaItem }) {
   return (
@@ -56,22 +56,19 @@ export default function BrowseScreen() {
     async function load() {
       try {
         const trending = await tmdb.getTrendingMedia();
-        const movieRows = await Promise.all(
-          mediaRows.movie.map(async (row) => ({
+        const catalogRows = await Promise.all(
+          buildHomeCatalogRows().map(async (row) => ({
             title: row.title,
-            items: await tmdb.discoverMedia("movie", { genreId: row.genreId }),
-          })),
-        );
-        const tvRows = await Promise.all(
-          mediaRows.tv.map(async (row) => ({
-            title: row.title,
-            items: await tmdb.discoverMedia("tv", { genreId: row.genreId }),
+            items: await tmdb.discoverMedia(row.type, {
+              genreId: row.genreId,
+              watchProviderId: row.watchProviderId,
+            }),
           })),
         );
 
         if (!cancelled) {
           setHero(trending[0] ?? null);
-          setRows([...movieRows, ...tvRows]);
+          setRows(catalogRows);
           setError(null);
         }
       } catch (loadError) {
