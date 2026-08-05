@@ -5,10 +5,16 @@ import {
   type SpotifyArtistDetails,
   type SpotifyBrowseResponse,
   type SpotifyCatalogRow,
-  type SpotifySearchResponse,
   type SpotifyTopTrack,
   type SpotifyTrack,
 } from "@jedflix/stream-client";
+import {
+  mergeMusicSearchTracks,
+  spotifyTopTrackToSearchTrack,
+  youtubeHitToSearchTrack,
+  type MusicSearchResults,
+  type MusicSearchTrack,
+} from "@/lib/musicSearch";
 
 export type AlbumItem = SpotifyAlbum;
 export type AlbumDetails = SpotifyAlbum;
@@ -16,7 +22,7 @@ export type ArtistSummary = SpotifyArtist;
 export type ArtistDetails = SpotifyArtistDetails;
 export type MusicBrowseResponse = SpotifyBrowseResponse;
 export type MusicCatalogRow = SpotifyCatalogRow;
-export type MusicSearchResults = SpotifySearchResponse;
+export type { MusicSearchResults, MusicSearchTrack };
 export type TrackItem = SpotifyTrack;
 export type TopTrackItem = SpotifyTopTrack;
 
@@ -56,8 +62,24 @@ export async function getMusicBrowse(): Promise<MusicBrowseResponse> {
   return streamClient.fetchSpotifyBrowse();
 }
 
-export async function searchMusicAll(query: string): Promise<MusicSearchResults> {
-  return streamClient.searchSpotify(query);
+export async function searchMusicAll(
+  query: string,
+  options: { includeYoutube?: boolean } = {},
+): Promise<MusicSearchResults> {
+  const spotifyPromise = streamClient.searchSpotify(query);
+  const youtubePromise = options.includeYoutube
+    ? streamClient.searchYoutubeMusic(query).catch(() => ({ tracks: [] }))
+    : Promise.resolve({ tracks: [] });
+
+  const [spotify, youtube] = await Promise.all([spotifyPromise, youtubePromise]);
+  const spotifyTracks = (spotify.tracks ?? []).map(spotifyTopTrackToSearchTrack);
+  const youtubeTracks = (youtube.tracks ?? []).map(youtubeHitToSearchTrack);
+
+  return {
+    albums: spotify.albums ?? [],
+    artists: spotify.artists ?? [],
+    tracks: mergeMusicSearchTracks(spotifyTracks, youtubeTracks),
+  };
 }
 
 export async function getAlbumDetails(albumId: string): Promise<AlbumDetails> {
@@ -73,6 +95,7 @@ export function getYoutubeAudioUrl(params: {
   title: string;
   album?: string;
   durationMs?: number;
+  videoId?: string;
 }): string {
   return streamClient.getYoutubeAudioUrl(params);
 }

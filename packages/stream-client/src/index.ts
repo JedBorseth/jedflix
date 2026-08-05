@@ -26,5 +26,7 @@ export type {
   StreamResult,
   StreamSource,
   VideoSourcesRequest,
+  YoutubeMusicSearchResponse,
+  YoutubeMusicSearchTrack,
 } from "./client";
 export { createStreamClient, StreamResolveError } from "./client";

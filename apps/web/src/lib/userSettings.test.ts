@@ -39,11 +39,24 @@ describe("userSettings onboarding fields", () => {
       deviceType: "tv",
       contentTypes: ["movies_shows", "audiobooks", "music"],
       letterboxdUsername: "jed",
+      youtubeMusicSearch: undefined,
       virusWarningAccepted: true,
       ispWarningAccepted: false,
       onboardingCompleted: true,
       updatedAt: undefined,
     });
+  });
+
+  test("sanitizeSettings keeps youtubeMusicSearch toggle", () => {
+    expect(
+      sanitizeSettings({
+        youtubeMusicSearch: true,
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        youtubeMusicSearch: true,
+      }),
+    );
   });
 
   test("isOnboardingComplete requires flag and required fields", () => {

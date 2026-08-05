@@ -29,6 +29,8 @@ export type MusicQueueTrack = {
   albumId?: string;
   imageUrl: string;
   durationMs: number;
+  /** When set, audio resolve uses this YouTube video instead of searching. */
+  youtubeVideoId?: string;
 };
 
 type MusicPlayerContextValue = {
@@ -195,11 +197,15 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         imageUrl: track.imageUrl,
         durationMs: track.durationMs,
       });
+      const videoId =
+        track.youtubeVideoId ||
+        (track.id.startsWith("yt:") ? track.id.slice(3) : undefined);
       const src = getYoutubeAudioUrl({
         artist: artistLabel(track.artists),
         title: track.title,
         album: track.albumName,
         durationMs: track.durationMs > 0 ? track.durationMs : undefined,
+        videoId,
       });
       playIntentRef.current = true;
       setLoading(true);

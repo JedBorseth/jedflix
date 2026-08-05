@@ -43,6 +43,8 @@ export type UserSettings = {
   deviceType?: DeviceType;
   contentTypes?: ContentType[];
   letterboxdUsername?: string;
+  /** When true, music search also queries YouTube and merges song hits. */
+  youtubeMusicSearch?: boolean;
   virusWarningAccepted?: boolean;
   ispWarningAccepted?: boolean;
   onboardingCompleted?: boolean;
@@ -76,6 +78,7 @@ export function saveUserSettings(partial: Partial<UserSettings>): UserSettings {
   clearOptionalField(next, partial, "deviceType");
   clearOptionalField(next, partial, "contentTypes");
   clearOptionalField(next, partial, "letterboxdUsername");
+  clearOptionalField(next, partial, "youtubeMusicSearch");
   clearOptionalField(next, partial, "virusWarningAccepted");
   clearOptionalField(next, partial, "ispWarningAccepted");
   clearOptionalField(next, partial, "onboardingCompleted");
@@ -156,6 +159,8 @@ export function sanitizeSettings(settings: UserSettings & { streamMode?: unknown
     deviceType: isDeviceType(settings.deviceType) ? settings.deviceType : undefined,
     contentTypes: contentTypes && contentTypes.length > 0 ? contentTypes : undefined,
     letterboxdUsername: settings.letterboxdUsername?.trim() || undefined,
+    youtubeMusicSearch:
+      typeof settings.youtubeMusicSearch === "boolean" ? settings.youtubeMusicSearch : undefined,
     virusWarningAccepted:
       typeof settings.virusWarningAccepted === "boolean"
         ? settings.virusWarningAccepted

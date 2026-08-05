@@ -103,7 +103,7 @@ export function Navbar() {
     activeSearchMode === "books"
       ? "Search books or authors"
       : activeSearchMode === "music"
-        ? "Search albums or artists"
+        ? "Search songs, albums, or artists"
         : "Search movies, shows, or cast";
 
   function rememberSearchOrigin(path = `${location.pathname}${location.search}`) {

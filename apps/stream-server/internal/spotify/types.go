@@ -82,8 +82,9 @@ type BrowseResponse struct {
 }
 
 type SearchResponse struct {
-	Albums  []Album  `json:"albums"`
-	Artists []Artist `json:"artists"`
+	Albums  []Album    `json:"albums"`
+	Artists []Artist   `json:"artists"`
+	Tracks  []TopTrack `json:"tracks"`
 }
 
 // GenreConfig defines a curated genre shelf seeded by well-known artists.

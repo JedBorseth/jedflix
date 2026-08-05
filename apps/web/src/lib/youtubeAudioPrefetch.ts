@@ -6,6 +6,7 @@ export type PrefetchTrack = {
   artists: string[];
   albumName: string;
   durationMs: number;
+  youtubeVideoId?: string;
 };
 
 function artistLabel(artists: string[]): string {
@@ -13,11 +14,15 @@ function artistLabel(artists: string[]): string {
 }
 
 function trackUrl(track: PrefetchTrack): string {
+  const videoId =
+    track.youtubeVideoId ||
+    (track.id.startsWith("yt:") ? track.id.slice(3) : undefined);
   return getYoutubeAudioUrl({
     artist: artistLabel(track.artists),
     title: track.title,
     album: track.albumName,
     durationMs: track.durationMs > 0 ? track.durationMs : undefined,
+    videoId,
   });
 }
 

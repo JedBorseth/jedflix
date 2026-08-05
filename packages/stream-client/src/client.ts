@@ -211,6 +211,22 @@ export type SpotifyBrowseResponse = {
 export type SpotifySearchResponse = {
   albums: SpotifyAlbum[];
   artists: SpotifyArtist[];
+  tracks: SpotifyTopTrack[];
+};
+
+export type YoutubeMusicSearchTrack = {
+  id: string;
+  videoId: string;
+  name: string;
+  artists: string[];
+  albumName: string;
+  imageUrl: string;
+  durationMs: number;
+  source: "youtube";
+};
+
+export type YoutubeMusicSearchResponse = {
+  tracks: YoutubeMusicSearchTrack[];
 };
 
 export type StreamClientConfig = {
@@ -238,11 +254,13 @@ export type StreamClient = {
   searchSpotify: (query: string) => Promise<SpotifySearchResponse>;
   fetchSpotifyAlbum: (albumId: string) => Promise<SpotifyAlbum>;
   fetchSpotifyArtist: (artistId: string) => Promise<SpotifyArtistDetails>;
+  searchYoutubeMusic: (query: string) => Promise<YoutubeMusicSearchResponse>;
   getYoutubeAudioUrl: (params: {
     artist: string;
     title: string;
     album?: string;
     durationMs?: number;
+    videoId?: string;
   }) => string;
 };
 
@@ -567,6 +585,7 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
     return {
       albums: (payload.albums ?? []).map(normalizeSpotifyAlbum),
       artists: (payload.artists ?? []).map(normalizeSpotifyArtist),
+      tracks: (payload.tracks ?? []).map(normalizeSpotifyTopTrack),
     };
   }
 
@@ -600,16 +619,38 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
     };
   }
 
+  async function searchYoutubeMusic(query: string): Promise<YoutubeMusicSearchResponse> {
+    const params = new URLSearchParams({ q: query.trim() });
+    const response = await fetch(`${apiBase}/api/v1/youtube/search?${params.toString()}`, {
+      headers: headers(),
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(payload?.error ?? `YouTube music search failed (${response.status})`);
+    }
+    const payload = (await response.json()) as YoutubeMusicSearchResponse;
+    return {
+      tracks: (payload.tracks ?? []).map(normalizeYoutubeMusicTrack),
+    };
+  }
+
   function getYoutubeAudioUrl(params: {
     artist: string;
     title: string;
     album?: string;
     durationMs?: number;
+    videoId?: string;
   }): string {
-    const query = new URLSearchParams({
-      artist: params.artist.trim(),
-      title: params.title.trim(),
-    });
+    const query = new URLSearchParams();
+    if (params.videoId?.trim()) {
+      query.set("videoId", params.videoId.trim());
+    }
+    if (params.artist.trim()) {
+      query.set("artist", params.artist.trim());
+    }
+    if (params.title.trim()) {
+      query.set("title", params.title.trim());
+    }
     if (params.album?.trim()) {
       query.set("album", params.album.trim());
     }
@@ -638,6 +679,7 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
     searchSpotify,
     fetchSpotifyAlbum,
     fetchSpotifyArtist,
+    searchYoutubeMusic,
     getYoutubeAudioUrl,
   };
 }
@@ -736,6 +778,19 @@ function normalizeSpotifyTopTrack(track: SpotifyTopTrack): SpotifyTopTrack {
     albumId: track.albumId ?? "",
     albumName: track.albumName ?? "",
     imageUrl: track.imageUrl ?? "",
+  };
+}
+
+function normalizeYoutubeMusicTrack(track: YoutubeMusicSearchTrack): YoutubeMusicSearchTrack {
+  return {
+    id: track.id || (track.videoId ? `yt:${track.videoId}` : ""),
+    videoId: track.videoId ?? "",
+    name: track.name ?? "",
+    artists: track.artists ?? [],
+    albumName: track.albumName || "YouTube",
+    imageUrl: track.imageUrl ?? "",
+    durationMs: track.durationMs ?? 0,
+    source: "youtube",
   };
 }
 

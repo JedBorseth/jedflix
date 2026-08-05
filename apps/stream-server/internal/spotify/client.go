@@ -312,7 +312,7 @@ func (c *Client) Search(ctx context.Context, query string) (*SearchResponse, err
 
 	params := url.Values{}
 	params.Set("q", query)
-	params.Set("type", "album,artist")
+	params.Set("type", "album,artist,track")
 	params.Set("limit", strconv.Itoa(defaultLimit))
 
 	var payload searchResponsePayload
@@ -323,6 +323,7 @@ func (c *Client) Search(ctx context.Context, query string) (*SearchResponse, err
 	result := &SearchResponse{
 		Albums:  make([]Album, 0),
 		Artists: make([]Artist, 0),
+		Tracks:  make([]TopTrack, 0),
 	}
 	if payload.Albums != nil {
 		for _, item := range payload.Albums.Items {
@@ -337,6 +338,9 @@ func (c *Client) Search(ctx context.Context, query string) (*SearchResponse, err
 				result.Artists = append(result.Artists, artist)
 			}
 		}
+	}
+	if payload.Tracks != nil {
+		result.Tracks = mapTopTracks(payload.Tracks.Items)
 	}
 
 	sort.SliceStable(result.Albums, func(i, j int) bool {

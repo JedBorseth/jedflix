@@ -93,6 +93,7 @@ func (s *Server) Router() http.Handler {
 		r.Get("/spotify/search", s.handleSpotifySearch)
 		r.Get("/spotify/albums/{albumId}", s.handleSpotifyAlbum)
 		r.Get("/spotify/artists/{artistId}", s.handleSpotifyArtist)
+		r.Get("/youtube/search", s.handleYouTubeSearch)
 		r.Get("/youtube/audio", s.handleYouTubeAudio)
 		r.Head("/youtube/audio", s.handleYouTubeAudio)
 	})
@@ -424,18 +425,32 @@ func (s *Server) handleSpotifyArtist(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
+func (s *Server) handleYouTubeSearch(w http.ResponseWriter, r *http.Request) {
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	ctx, cancel := context.WithTimeout(r.Context(), youtube.ResolveTimeout)
+	defer cancel()
+
+	result, err := s.youtube.Search(ctx, query)
+	if err != nil {
+		writeYouTubeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 func (s *Server) handleYouTubeAudio(w http.ResponseWriter, r *http.Request) {
 	artist := strings.TrimSpace(r.URL.Query().Get("artist"))
 	title := strings.TrimSpace(r.URL.Query().Get("title"))
 	album := strings.TrimSpace(r.URL.Query().Get("album"))
+	videoID := strings.TrimSpace(r.URL.Query().Get("videoId"))
 	durationMs := 0
 	if raw := strings.TrimSpace(r.URL.Query().Get("durationMs")); raw != "" {
 		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
 			durationMs = parsed
 		}
 	}
-	if artist == "" || title == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "artist and title are required"})
+	if videoID == "" && (artist == "" || title == "") {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "artist and title are required (or videoId)"})
 		return
 	}
 
@@ -447,6 +462,7 @@ func (s *Server) handleYouTubeAudio(w http.ResponseWriter, r *http.Request) {
 		Title:      title,
 		Album:      album,
 		DurationMs: durationMs,
+		VideoID:    videoID,
 	})
 	if err != nil {
 		writeYouTubeError(w, err)

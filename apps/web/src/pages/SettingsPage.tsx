@@ -49,6 +49,7 @@ export function SettingsPage() {
     deviceType,
     contentTypes,
     letterboxdUsername,
+    youtubeMusicSearch,
     saveSettings,
     resetSettings,
     syncEnabled,
@@ -210,6 +211,34 @@ export function SettingsPage() {
                   </label>
                 );
               })}
+            </CardContent>
+          </Card>
+
+          <Card className="border-zinc-800 bg-zinc-900/60 text-white">
+            <CardHeader>
+              <CardTitle>Music search</CardTitle>
+              <CardDescription className="text-zinc-400">
+                Spotify is always searched for artists, albums, and songs. Enable YouTube to find
+                obscure tracks that are missing from Spotify.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <label className="flex cursor-pointer items-center gap-3 rounded-md border border-zinc-800 bg-zinc-950/50 px-3 py-3 text-sm">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-red-500"
+                  checked={youtubeMusicSearch}
+                  onChange={(event) => {
+                    saveSettings({ youtubeMusicSearch: event.target.checked });
+                  }}
+                />
+                <span>
+                  Include YouTube in music search
+                  <span className="mt-0.5 block text-xs text-zinc-500">
+                    Combines results and keeps the Spotify hit when the same song appears on both
+                  </span>
+                </span>
+              </label>
             </CardContent>
           </Card>
 

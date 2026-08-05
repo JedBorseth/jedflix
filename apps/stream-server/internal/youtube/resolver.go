@@ -49,6 +49,8 @@ type Request struct {
 	Title      string
 	Album      string
 	DurationMs int // Spotify track length; used to prefer audio over music videos
+	// VideoID skips ytsearch and extracts this YouTube video directly (catalog hits).
+	VideoID string
 }
 
 // StreamInfo is a resolved direct audio URL (ephemeral; not stored on disk).
@@ -99,11 +101,14 @@ func (r *Resolver) Resolve(ctx context.Context, req Request) (*StreamInfo, error
 	req.Artist = strings.TrimSpace(req.Artist)
 	req.Title = strings.TrimSpace(req.Title)
 	req.Album = strings.TrimSpace(req.Album)
-	if req.Title == "" {
-		return nil, fmt.Errorf("%w: title is required", ErrBadRequest)
-	}
-	if req.Artist == "" {
-		return nil, fmt.Errorf("%w: artist is required", ErrBadRequest)
+	req.VideoID = strings.TrimSpace(req.VideoID)
+	if req.VideoID == "" {
+		if req.Title == "" {
+			return nil, fmt.Errorf("%w: title is required", ErrBadRequest)
+		}
+		if req.Artist == "" {
+			return nil, fmt.Errorf("%w: artist is required", ErrBadRequest)
+		}
 	}
 
 	key := cacheKey(req)
@@ -115,13 +120,18 @@ func (r *Resolver) Resolve(ctx context.Context, req Request) (*StreamInfo, error
 		return nil, ErrYtdlpMissing
 	}
 
-	entries, err := r.search(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-	best := pickBestEntry(entries, req)
-	if best == nil {
-		return nil, ErrNotFound
+	var best *searchEntry
+	if req.VideoID != "" {
+		best = &searchEntry{ID: req.VideoID}
+	} else {
+		entries, err := r.search(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		best = pickBestEntry(entries, req)
+		if best == nil {
+			return nil, ErrNotFound
+		}
 	}
 
 	info, err := r.extractStream(ctx, best)
@@ -133,6 +143,9 @@ func (r *Resolver) Resolve(ctx context.Context, req Request) (*StreamInfo, error
 }
 
 func cacheKey(req Request) string {
+	if req.VideoID != "" {
+		return "vid\x00" + strings.ToLower(req.VideoID)
+	}
 	return strings.ToLower(req.Artist) + "\x00" +
 		strings.ToLower(req.Title) + "\x00" +
 		strings.ToLower(req.Album) + "\x00" +
