@@ -80,6 +80,7 @@ export function Navbar() {
   const location = useLocation();
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
+  const searchOriginRef = useRef("/");
   const isOnSearchPage = location.pathname.startsWith("/search");
   const [isSearchOpen, setIsSearchOpen] = useState(isOnSearchPage);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
@@ -104,6 +105,22 @@ export function Navbar() {
       : activeSearchMode === "music"
         ? "Search albums or artists"
         : "Search movies, shows, or cast";
+
+  function rememberSearchOrigin(path = `${location.pathname}${location.search}`) {
+    if (!path.startsWith("/search")) {
+      searchOriginRef.current = path || "/";
+    }
+  }
+
+  function defaultSearchOrigin(mode: SearchMode): string {
+    if (mode === "books") {
+      return "/audiobooks";
+    }
+    if (mode === "music") {
+      return "/music";
+    }
+    return "/";
+  }
 
   // Hydrate from the URL when a Did-you-mean chip (or back/forward) changes it.
   // While the input is focused, ignore stale debounce URL updates that are still
@@ -170,6 +187,10 @@ export function Navbar() {
         return;
       }
 
+      if (!onSearch) {
+        searchOriginRef.current = current || "/";
+      }
+
       const nextPath = buildSearchPath(trimmed, activeSearchMode);
       if (current === nextPath) {
         return;
@@ -181,6 +202,7 @@ export function Navbar() {
   }, [query, activeSearchMode, isSearchOpen, navigate]);
 
   function openSearch() {
+    rememberSearchOrigin();
     setIsSearchOpen(true);
     setIsSearchFocused(true);
     // Focus synchronously inside the tap handler so iOS opens the keyboard
@@ -198,8 +220,15 @@ export function Navbar() {
   function cancelSearch() {
     inputRef.current?.blur();
     setIsSearchFocused(false);
-    if (!isOnSearchPage && !query.trim()) {
-      setIsSearchOpen(false);
+    setIsSearchOpen(false);
+    setQuery("");
+
+    const origin = searchOriginRef.current.startsWith("/search")
+      ? defaultSearchOrigin(activeSearchMode)
+      : searchOriginRef.current || defaultSearchOrigin(activeSearchMode);
+
+    if (isOnSearchPage) {
+      void navigate(origin);
     }
   }
 
@@ -317,11 +346,13 @@ export function Navbar() {
                 spellCheck={false}
                 enterKeyHint="search"
                 onChange={(event) => {
+                  rememberSearchOrigin();
                   setIsSearchOpen(true);
                   setIsSearchFocused(true);
                   setQuery(event.target.value);
                 }}
                 onFocus={() => {
+                  rememberSearchOrigin();
                   setIsSearchOpen(true);
                   setIsSearchFocused(true);
                 }}
