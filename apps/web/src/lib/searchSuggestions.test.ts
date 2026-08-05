@@ -31,6 +31,16 @@ describe("searchSuggestions", () => {
     expect(suggestions[0]?.label).toBe("Inception");
   });
 
+  test("buildSpellSuggestions ranks close title corrections for office typo", () => {
+    const suggestions = buildSpellSuggestions("the offive", [
+      "The Office",
+      "The Office UK",
+      "The Offer",
+    ]);
+    expect(suggestions.map((entry) => entry.label)).toContain("The Office");
+    expect(suggestions[0]?.query).toBe(suggestions[0]?.label);
+  });
+
   test("buildSpellSuggestions stays quiet when query already matches", () => {
     expect(
       buildSpellSuggestions("inception", ["Inception", "Interstellar"]),

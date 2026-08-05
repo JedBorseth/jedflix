@@ -14,7 +14,7 @@ import type { MediaItem } from "@jedflix/shared";
 import { getMobileMediaPath } from "@/lib/paths";
 import { tmdb } from "@/lib/tmdb";
 
-const SEARCH_DEBOUNCE_MS = 1500;
+const SEARCH_DEBOUNCE_MS = 500;
 
 export default function SearchScreen() {
   const [query, setQuery] = useState("");

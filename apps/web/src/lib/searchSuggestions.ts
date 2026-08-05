@@ -74,9 +74,10 @@ function isStrongMatch(query: string, candidate: string): boolean {
 }
 
 /**
- * Build "Did you mean …?" chips from remote search hits when the typed
- * query looks misspelled relative to popular result titles/names.
- * No local catalog — candidates come from TMDB / Spotify / Open Library.
+ * Build separate "Did you mean?" suggestions from title candidates when the
+ * typed query looks misspelled. Candidates should be titles only (not people /
+ * artists / authors). Clicking a suggestion replaces the search query; regular
+ * remote search results stay independent below.
  */
 export function buildSpellSuggestions(
   query: string,

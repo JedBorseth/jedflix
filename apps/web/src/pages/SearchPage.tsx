@@ -75,41 +75,28 @@ export function SearchPage() {
         ? albumResults.length > 0 || artistResults.length > 0
         : mediaResults.length > 0 || peopleResults.length > 0;
 
+  // Did-you-mean is title-only and separate from people/artist/author hits.
   const spellSuggestions = useMemo(() => {
-    if (!query || isLoading || !hasResults) {
+    if (!query || isLoading) {
       return [];
     }
     if (searchKind === "books") {
-      const authors = booksQuery.data?.authors ?? [];
-      const books = booksQuery.data?.books ?? [];
-      return buildSpellSuggestions(query, [
-        ...authors.map((author) => author.name),
-        ...books.map((book) => book.title),
-      ]);
+      return buildSpellSuggestions(
+        query,
+        (booksQuery.data?.books ?? []).map((book) => book.title),
+      );
     }
     if (searchKind === "music") {
-      const artists = musicQuery.data?.artists ?? [];
-      const albums = musicQuery.data?.albums ?? [];
-      return buildSpellSuggestions(query, [
-        ...artists.map((artist) => artist.name),
-        ...albums.map((album) => album.name),
-      ]);
+      return buildSpellSuggestions(
+        query,
+        (musicQuery.data?.albums ?? []).map((album) => album.name),
+      );
     }
-    const people = mediaQuery.data?.people ?? [];
-    const media = mediaQuery.data?.media ?? [];
-    return buildSpellSuggestions(query, [
-      ...people.map((person) => person.name),
-      ...media.map((item) => item.title),
-    ]);
-  }, [
-    query,
-    isLoading,
-    hasResults,
-    searchKind,
-    booksQuery.data,
-    musicQuery.data,
-    mediaQuery.data,
-  ]);
+    return buildSpellSuggestions(
+      query,
+      (mediaQuery.data?.media ?? []).map((item) => item.title),
+    );
+  }, [query, isLoading, searchKind, booksQuery.data, musicQuery.data, mediaQuery.data]);
 
   const emptyHint =
     searchKind === "books"
@@ -118,41 +105,42 @@ export function SearchPage() {
         ? "Search for an album or artist."
         : "Search for a movie, show, or cast member.";
 
+  function applySpellSuggestion(suggestionQuery: string) {
+    void navigate(buildSearchPath(suggestionQuery, searchKind), {
+      replace: true,
+    });
+  }
+
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
       <main className="pt-navbar mx-auto max-w-7xl px-4 pb-24 md:px-12 md:pb-16">
         <div className="mx-auto max-w-4xl text-center">
           <h1 className="mb-2 text-3xl font-bold">Search</h1>
-          <p className="mb-4 text-zinc-400">
+          <p className="mb-8 text-zinc-400">
             {query ? `Results for "${query}"` : emptyHint}
           </p>
 
           {spellSuggestions.length > 0 ? (
-            <p className="mb-8 text-sm text-zinc-400">
-              <span className="text-zinc-500">Did you mean </span>
-              {spellSuggestions.map((suggestion, index) => (
-                <span key={suggestion.query}>
-                  {index > 0 ? (
-                    <span className="text-zinc-600"> · </span>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="font-medium text-white underline-offset-2 transition hover:underline"
-                    onClick={() => {
-                      void navigate(buildSearchPath(suggestion.query, searchKind), {
-                        replace: true,
-                      });
-                    }}
-                  >
-                    {suggestion.label}
-                  </button>
-                </span>
-              ))}
-              <span className="text-zinc-500">?</span>
-            </p>
-          ) : (
-            <div className="mb-8" />
-          )}
+            <section
+              className="mb-10 rounded-lg border border-zinc-800 bg-zinc-900/50 px-4 py-4 text-left"
+              aria-label="Did you mean"
+            >
+              <p className="mb-3 text-sm font-medium text-zinc-400">Did you mean?</p>
+              <ul className="flex flex-col gap-2">
+                {spellSuggestions.map((suggestion) => (
+                  <li key={suggestion.query}>
+                    <button
+                      type="button"
+                      className="w-full rounded-md px-3 py-2 text-left text-base font-medium text-white transition hover:bg-zinc-800"
+                      onClick={() => applySpellSuggestion(suggestion.query)}
+                    >
+                      {suggestion.label}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
 
           {error ? <p className="text-zinc-400">{error}</p> : null}
           {isLoading ? <PosterGridSkeleton count={8} /> : null}
@@ -162,21 +150,8 @@ export function SearchPage() {
 
           {searchKind === "books" ? (
             <>
-              {!isLoading && authorResults.length > 0 ? (
-                <section className="mb-10 text-left">
-                  <h2 className="mb-4 text-lg font-semibold text-white md:text-xl">
-                    Authors
-                  </h2>
-                  <div className="flex flex-wrap justify-center gap-4">
-                    {authorResults.map((author) => (
-                      <AuthorCard key={author.id} author={author} />
-                    ))}
-                  </div>
-                </section>
-              ) : null}
-
               {!isLoading && bookResults.length > 0 ? (
-                <section className="text-left">
+                <section className="mb-10 text-left">
                   <h2 className="mb-4 text-lg font-semibold text-white md:text-xl">
                     Books
                   </h2>
@@ -187,24 +162,24 @@ export function SearchPage() {
                   </div>
                 </section>
               ) : null}
-            </>
-          ) : searchKind === "music" ? (
-            <>
-              {!isLoading && artistResults.length > 0 ? (
-                <section className="mb-10 text-left">
+
+              {!isLoading && authorResults.length > 0 ? (
+                <section className="text-left">
                   <h2 className="mb-4 text-lg font-semibold text-white md:text-xl">
-                    Artists
+                    Authors
                   </h2>
                   <div className="flex flex-wrap justify-center gap-4">
-                    {artistResults.map((artist) => (
-                      <ArtistCard key={artist.id} artist={artist} />
+                    {authorResults.map((author) => (
+                      <AuthorCard key={author.id} author={author} />
                     ))}
                   </div>
                 </section>
               ) : null}
-
+            </>
+          ) : searchKind === "music" ? (
+            <>
               {!isLoading && albumResults.length > 0 ? (
-                <section className="text-left">
+                <section className="mb-10 text-left">
                   <h2 className="mb-4 text-lg font-semibold text-white md:text-xl">
                     Albums
                   </h2>
@@ -215,30 +190,43 @@ export function SearchPage() {
                   </div>
                 </section>
               ) : null}
-            </>
-          ) : (
-            <>
-              {!isLoading && peopleResults.length > 0 ? (
-                <section className="mb-10 text-left">
+
+              {!isLoading && artistResults.length > 0 ? (
+                <section className="text-left">
                   <h2 className="mb-4 text-lg font-semibold text-white md:text-xl">
-                    People
+                    Artists
                   </h2>
                   <div className="flex flex-wrap justify-center gap-4">
-                    {peopleResults.map((person) => (
-                      <PersonCard key={person.id} person={person} />
+                    {artistResults.map((artist) => (
+                      <ArtistCard key={artist.id} artist={artist} />
                     ))}
                   </div>
                 </section>
               ) : null}
-
+            </>
+          ) : (
+            <>
               {!isLoading && mediaResults.length > 0 ? (
-                <section className="text-left">
+                <section className="mb-10 text-left">
                   <h2 className="mb-4 text-lg font-semibold text-white md:text-xl">
                     Titles
                   </h2>
                   <div className="flex flex-wrap justify-center gap-4">
                     {mediaResults.map((movie) => (
                       <MovieCard key={`${movie.mediaType}-${movie.id}`} movie={movie} />
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+
+              {!isLoading && peopleResults.length > 0 ? (
+                <section className="text-left">
+                  <h2 className="mb-4 text-lg font-semibold text-white md:text-xl">
+                    People
+                  </h2>
+                  <div className="flex flex-wrap justify-center gap-4">
+                    {peopleResults.map((person) => (
+                      <PersonCard key={person.id} person={person} />
                     ))}
                   </div>
                 </section>

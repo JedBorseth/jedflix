@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils";
 export type SearchMode = "media" | "books" | "music";
 
 /** Wait this long after typing before hitting remote search APIs. */
-export const SEARCH_DEBOUNCE_MS = 1500;
+export const SEARCH_DEBOUNCE_MS = 500;
 
 function isBooksPath(pathname: string, search: string): boolean {
   if (
@@ -100,17 +100,33 @@ export function Navbar() {
         ? "Search albums or artists"
         : "Search movies, shows, or cast";
 
-  // Hydrate from the URL when a suggestion chip (or back/forward) changes it.
+  // Hydrate from the URL when a Did-you-mean chip (or back/forward) changes it.
+  // While the input is focused, ignore stale debounce URL updates that are still
+  // a prefix/extension of what the user is typing, but always adopt corrections
+  // like "the offive" → "The Office".
   useEffect(() => {
     if (!isOnSearchPage) {
       return;
     }
     setIsSearchOpen(true);
     const urlQuery = readSearchQuery(location.search);
-    if (document.activeElement === inputRef.current) {
-      return;
-    }
-    setQuery(urlQuery);
+    setQuery((current) => {
+      if (current === urlQuery) {
+        return current;
+      }
+      if (document.activeElement === inputRef.current) {
+        const typed = current.trim();
+        const fromUrl = urlQuery.trim();
+        if (
+          typed.length > 0 &&
+          fromUrl.length > 0 &&
+          (typed.startsWith(fromUrl) || fromUrl.startsWith(typed))
+        ) {
+          return current;
+        }
+      }
+      return urlQuery;
+    });
   }, [isOnSearchPage, location.search]);
 
   // After expand, ensure focus lands on the already-mounted input.
