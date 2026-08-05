@@ -7,6 +7,7 @@ import { RecentlyPlayedMusicGrid } from "@/components/browse/RecentlyPlayedMusic
 import { AppLink } from "@/components/layout/AppLink";
 import { PartyStatusButton } from "@/components/party/PartyStatusButton";
 import { PosterRowSkeleton } from "@/components/ui/skeleton";
+import { shuffleItems } from "@/lib/musicSearch";
 import type { MusicBrowseResponse, MusicCatalogRow } from "@/lib/spotify";
 import { getMusicBrowse } from "@/lib/spotify";
 import {
@@ -17,11 +18,18 @@ import { catalogQueryKeys } from "@/lib/queryClient";
 
 async function loadMusicBrowsePage(): Promise<MusicCatalogRow[]> {
   const browse: MusicBrowseResponse = await getMusicBrowse();
-  return browse.rows.filter((row) => {
+  const rows = browse.rows.filter((row) => {
     if (row.kind === "artists") {
       return (row.artists?.length ?? 0) > 0;
     }
     return (row.albums?.length ?? 0) > 0;
+  });
+  // Shuffle artist shelves only so they don't read as alphabetical/popularity order.
+  return rows.map((row) => {
+    if (row.kind !== "artists" || !row.artists || row.artists.length < 2) {
+      return row;
+    }
+    return { ...row, artists: shuffleItems(row.artists) };
   });
 }
 

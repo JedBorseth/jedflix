@@ -323,7 +323,7 @@ func TestResolveArtistByNamePrefersExactMatch(t *testing.T) {
 	}
 }
 
-func TestSearchSortsByPopularity(t *testing.T) {
+func TestSearchSortsByRelevance(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/api/token":
@@ -337,28 +337,31 @@ func TestSearchSortsByPopularity(t *testing.T) {
 				"artists": map[string]any{
 					"items": []map[string]any{
 						{
-							"id": "artistlow00000000000001", "name": "Low Pop", "popularity": 20,
-							"images": []map[string]any{{"url": "https://img/l.jpg", "width": 300}},
+							"id": "artistribute00000000001", "name": "Thriller Tribute Band", "popularity": 95,
+							"images": []map[string]any{{"url": "https://img/t.jpg", "width": 300}},
 						},
 						{
-							"id": "artisthigh0000000000001", "name": "High Pop", "popularity": 95,
-							"images": []map[string]any{{"url": "https://img/h.jpg", "width": 300}},
+							"id": "artistmj000000000000001", "name": "Michael Jackson", "popularity": 90,
+							"images": []map[string]any{{"url": "https://img/m.jpg", "width": 300}},
 						},
 					},
 				},
 				"albums": map[string]any{
 					"items": []map[string]any{
 						{
-							"id": "albumlow000000000000001", "name": "Quiet Album", "popularity": 10,
+							"id": "albumkaraoke00000000001", "name": "Thriller Karaoke", "popularity": 99,
 							"images":  []map[string]any{{"url": "https://img/a.jpg", "width": 300}},
-							"artists": []map[string]any{{"id": "artistlow00000000000001", "name": "Low Pop"}},
+							"artists": []map[string]any{{"id": "artistribute00000000001", "name": "Thriller Tribute Band"}},
 						},
 						{
-							"id": "albumhigh00000000000001", "name": "Hit Album", "popularity": 88,
+							"id": "albumthriller0000000001", "name": "Thriller", "popularity": 88,
 							"images":  []map[string]any{{"url": "https://img/b.jpg", "width": 300}},
-							"artists": []map[string]any{{"id": "artisthigh0000000000001", "name": "High Pop"}},
+							"artists": []map[string]any{{"id": "artistmj000000000000001", "name": "Michael Jackson"}},
 						},
 					},
+				},
+				"tracks": map[string]any{
+					"items": []map[string]any{},
 				},
 			})
 		default:
@@ -375,15 +378,23 @@ func TestSearchSortsByPopularity(t *testing.T) {
 		SpotifyCacheTTL:     time.Hour,
 	})
 
-	result, err := client.Search(context.Background(), "pop")
+	result, err := client.Search(context.Background(), "thriller")
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
-	if len(result.Artists) < 2 || result.Artists[0].Name != "High Pop" {
-		t.Fatalf("expected highest-popularity artist first, got %+v", result.Artists)
+	if len(result.Albums) < 2 || result.Albums[0].Name != "Thriller" {
+		t.Fatalf("expected exact-match album first, got %+v", result.Albums)
 	}
-	if len(result.Albums) < 2 || result.Albums[0].Name != "Hit Album" {
-		t.Fatalf("expected highest-popularity album first, got %+v", result.Albums)
+	if len(result.Artists) < 1 || result.Artists[0].Name != "Thriller Tribute Band" {
+		t.Fatalf("expected prefix artist match first, got %+v", result.Artists)
+	}
+}
+
+func TestScoreNameMatchExactBeatsPopularPartial(t *testing.T) {
+	exact := scoreNameMatch("thriller", "Thriller", 55)
+	partial := scoreNameMatch("thriller", "Thriller Night Live", 99)
+	if exact <= partial {
+		t.Fatalf("exact=%d should beat partial=%d", exact, partial)
 	}
 }
 

@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -343,12 +342,7 @@ func (c *Client) Search(ctx context.Context, query string) (*SearchResponse, err
 		result.Tracks = mapTopTracks(payload.Tracks.Items)
 	}
 
-	sort.SliceStable(result.Albums, func(i, j int) bool {
-		return result.Albums[i].Popularity > result.Albums[j].Popularity
-	})
-	sort.SliceStable(result.Artists, func(i, j int) bool {
-		return result.Artists[i].Popularity > result.Artists[j].Popularity
-	})
+	sortSearchByRelevance(query, result)
 
 	return result, nil
 }
