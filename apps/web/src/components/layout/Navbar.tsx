@@ -14,7 +14,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useQuery } from "convex/react";
 import { api } from "@convex/_generated/api";
-import { MagnifyingGlassIcon, GearIcon } from "@radix-ui/react-icons";
+import {
+  Cross2Icon,
+  GearIcon,
+  MagnifyingGlassIcon,
+} from "@radix-ui/react-icons";
 import { useUserSettings } from "@/hooks/useUserSettings";
 import { cn } from "@/lib/utils";
 
@@ -78,6 +82,7 @@ export function Navbar() {
   const inputRef = useRef<HTMLInputElement>(null);
   const isOnSearchPage = location.pathname.startsWith("/search");
   const [isSearchOpen, setIsSearchOpen] = useState(isOnSearchPage);
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [query, setQuery] = useState(() =>
     isOnSearchPage ? readSearchQuery(location.search) : "",
   );
@@ -131,7 +136,7 @@ export function Navbar() {
 
   // After expand, ensure focus lands on the already-mounted input.
   useLayoutEffect(() => {
-    if (!isSearchOpen) {
+    if (!isSearchOpen || !isSearchFocused) {
       return;
     }
     const input = inputRef.current;
@@ -141,7 +146,7 @@ export function Navbar() {
     input.focus({ preventScroll: true });
     const length = input.value.length;
     input.setSelectionRange(length, length);
-  }, [isSearchOpen]);
+  }, [isSearchOpen, isSearchFocused]);
 
   // Debounced live search — Navbar stays mounted across routes, so this
   // update won't dismiss the iOS keyboard mid-typing.
@@ -177,9 +182,25 @@ export function Navbar() {
 
   function openSearch() {
     setIsSearchOpen(true);
+    setIsSearchFocused(true);
     // Focus synchronously inside the tap handler so iOS opens the keyboard
     // on the first press (input stays mounted even when collapsed).
     inputRef.current?.focus({ preventScroll: true });
+  }
+
+  function clearSearch() {
+    setQuery("");
+    setIsSearchOpen(true);
+    setIsSearchFocused(true);
+    inputRef.current?.focus({ preventScroll: true });
+  }
+
+  function cancelSearch() {
+    inputRef.current?.blur();
+    setIsSearchFocused(false);
+    if (!isOnSearchPage && !query.trim()) {
+      setIsSearchOpen(false);
+    }
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -199,56 +220,79 @@ export function Navbar() {
 
   return (
     <header className="fixed top-0 z-50 w-full bg-gradient-to-b from-black/80 to-transparent pt-[env(safe-area-inset-top)]">
-      <nav className="mx-auto flex max-w-[1920px] items-center justify-between px-4 py-4 md:px-12">
-        <div className="flex items-center gap-6 md:gap-10">
-          <Link to="/" className="text-2xl font-bold tracking-tight text-red-600">
-            JedFlix
-          </Link>
-          <div className="hidden items-center gap-5 text-sm text-zinc-200 md:flex">
-            <AppLink to="/" className="transition hover:text-white">
-              Home
-            </AppLink>
-            {showMoviesShows ? (
-              <>
-                <AppLink to="/shows" className="transition hover:text-white">
-                  Shows
+      <nav
+        className={cn(
+          "mx-auto flex max-w-[1920px] items-center px-4 py-4 md:px-12",
+          isSearchFocused ? "gap-3" : "justify-between gap-6",
+        )}
+      >
+        {!isSearchFocused ? (
+          <div className="flex min-w-0 items-center gap-6 md:gap-10">
+            <Link
+              to="/"
+              className="shrink-0 text-2xl font-bold tracking-tight text-red-600"
+            >
+              JedFlix
+            </Link>
+            <div className="hidden items-center gap-5 text-sm text-zinc-200 md:flex">
+              <AppLink to="/" className="transition hover:text-white">
+                Home
+              </AppLink>
+              {showMoviesShows ? (
+                <>
+                  <AppLink to="/shows" className="transition hover:text-white">
+                    Shows
+                  </AppLink>
+                  <AppLink to="/movies" className="transition hover:text-white">
+                    Movies
+                  </AppLink>
+                </>
+              ) : null}
+              {showAudiobooks ? (
+                <AppLink to="/audiobooks" className="transition hover:text-white">
+                  Audiobooks
                 </AppLink>
-                <AppLink to="/movies" className="transition hover:text-white">
-                  Movies
+              ) : null}
+              {showMusic ? (
+                <AppLink to="/music" className="transition hover:text-white">
+                  Music
                 </AppLink>
-              </>
-            ) : null}
-            {showAudiobooks ? (
-              <AppLink to="/audiobooks" className="transition hover:text-white">
-                Audiobooks
-              </AppLink>
-            ) : null}
-            {showMusic ? (
-              <AppLink to="/music" className="transition hover:text-white">
-                Music
-              </AppLink>
-            ) : null}
-            {showVideoGames ? (
-              <AppLink to="/video-games" className="transition hover:text-white">
-                Video Games
-              </AppLink>
-            ) : null}
-            <Authenticated>
-              <AppLink to="/my-list" className="transition hover:text-white">
-                My List
-              </AppLink>
-            </Authenticated>
+              ) : null}
+              {showVideoGames ? (
+                <AppLink to="/video-games" className="transition hover:text-white">
+                  Video Games
+                </AppLink>
+              ) : null}
+              <Authenticated>
+                <AppLink to="/my-list" className="transition hover:text-white">
+                  My List
+                </AppLink>
+              </Authenticated>
+            </div>
           </div>
-        </div>
+        ) : null}
 
-        <div className="flex items-center gap-3">
-          <form onSubmit={handleSubmit} className="flex items-center justify-end">
+        <div
+          className={cn(
+            "flex items-center gap-3",
+            isSearchFocused ? "min-w-0 flex-1" : "shrink-0",
+          )}
+        >
+          <form
+            onSubmit={handleSubmit}
+            className={cn(
+              "flex items-center",
+              isSearchFocused ? "min-w-0 flex-1 gap-3" : "justify-end",
+            )}
+          >
             <div
               className={cn(
                 "flex items-center overflow-hidden rounded-md border border-transparent bg-black/40 transition-all duration-200",
-                isSearchOpen
-                  ? "w-52 border-zinc-700 px-2 md:w-72"
-                  : "w-9 hover:border-zinc-700",
+                isSearchFocused
+                  ? "min-w-0 flex-1 border-zinc-700 px-2"
+                  : isSearchOpen
+                    ? "w-52 border-zinc-700 px-2 md:w-72"
+                    : "w-9 hover:border-zinc-700",
               )}
             >
               <button
@@ -256,7 +300,7 @@ export function Navbar() {
                 className="flex h-10 w-9 shrink-0 items-center justify-center text-zinc-200 transition hover:text-white md:h-9"
                 aria-label={isSearchOpen ? "Search" : "Open search"}
                 onClick={() => {
-                  if (!isSearchOpen) {
+                  if (!isSearchOpen || !isSearchFocused) {
                     openSearch();
                   }
                 }}
@@ -266,18 +310,23 @@ export function Navbar() {
               <Input
                 ref={inputRef}
                 value={query}
-                tabIndex={isSearchOpen ? 0 : -1}
-                aria-hidden={!isSearchOpen}
+                tabIndex={isSearchOpen || isSearchFocused ? 0 : -1}
+                aria-hidden={!isSearchOpen && !isSearchFocused}
                 autoCapitalize="off"
                 autoCorrect="off"
                 spellCheck={false}
                 enterKeyHint="search"
                 onChange={(event) => {
                   setIsSearchOpen(true);
+                  setIsSearchFocused(true);
                   setQuery(event.target.value);
                 }}
-                onFocus={() => setIsSearchOpen(true)}
+                onFocus={() => {
+                  setIsSearchOpen(true);
+                  setIsSearchFocused(true);
+                }}
                 onBlur={() => {
+                  setIsSearchFocused(false);
                   if (!query.trim() && !isOnSearchPage) {
                     setIsSearchOpen(false);
                   }
@@ -285,37 +334,68 @@ export function Navbar() {
                 placeholder={searchPlaceholder}
                 className={cn(
                   "h-10 border-0 bg-transparent px-1 text-base text-white placeholder:text-zinc-500 focus-visible:ring-0 md:h-9 md:text-sm",
-                  !isSearchOpen && "pointer-events-none w-0 px-0 opacity-0",
+                  !isSearchOpen &&
+                    !isSearchFocused &&
+                    "pointer-events-none w-0 px-0 opacity-0",
                 )}
               />
+              {isSearchFocused && query ? (
+                <button
+                  type="button"
+                  aria-label="Clear search"
+                  className="flex h-10 w-9 shrink-0 items-center justify-center text-zinc-400 transition hover:text-white md:h-9"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                  }}
+                  onClick={clearSearch}
+                >
+                  <Cross2Icon className="h-4 w-4" />
+                </button>
+              ) : null}
             </div>
-          </form>
-          <MobileNavMenu />
-          <div className="hidden items-center gap-3 md:flex">
-            <Unauthenticated>
-              <Button
-                asChild
-                variant="outline"
-                size="sm"
-                className="border-zinc-600 bg-black/40"
+            {isSearchFocused ? (
+              <button
+                type="button"
+                className="shrink-0 px-1 text-sm font-medium text-zinc-200 transition hover:text-white"
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                }}
+                onClick={cancelSearch}
               >
-                <Link to="/sign-in">Sign In</Link>
-              </Button>
-            </Unauthenticated>
-            <Button
-              asChild
-              variant="outline"
-              size="icon"
-              className="h-9 w-9 shrink-0 border-zinc-600 bg-black/40 text-zinc-200 hover:bg-zinc-900 hover:text-white"
-            >
-              <AppLink to="/settings" aria-label="Settings">
-                <GearIcon className="h-5 w-5" />
-              </AppLink>
-            </Button>
-            <Authenticated>
-              <UserMenu>{user?.name ?? user?.email ?? "Account"}</UserMenu>
-            </Authenticated>
-          </div>
+                Cancel
+              </button>
+            ) : null}
+          </form>
+          {!isSearchFocused ? (
+            <>
+              <MobileNavMenu />
+              <div className="hidden items-center gap-3 md:flex">
+                <Unauthenticated>
+                  <Button
+                    asChild
+                    variant="outline"
+                    size="sm"
+                    className="border-zinc-600 bg-black/40"
+                  >
+                    <Link to="/sign-in">Sign In</Link>
+                  </Button>
+                </Unauthenticated>
+                <Button
+                  asChild
+                  variant="outline"
+                  size="icon"
+                  className="h-9 w-9 shrink-0 border-zinc-600 bg-black/40 text-zinc-200 hover:bg-zinc-900 hover:text-white"
+                >
+                  <AppLink to="/settings" aria-label="Settings">
+                    <GearIcon className="h-5 w-5" />
+                  </AppLink>
+                </Button>
+                <Authenticated>
+                  <UserMenu>{user?.name ?? user?.email ?? "Account"}</UserMenu>
+                </Authenticated>
+              </div>
+            </>
+          ) : null}
         </div>
       </nav>
     </header>

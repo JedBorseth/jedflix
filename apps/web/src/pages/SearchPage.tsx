@@ -150,21 +150,8 @@ export function SearchPage() {
 
           {searchKind === "books" ? (
             <>
-              {!isLoading && bookResults.length > 0 ? (
-                <section className="mb-10 text-left">
-                  <h2 className="mb-4 text-lg font-semibold text-white md:text-xl">
-                    Books
-                  </h2>
-                  <div className="flex flex-wrap justify-center gap-4">
-                    {bookResults.map((book) => (
-                      <BookCard key={book.id} book={book} />
-                    ))}
-                  </div>
-                </section>
-              ) : null}
-
               {!isLoading && authorResults.length > 0 ? (
-                <section className="text-left">
+                <section className="mb-10 text-left">
                   <h2 className="mb-4 text-lg font-semibold text-white md:text-xl">
                     Authors
                   </h2>
@@ -175,30 +162,43 @@ export function SearchPage() {
                   </div>
                 </section>
               ) : null}
-            </>
-          ) : searchKind === "music" ? (
-            <>
-              {!isLoading && albumResults.length > 0 ? (
-                <section className="mb-10 text-left">
+
+              {!isLoading && bookResults.length > 0 ? (
+                <section className="text-left">
                   <h2 className="mb-4 text-lg font-semibold text-white md:text-xl">
-                    Albums
+                    Books
                   </h2>
                   <div className="flex flex-wrap justify-center gap-4">
-                    {albumResults.map((album) => (
-                      <AlbumCard key={album.id} album={album} />
+                    {bookResults.map((book) => (
+                      <BookCard key={book.id} book={book} />
                     ))}
                   </div>
                 </section>
               ) : null}
-
+            </>
+          ) : searchKind === "music" ? (
+            <>
               {!isLoading && artistResults.length > 0 ? (
-                <section className="text-left">
+                <section className="mb-10 text-left">
                   <h2 className="mb-4 text-lg font-semibold text-white md:text-xl">
                     Artists
                   </h2>
                   <div className="flex flex-wrap justify-center gap-4">
                     {artistResults.map((artist) => (
                       <ArtistCard key={artist.id} artist={artist} />
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+
+              {!isLoading && albumResults.length > 0 ? (
+                <section className="text-left">
+                  <h2 className="mb-4 text-lg font-semibold text-white md:text-xl">
+                    Albums
+                  </h2>
+                  <div className="flex flex-wrap justify-center gap-4">
+                    {albumResults.map((album) => (
+                      <AlbumCard key={album.id} album={album} />
                     ))}
                   </div>
                 </section>
