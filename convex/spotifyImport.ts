@@ -64,6 +64,7 @@ const playlistPickValidator = v.object({
   imageUrl: v.union(v.string(), v.null()),
   trackCount: v.number(),
   ownerName: v.union(v.string(), v.null()),
+  isOwner: v.boolean(),
 });
 
 function toMusicTrack(raw: unknown): MusicTrack | null {
@@ -146,14 +147,15 @@ export const listLibraryForImport = action({
     const account = await requireLinkedAccount(ctx);
     const accessToken = await ensureAccessToken(ctx, account._id);
 
-    const playlists: SpotifyPlaylistSummary[] = [];
+    const playlists: Array<SpotifyPlaylistSummary & { isOwner: boolean }> = [];
     let offset = 0;
     for (let page = 0; page < 20; page += 1) {
       const result = await listUserPlaylists(accessToken, { limit: 50, offset });
       for (const item of result.items) {
         playlists.push({
           ...item,
-          isOwner: item.ownerName === account.displayName,
+          isOwner:
+            item.ownerId === account.spotifyUserId || item.collaborative,
         });
       }
       if (result.nextOffset === null) {
@@ -180,6 +182,7 @@ export const listLibraryForImport = action({
         imageUrl: playlist.imageUrl,
         trackCount: playlist.trackCount,
         ownerName: playlist.ownerName,
+        isOwner: playlist.isOwner,
       })),
     };
   },
@@ -454,6 +457,54 @@ export const recordBatchProgress = internalMutation({
   },
 });
 
+export const failItemAndContinue = internalMutation({
+  args: {
+    jobId: v.id("spotifyImportJobs"),
+    itemId: v.id("spotifyImportItems"),
+    error: v.string(),
+  },
+  returns: v.object({ done: v.boolean() }),
+  handler: async (ctx, args) => {
+    const item = await ctx.db.get(args.itemId);
+    const job = await ctx.db.get(args.jobId);
+    if (!item || !job) {
+      return { done: true };
+    }
+
+    // Drop empty playlists created before Spotify rejected the track list.
+    if (
+      item.jedflixPlaylistId &&
+      item.imported === 0 &&
+      item.kind === "playlist"
+    ) {
+      const playlist = await ctx.db.get(item.jedflixPlaylistId);
+      if (playlist && (playlist.trackCount ?? 0) === 0) {
+        await ctx.db.delete(item.jedflixPlaylistId);
+      }
+    }
+
+    await ctx.db.patch(args.itemId, {
+      status: "failed",
+      error: args.error,
+      jedflixPlaylistId: undefined,
+    });
+
+    // Only bump completedItems if this item wasn't already counted.
+    const alreadyCounted = item.status === "completed" || item.status === "failed";
+    const nextCompleted = alreadyCounted ? job.completedItems : job.completedItems + 1;
+    const jobDone = nextCompleted >= job.totalItems;
+
+    await ctx.db.patch(args.jobId, {
+      completedItems: nextCompleted,
+      status: jobDone ? (job.importedTracks > 0 ? "completed" : "failed") : "running",
+      error: jobDone && job.importedTracks === 0 ? args.error : job.error,
+      updatedAt: Date.now(),
+    });
+
+    return { done: jobDone };
+  },
+});
+
 export const failJob = internalMutation({
   args: {
     jobId: v.id("spotifyImportJobs"),
@@ -606,11 +657,24 @@ export const processNextBatch = internalAction({
         );
         return null;
       }
-      await ctx.runMutation(internal.spotifyImport.failJob, {
-        jobId: args.jobId,
-        itemId: item._id,
-        error: describeSpotifyError(error),
-      });
+
+      // One playlist failing (e.g. followed playlist blocked by Spotify) should
+      // not abort Liked Songs / other playlists in the same job.
+      const result = await ctx.runMutation(
+        internal.spotifyImport.failItemAndContinue,
+        {
+          jobId: args.jobId,
+          itemId: item._id,
+          error: describeSpotifyError(error),
+        },
+      );
+      if (!result.done) {
+        await ctx.scheduler.runAfter(
+          BATCH_DELAY_MS,
+          internal.spotifyImport.processNextBatch,
+          { jobId: args.jobId },
+        );
+      }
     }
 
     return null;

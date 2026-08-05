@@ -256,9 +256,20 @@ export async function pausePlayback(accessToken: string, deviceId?: string): Pro
 export function describeSpotifyError(error: unknown): string {
   if (error instanceof SpotifyApiError) {
     if (error.status === 404) {
+      // Prefer custom messages from library helpers when present.
+      if (error.message && !error.message.startsWith("HTTP ")) {
+        return error.message;
+      }
       return "No active Spotify playback. Open Spotify and start playing something.";
     }
     if (error.status === 403) {
+      if (
+        error.message &&
+        !error.message.startsWith("HTTP ") &&
+        !/restriction|player/i.test(error.message)
+      ) {
+        return error.message;
+      }
       return "Spotify rejected pause/play. Playback control requires Spotify Premium.";
     }
     if (error.status === 429) {
@@ -277,7 +288,8 @@ export type SpotifyPlaylistSummary = {
   imageUrl: string | null;
   trackCount: number;
   ownerName: string | null;
-  isOwner: boolean;
+  ownerId: string | null;
+  collaborative: boolean;
 };
 
 export type SpotifyTrackPage = {
@@ -310,6 +322,45 @@ function imageFromImages(images: unknown): string | null {
   return null;
 }
 
+/** Spotify Feb 2026: playlist size lives on `items.total` (legacy: `tracks.total`). */
+function playlistTrackTotal(raw: {
+  items?: { total?: number } | null;
+  tracks?: { total?: number } | null;
+}): number {
+  return raw.items?.total ?? raw.tracks?.total ?? 0;
+}
+
+/**
+ * Playlist page entries expose the track as `item` (Feb 2026) or deprecated
+ * `track`. Episodes / null placeholders are skipped by the caller.
+ */
+export function playlistEntryPayload(entry: unknown): unknown | null {
+  if (typeof entry !== "object" || entry === null) {
+    return null;
+  }
+  const row = entry as { item?: unknown; track?: unknown };
+  if (row.item !== undefined) {
+    return row.item ?? null;
+  }
+  if (row.track !== undefined) {
+    return row.track ?? null;
+  }
+  return null;
+}
+
+function nextPageOffset(args: {
+  next: string | null | undefined;
+  offset: number;
+  pageSize: number;
+  total: number;
+}): number | null {
+  const consumed = args.offset + args.pageSize;
+  if (args.next || consumed < args.total) {
+    return consumed;
+  }
+  return null;
+}
+
 /** Lists playlists the linked user can read (owned + followed). */
 export async function listUserPlaylists(
   accessToken: string,
@@ -317,6 +368,8 @@ export async function listUserPlaylists(
 ): Promise<{ items: SpotifyPlaylistSummary[]; total: number; nextOffset: number | null }> {
   const limit = Math.min(50, Math.max(1, options?.limit ?? 50));
   const offset = Math.max(0, options?.offset ?? 0);
+  // Always paginate via /me/playlists?offset=… — Spotify's `next` URL still
+  // points at the removed /users/{id}/playlists endpoint for some apps.
   const response = await apiFetch(
     accessToken,
     `/me/playlists?limit=${limit}&offset=${offset}`,
@@ -328,9 +381,11 @@ export async function listUserPlaylists(
     id?: string;
     name?: string;
     images?: unknown;
+    collaborative?: boolean;
+    items?: { total?: number } | null;
     tracks?: { total?: number } | null;
     owner?: { id?: string; display_name?: string | null } | null;
-  }> & { href?: string };
+  }>;
 
   const items: SpotifyPlaylistSummary[] = [];
   for (const raw of body.items ?? []) {
@@ -341,20 +396,28 @@ export async function listUserPlaylists(
       id: raw.id,
       name: raw.name,
       imageUrl: imageFromImages(raw.images),
-      trackCount: raw.tracks?.total ?? 0,
+      trackCount: playlistTrackTotal(raw),
       ownerName: raw.owner?.display_name ?? raw.owner?.id ?? null,
-      isOwner: false,
+      ownerId: raw.owner?.id ?? null,
+      collaborative: raw.collaborative === true,
     });
   }
 
-  const total = body.total ?? items.length;
-  const nextOffset =
-    body.next || offset + items.length < total ? offset + items.length : null;
+  const total = body.total ?? offset + items.length;
+  const nextOffset = nextPageOffset({
+    next: body.next,
+    offset,
+    pageSize: items.length,
+    total,
+  });
 
   return { items, total, nextOffset };
 }
 
-/** One page of tracks from a playlist (limit ≤ 50). */
+/**
+ * One page of tracks from a playlist (limit ≤ 50).
+ * Uses `/items` (Feb 2026); `/tracks` was removed for Dev Mode apps.
+ */
 export async function getPlaylistTracksPage(
   accessToken: string,
   playlistId: string,
@@ -363,25 +426,35 @@ export async function getPlaylistTracksPage(
 ): Promise<SpotifyTrackPage> {
   const safeLimit = Math.min(50, Math.max(1, limit));
   const safeOffset = Math.max(0, offset);
-  const fields =
-    "total,next,offset,limit,items(track(id,name,duration_ms,artists(id,name),album(id,name,images)))";
   const response = await apiFetch(
     accessToken,
-    `/playlists/${encodeURIComponent(playlistId)}/tracks?limit=${safeLimit}&offset=${safeOffset}&fields=${encodeURIComponent(fields)}`,
+    `/playlists/${encodeURIComponent(playlistId)}/items?limit=${safeLimit}&offset=${safeOffset}&additional_types=track`,
   );
   if (!response.ok) {
-    throw new SpotifyApiError(response.status, await readError(response));
+    const detail = await readError(response);
+    if (response.status === 403) {
+      throw new SpotifyApiError(
+        403,
+        "Spotify only allows importing playlists you own or collaborate on.",
+      );
+    }
+    if (response.status === 404) {
+      throw new SpotifyApiError(404, `Playlist not found (${detail})`);
+    }
+    throw new SpotifyApiError(response.status, detail);
   }
-  const body = (await response.json()) as SpotifyPaging<{ track?: unknown | null }>;
+  const body = (await response.json()) as SpotifyPaging<unknown>;
   const items = (body.items ?? [])
-    .map((entry) => entry.track)
-    .filter((track) => track !== null && track !== undefined);
+    .map((entry) => playlistEntryPayload(entry))
+    .filter((track) => track !== null);
 
-  const total = body.total ?? items.length;
-  const nextOffset =
-    body.next || safeOffset + (body.items?.length ?? 0) < total
-      ? safeOffset + (body.items?.length ?? 0)
-      : null;
+  const total = body.total ?? safeOffset + items.length;
+  const nextOffset = nextPageOffset({
+    next: body.next,
+    offset: safeOffset,
+    pageSize: body.items?.length ?? 0,
+    total,
+  });
 
   return { items, total, nextOffset };
 }
@@ -407,10 +480,12 @@ export async function getLikedTracksPage(
     .filter((track) => track !== null && track !== undefined);
 
   const total = body.total ?? items.length;
-  const nextOffset =
-    body.next || safeOffset + (body.items?.length ?? 0) < total
-      ? safeOffset + (body.items?.length ?? 0)
-      : null;
+  const nextOffset = nextPageOffset({
+    next: body.next,
+    offset: safeOffset,
+    pageSize: body.items?.length ?? 0,
+    total,
+  });
 
   return { items, total, nextOffset };
 }

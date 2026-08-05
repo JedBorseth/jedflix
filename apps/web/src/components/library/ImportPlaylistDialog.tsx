@@ -21,6 +21,7 @@ type SpotifyPlaylistPick = {
   imageUrl: string | null;
   trackCount: number;
   ownerName: string | null;
+  isOwner: boolean;
 };
 
 type Props = {
@@ -51,7 +52,14 @@ export function ImportPlaylistDialog({ open, onOpenChange }: Props) {
       setLikedCount(result.likedSongs.trackCount);
       setPlaylists(result.playlists);
       setImportLiked(result.likedSongs.trackCount > 0);
-      setSelectedIds(new Set(result.playlists.map((playlist) => playlist.id)));
+      // Default-select playlists Spotify still lets us read (owned / collab).
+      setSelectedIds(
+        new Set(
+          result.playlists
+            .filter((playlist) => playlist.isOwner || playlist.trackCount > 0)
+            .map((playlist) => playlist.id),
+        ),
+      );
     } catch (error: unknown) {
       console.error(error);
       setLibraryError(
@@ -286,7 +294,14 @@ export function ImportPlaylistDialog({ open, onOpenChange }: Props) {
                         <p className="truncate text-xs text-zinc-500">
                           {playlist.trackCount.toLocaleString()}{" "}
                           {playlist.trackCount === 1 ? "song" : "songs"}
-                          {playlist.ownerName ? ` · ${playlist.ownerName}` : ""}
+                          {playlist.isOwner
+                            ? " · yours"
+                            : playlist.ownerName
+                              ? ` · ${playlist.ownerName}`
+                              : ""}
+                          {!playlist.isOwner
+                            ? " · may be blocked by Spotify"
+                            : ""}
                         </p>
                       </div>
                     </label>

@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
   hasImportScopes,
+  playlistEntryPayload,
   SPOTIFY_IMPORT_SCOPES,
   SPOTIFY_SCOPES,
+  describeSpotifyError,
+  SpotifyApiError,
 } from "@convex/spotifyApi";
 import {
   MAX_LIKED_SONGS,
@@ -81,5 +84,40 @@ describe("spotify track mapping for import", () => {
   test("skips non-track payloads", () => {
     expect(spotifyTrackToPartyTrack(null)).toBeNull();
     expect(spotifyTrackToPartyTrack({ name: "no id" })).toBeNull();
+  });
+});
+
+describe("February 2026 playlist item payloads", () => {
+  test("prefers item over deprecated track", () => {
+    const fromItem = playlistEntryPayload({
+      item: { id: "abcdefghijabcdefghij01", name: "New" },
+      track: { id: "abcdefghijabcdefghij02", name: "Old" },
+    });
+    expect(fromItem).toEqual({ id: "abcdefghijabcdefghij01", name: "New" });
+  });
+
+  test("falls back to track for legacy responses", () => {
+    expect(
+      playlistEntryPayload({
+        track: { id: "abcdefghijabcdefghij02", name: "Legacy" },
+      }),
+    ).toEqual({ id: "abcdefghijabcdefghij02", name: "Legacy" });
+  });
+
+  test("returns null for removed/local placeholders", () => {
+    expect(playlistEntryPayload({ item: null })).toBeNull();
+    expect(playlistEntryPayload({ track: null })).toBeNull();
+    expect(playlistEntryPayload(null)).toBeNull();
+  });
+
+  test("preserves playlist import 403 message", () => {
+    expect(
+      describeSpotifyError(
+        new SpotifyApiError(
+          403,
+          "Spotify only allows importing playlists you own or collaborate on.",
+        ),
+      ),
+    ).toBe("Spotify only allows importing playlists you own or collaborate on.");
   });
 });
