@@ -12,6 +12,7 @@ import {
 } from "./_generated/server";
 import {
   buildAuthorizeUrl,
+  hasImportScopes,
   isSpotifyConfigured,
   refreshAccessToken,
 } from "./spotifyApi";
@@ -33,6 +34,7 @@ const publicAccountValidator = v.union(
     product: v.optional(v.string()),
     imageUrl: v.optional(v.string()),
     isPremium: v.boolean(),
+    canImportPlaylists: v.boolean(),
   }),
   v.null(),
 );
@@ -59,6 +61,7 @@ export const getMyAccount = query({
       product: account.product,
       imageUrl: account.imageUrl,
       isPremium: account.product === "premium",
+      canImportPlaylists: hasImportScopes(account.scope),
     };
   },
 });
@@ -132,6 +135,15 @@ export const getMyAccountInternal = internalQuery({
 export const getAccount = internalQuery({
   args: { accountId: v.id("spotifyAccounts") },
   handler: async (ctx, args) => await ctx.db.get(args.accountId),
+});
+
+export const getAccountByUser = internalQuery({
+  args: { userId: v.id("users") },
+  handler: async (ctx, args) =>
+    await ctx.db
+      .query("spotifyAccounts")
+      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .unique(),
 });
 
 export const createOauthState = internalMutation({

@@ -1,8 +1,15 @@
-import { Authenticated, Unauthenticated, useQuery } from "convex/react";
+import { useCallback, useEffect, useMemo } from "react";
+import {
+  Authenticated,
+  Unauthenticated,
+  usePaginatedQuery,
+  useQuery,
+} from "convex/react";
 import { HeartFilledIcon } from "@radix-ui/react-icons";
 import { Link } from "react-router-dom";
 import { api } from "@convex/_generated/api";
 import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
+import { VirtualTrackList } from "@/components/library/VirtualTrackList";
 import {
   useMusicPlayer,
   type MusicQueueTrack,
@@ -12,6 +19,8 @@ import { Button } from "@/components/ui/button";
 import { useLikeTrack } from "@/hooks/useLikeTrack";
 import { formatTrackDuration } from "@/lib/spotify";
 import { cn } from "@/lib/utils";
+
+const PAGE_SIZE = 100;
 
 export function LikedSongsPage() {
   return (
@@ -49,12 +58,44 @@ export function LikedSongsPage() {
 }
 
 function LikedSongsList() {
-  const liked = useQuery(api.likedSongs.list);
+  const likedCount = useQuery(api.likedSongs.count);
+  const { results, status, loadMore } = usePaginatedQuery(
+    api.likedSongs.listPage,
+    {},
+    { initialNumItems: PAGE_SIZE },
+  );
   const musicPlayer = useMusicPlayer();
   const likeTrack = useLikeTrack();
   const activeTrackId = musicPlayer.current?.id;
 
-  if (liked === undefined) {
+  useEffect(() => {
+    if (status === "CanLoadMore") {
+      loadMore(PAGE_SIZE);
+    }
+  }, [status, loadMore]);
+
+  const queue: MusicQueueTrack[] = useMemo(
+    () =>
+      results.map((track) => ({
+        id: track.id,
+        title: track.title,
+        artists: track.artists,
+        artistIds: track.artistIds,
+        albumName: track.albumName,
+        albumId: track.albumId,
+        imageUrl: track.imageUrl,
+        durationMs: track.durationMs,
+      })),
+    [results],
+  );
+
+  const handleNearEnd = useCallback(() => {
+    if (status === "CanLoadMore") {
+      loadMore(PAGE_SIZE);
+    }
+  }, [status, loadMore]);
+
+  if (status === "LoadingFirstPage" || likedCount === undefined) {
     return (
       <div className="px-4 md:px-12">
         <p className="text-sm text-zinc-500">Loading liked songs…</p>
@@ -62,38 +103,36 @@ function LikedSongsList() {
     );
   }
 
-  if (liked.length === 0) {
+  if (likedCount === 0) {
     return (
       <div className="mx-4 rounded-lg border border-zinc-800 bg-zinc-900/50 p-8 text-center md:mx-12">
-          <p className="mb-2 text-zinc-300">No liked songs yet.</p>
-          <p className="mb-4 text-sm text-zinc-500">
-            Swipe left on any song to add it here.
-          </p>
+        <p className="mb-2 text-zinc-300">No liked songs yet.</p>
+        <p className="mb-4 text-sm text-zinc-500">
+          Swipe left on any song to add it here, or import Liked Songs from Spotify
+          in My Library.
+        </p>
         <Button asChild variant="outline" className="border-zinc-600">
-          <Link to="/music">Browse music</Link>
+          <Link to="/music/library">My Library</Link>
         </Button>
       </div>
     );
   }
 
-  const queue: MusicQueueTrack[] = liked.map((track) => ({
-    id: track.id,
-    title: track.title,
-    artists: track.artists,
-    artistIds: track.artistIds,
-    albumName: track.albumName,
-    albumId: track.albumId,
-    imageUrl: track.imageUrl,
-    durationMs: track.durationMs,
-  }));
+  const loadingMore = status === "LoadingMore" || status === "CanLoadMore";
 
   return (
     <section>
       <p className="mb-4 px-4 text-sm text-zinc-400 md:px-12">
-        {liked.length} {liked.length === 1 ? "song" : "songs"}
+        {likedCount.toLocaleString()} {likedCount === 1 ? "song" : "songs"}
+        {loadingMore && results.length < likedCount
+          ? ` · loaded ${results.length.toLocaleString()}`
+          : ""}
       </p>
-      <div className="divide-y divide-zinc-900">
-        {liked.map((track, index) => {
+      <VirtualTrackList
+        items={results}
+        onNearEnd={handleNearEnd}
+        getItemKey={(track) => track._id}
+        renderRow={(track, index) => {
           const queueTrack = queue[index];
           if (!queueTrack) {
             return null;
@@ -101,14 +140,13 @@ function LikedSongsList() {
           const isActive = activeTrackId === track.id;
           return (
             <SwipeableTrackRow
-              key={track._id}
               onPlay={() => musicPlayer.playTrack(queueTrack, queue)}
               onAddToQueue={() => musicPlayer.addToQueue(queueTrack)}
               onLike={() => void likeTrack(queueTrack)}
             >
               <div
                 className={cn(
-                  "flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-zinc-900/80 md:px-12",
+                  "flex h-16 w-full items-center gap-3 px-4 text-left transition-colors hover:bg-zinc-900/80 md:px-12",
                   isActive && "bg-zinc-900 text-white",
                 )}
               >
@@ -139,8 +177,8 @@ function LikedSongsList() {
               </div>
             </SwipeableTrackRow>
           );
-        })}
-      </div>
+        }}
+      />
     </section>
   );
 }

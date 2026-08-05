@@ -76,6 +76,11 @@ export default defineSchema({
   playlists: defineTable({
     userId: v.id("users"),
     name: v.string(),
+    /** Denormalized so library list does not scan every track doc. */
+    trackCount: v.optional(v.number()),
+    coverImageUrl: v.optional(v.string()),
+    /** Set when the playlist was created via a Spotify import. */
+    spotifyPlaylistId: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_user", ["userId"]),
@@ -89,8 +94,64 @@ export default defineSchema({
     position: v.number(),
   })
     .index("by_playlist", ["playlistId"])
+    .index("by_playlist_and_position", ["playlistId", "position"])
     .index("by_playlist_and_track", ["playlistId", "id"])
     .index("by_user", ["userId"]),
+
+  /**
+   * Denormalized liked-song count so like/unlike/import can enforce the cap
+   * without scanning tens of thousands of documents.
+   */
+  userMusicStats: defineTable({
+    userId: v.id("users"),
+    likedCount: v.number(),
+    updatedAt: v.number(),
+  }).index("by_user", ["userId"]),
+
+  /** Long-running Spotify → JedFlix library import. One active job per user. */
+  spotifyImportJobs: defineTable({
+    userId: v.id("users"),
+    status: v.union(
+      v.literal("running"),
+      v.literal("completed"),
+      v.literal("failed"),
+    ),
+    totalItems: v.number(),
+    completedItems: v.number(),
+    importedTracks: v.number(),
+    skippedTracks: v.number(),
+    currentLabel: v.optional(v.string()),
+    error: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_user", ["userId"]),
+
+  /** One playlist (or Liked Songs) within an import job. */
+  spotifyImportItems: defineTable({
+    jobId: v.id("spotifyImportJobs"),
+    userId: v.id("users"),
+    kind: v.union(v.literal("liked_songs"), v.literal("playlist")),
+    spotifyPlaylistId: v.optional(v.string()),
+    name: v.string(),
+    imageUrl: v.optional(v.string()),
+    jedflixPlaylistId: v.optional(v.id("playlists")),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("running"),
+      v.literal("completed"),
+      v.literal("failed"),
+    ),
+    /** Next Spotify API offset for this item. */
+    spotifyOffset: v.number(),
+    imported: v.number(),
+    skipped: v.number(),
+    total: v.optional(v.number()),
+    /** Order within the job (0 = first). */
+    sortOrder: v.number(),
+    error: v.optional(v.string()),
+  })
+    .index("by_job", ["jobId"])
+    .index("by_job_and_status", ["jobId", "status"]),
 
   // --- Party mode -----------------------------------------------------------
 

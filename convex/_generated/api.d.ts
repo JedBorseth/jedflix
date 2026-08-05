@@ -21,6 +21,7 @@ import type * as playlists from "../playlists.js";
 import type * as reviews from "../reviews.js";
 import type * as spotify from "../spotify.js";
 import type * as spotifyApi from "../spotifyApi.js";
+import type * as spotifyImport from "../spotifyImport.js";
 import type * as userSettings from "../userSettings.js";
 import type * as users from "../users.js";
 import type * as watchHistory from "../watchHistory.js";
@@ -45,6 +46,7 @@ declare const fullApi: ApiFromModules<{
   reviews: typeof reviews;
   spotify: typeof spotify;
   spotifyApi: typeof spotifyApi;
+  spotifyImport: typeof spotifyImport;
   userSettings: typeof userSettings;
   users: typeof users;
   watchHistory: typeof watchHistory;

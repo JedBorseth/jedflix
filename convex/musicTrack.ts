@@ -23,9 +23,19 @@ export type MusicTrack = {
   durationMs: number;
 };
 
-export const MAX_LIKED_SONGS = 500;
-export const MAX_PLAYLISTS = 100;
-export const MAX_PLAYLIST_TRACKS = 500;
+/**
+ * Caps sized for Spotify library imports (10k+ tracks). Each track is its own
+ * Convex document, so storage scales; mutations always write in small batches.
+ */
+export const MAX_LIKED_SONGS = 20_000;
+export const MAX_PLAYLISTS = 200;
+export const MAX_PLAYLIST_TRACKS = 20_000;
+
+/** Spotify playlist/liked pages are 50; keep DB writes aligned. */
+export const IMPORT_TRACK_BATCH_SIZE = 50;
+
+/** Max docs deleted/updated per scheduled continuation. */
+export const LIBRARY_MUTATION_BATCH_SIZE = 100;
 
 export function normalizeTrack(track: MusicTrack): MusicTrack {
   const id = track.id.trim();

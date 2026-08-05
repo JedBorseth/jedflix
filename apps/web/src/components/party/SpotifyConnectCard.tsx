@@ -17,9 +17,9 @@ export function SpotifyConnectCard() {
       <CardHeader>
         <CardTitle>Spotify</CardTitle>
         <CardDescription className="text-zinc-400">
-          Connect a Spotify account so party mode can follow its track and sync pause/play.
-          JedFlix does not change which song Spotify is playing. Tokens are stored on the
-          backend and never sent to the browser.
+          Connect a Spotify account for party follow mode and to import playlists
+          / liked songs into JedFlix. JedFlix does not change which song Spotify is
+          playing. Tokens are stored on the backend and never sent to the browser.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">

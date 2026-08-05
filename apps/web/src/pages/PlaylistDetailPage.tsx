@@ -1,10 +1,18 @@
-import { Authenticated, Unauthenticated, useMutation, useQuery } from "convex/react";
+import { useCallback, useEffect, useMemo } from "react";
+import {
+  Authenticated,
+  Unauthenticated,
+  useMutation,
+  usePaginatedQuery,
+  useQuery,
+} from "convex/react";
 import { TrashIcon } from "@radix-ui/react-icons";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
+import { VirtualTrackList } from "@/components/library/VirtualTrackList";
 import {
   useMusicPlayer,
   type MusicQueueTrack,
@@ -14,6 +22,8 @@ import { Button } from "@/components/ui/button";
 import { useLikeTrack } from "@/hooks/useLikeTrack";
 import { formatTrackDuration } from "@/lib/spotify";
 import { cn } from "@/lib/utils";
+
+const PAGE_SIZE = 100;
 
 export function PlaylistDetailPage() {
   const { playlistId } = useParams<{ playlistId: string }>();
@@ -51,14 +61,46 @@ export function PlaylistDetailPage() {
 function PlaylistDetail({ playlistId }: { playlistId: Id<"playlists"> }) {
   const navigate = useNavigate();
   const playlist = useQuery(api.playlists.get, { playlistId });
-  const tracks = useQuery(api.playlists.listTracks, { playlistId });
+  const { results, status, loadMore } = usePaginatedQuery(
+    api.playlists.listTracksPage,
+    { playlistId },
+    { initialNumItems: PAGE_SIZE },
+  );
   const removePlaylist = useMutation(api.playlists.remove);
   const removeTrack = useMutation(api.playlists.removeTrack);
   const musicPlayer = useMusicPlayer();
   const likeTrack = useLikeTrack();
   const activeTrackId = musicPlayer.current?.id;
 
-  if (playlist === undefined || tracks === undefined) {
+  // Prefetch remaining pages in the background so play queues are complete.
+  useEffect(() => {
+    if (status === "CanLoadMore") {
+      loadMore(PAGE_SIZE);
+    }
+  }, [status, loadMore]);
+
+  const queue: MusicQueueTrack[] = useMemo(
+    () =>
+      results.map((track) => ({
+        id: track.id,
+        title: track.title,
+        artists: track.artists,
+        artistIds: track.artistIds,
+        albumName: track.albumName,
+        albumId: track.albumId,
+        imageUrl: track.imageUrl,
+        durationMs: track.durationMs,
+      })),
+    [results],
+  );
+
+  const handleNearEnd = useCallback(() => {
+    if (status === "CanLoadMore") {
+      loadMore(PAGE_SIZE);
+    }
+  }, [status, loadMore]);
+
+  if (playlist === undefined || status === "LoadingFirstPage") {
     return (
       <div className="px-4 md:px-12">
         <p className="text-sm text-zinc-500">Loading playlist…</p>
@@ -77,18 +119,8 @@ function PlaylistDetail({ playlistId }: { playlistId: Id<"playlists"> }) {
     );
   }
 
-  const queue: MusicQueueTrack[] = tracks.map((track) => ({
-    id: track.id,
-    title: track.title,
-    artists: track.artists,
-    artistIds: track.artistIds,
-    albumName: track.albumName,
-    albumId: track.albumId,
-    imageUrl: track.imageUrl,
-    durationMs: track.durationMs,
-  }));
-
-  const cover = tracks[0]?.imageUrl;
+  const cover = playlist.trackCount > 0 ? results[0]?.imageUrl : undefined;
+  const loadingMore = status === "LoadingMore" || status === "CanLoadMore";
 
   return (
     <>
@@ -106,7 +138,11 @@ function PlaylistDetail({ playlistId }: { playlistId: Id<"playlists"> }) {
           </p>
           <h1 className="truncate text-3xl font-bold tracking-tight">{playlist.name}</h1>
           <p className="mt-1 text-sm text-zinc-400">
-            {playlist.trackCount} {playlist.trackCount === 1 ? "song" : "songs"}
+            {playlist.trackCount.toLocaleString()}{" "}
+            {playlist.trackCount === 1 ? "song" : "songs"}
+            {loadingMore && results.length < playlist.trackCount
+              ? ` · loaded ${results.length.toLocaleString()}`
+              : ""}
           </p>
           <Button
             type="button"
@@ -138,7 +174,7 @@ function PlaylistDetail({ playlistId }: { playlistId: Id<"playlists"> }) {
         </div>
       </div>
 
-      {tracks.length === 0 ? (
+      {playlist.trackCount === 0 ? (
         <div className="mx-4 rounded-lg border border-zinc-800 bg-zinc-900/50 p-8 text-center md:mx-12">
           <p className="mb-2 text-zinc-300">This playlist is empty.</p>
           <p className="text-sm text-zinc-500">
@@ -146,8 +182,11 @@ function PlaylistDetail({ playlistId }: { playlistId: Id<"playlists"> }) {
           </p>
         </div>
       ) : (
-        <div className="divide-y divide-zinc-900">
-          {tracks.map((track, index) => {
+        <VirtualTrackList
+          items={results}
+          onNearEnd={handleNearEnd}
+          getItemKey={(track) => track._id}
+          renderRow={(track, index) => {
             const queueTrack = queue[index];
             if (!queueTrack) {
               return null;
@@ -155,14 +194,13 @@ function PlaylistDetail({ playlistId }: { playlistId: Id<"playlists"> }) {
             const isActive = activeTrackId === track.id;
             return (
               <SwipeableTrackRow
-                key={track._id}
                 onPlay={() => musicPlayer.playTrack(queueTrack, queue)}
                 onAddToQueue={() => musicPlayer.addToQueue(queueTrack)}
                 onLike={() => void likeTrack(queueTrack)}
               >
                 <div
                   className={cn(
-                    "flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-zinc-900/80 md:px-12",
+                    "flex h-16 w-full items-center gap-3 px-4 text-left transition-colors hover:bg-zinc-900/80 md:px-12",
                     isActive && "bg-zinc-900 text-white",
                   )}
                 >
@@ -214,8 +252,8 @@ function PlaylistDetail({ playlistId }: { playlistId: Id<"playlists"> }) {
                 </div>
               </SwipeableTrackRow>
             );
-          })}
-        </div>
+          }}
+        />
       )}
     </>
   );

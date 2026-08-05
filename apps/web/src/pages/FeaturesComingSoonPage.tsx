@@ -3,7 +3,7 @@ import { AppLink } from "@/components/layout/AppLink";
 const UPCOMING_FEATURES = [
   "Better home page data",
   "Improved searching UI",
-  "Full Spotify bidirectional sync",
+  "Spotify bidirectional sync (export + live updates)",
   "And more",
 ] as const;
 

@@ -15,14 +15,29 @@ const API_BASE = "https://api.spotify.com/v1";
  * and resume the active Spotify player. Track selection and seeking stay
  * Spotify-owned — we never start a different song or seek.
  * `user-read-private` labels the linked account in the UI.
+ * Library scopes power playlist / liked-songs import into JedFlix.
  */
+export const SPOTIFY_IMPORT_SCOPES = [
+  "playlist-read-private",
+  "playlist-read-collaborative",
+  "user-library-read",
+] as const;
+
 export const SPOTIFY_SCOPES = [
   "user-read-private",
   "user-read-playback-state",
   "user-read-currently-playing",
   "user-modify-playback-state",
+  ...SPOTIFY_IMPORT_SCOPES,
 ].join(" ");
 
+export function hasImportScopes(scope: string | undefined | null): boolean {
+  if (!scope) {
+    return false;
+  }
+  const granted = new Set(scope.split(/\s+/).filter(Boolean));
+  return SPOTIFY_IMPORT_SCOPES.every((needed) => granted.has(needed));
+}
 export type SpotifyTokens = {
   accessToken: string;
   refreshToken: string | null;
@@ -252,4 +267,156 @@ export function describeSpotifyError(error: unknown): string {
     return error.message;
   }
   return error instanceof Error ? error.message : "Unknown Spotify error";
+}
+
+// --- Library import helpers -------------------------------------------------
+
+export type SpotifyPlaylistSummary = {
+  id: string;
+  name: string;
+  imageUrl: string | null;
+  trackCount: number;
+  ownerName: string | null;
+  isOwner: boolean;
+};
+
+export type SpotifyTrackPage = {
+  items: unknown[];
+  total: number;
+  nextOffset: number | null;
+};
+
+type SpotifyPaging<T> = {
+  items?: T[];
+  total?: number;
+  next?: string | null;
+  limit?: number;
+  offset?: number;
+};
+
+function imageFromImages(images: unknown): string | null {
+  if (!Array.isArray(images)) {
+    return null;
+  }
+  for (const image of images) {
+    if (typeof image !== "object" || image === null) {
+      continue;
+    }
+    const url = (image as { url?: unknown }).url;
+    if (typeof url === "string" && url.length > 0) {
+      return url;
+    }
+  }
+  return null;
+}
+
+/** Lists playlists the linked user can read (owned + followed). */
+export async function listUserPlaylists(
+  accessToken: string,
+  options?: { limit?: number; offset?: number },
+): Promise<{ items: SpotifyPlaylistSummary[]; total: number; nextOffset: number | null }> {
+  const limit = Math.min(50, Math.max(1, options?.limit ?? 50));
+  const offset = Math.max(0, options?.offset ?? 0);
+  const response = await apiFetch(
+    accessToken,
+    `/me/playlists?limit=${limit}&offset=${offset}`,
+  );
+  if (!response.ok) {
+    throw new SpotifyApiError(response.status, await readError(response));
+  }
+  const body = (await response.json()) as SpotifyPaging<{
+    id?: string;
+    name?: string;
+    images?: unknown;
+    tracks?: { total?: number } | null;
+    owner?: { id?: string; display_name?: string | null } | null;
+  }> & { href?: string };
+
+  const items: SpotifyPlaylistSummary[] = [];
+  for (const raw of body.items ?? []) {
+    if (!raw?.id || !raw.name) {
+      continue;
+    }
+    items.push({
+      id: raw.id,
+      name: raw.name,
+      imageUrl: imageFromImages(raw.images),
+      trackCount: raw.tracks?.total ?? 0,
+      ownerName: raw.owner?.display_name ?? raw.owner?.id ?? null,
+      isOwner: false,
+    });
+  }
+
+  const total = body.total ?? items.length;
+  const nextOffset =
+    body.next || offset + items.length < total ? offset + items.length : null;
+
+  return { items, total, nextOffset };
+}
+
+/** One page of tracks from a playlist (limit ≤ 50). */
+export async function getPlaylistTracksPage(
+  accessToken: string,
+  playlistId: string,
+  offset: number,
+  limit = 50,
+): Promise<SpotifyTrackPage> {
+  const safeLimit = Math.min(50, Math.max(1, limit));
+  const safeOffset = Math.max(0, offset);
+  const fields =
+    "total,next,offset,limit,items(track(id,name,duration_ms,artists(id,name),album(id,name,images)))";
+  const response = await apiFetch(
+    accessToken,
+    `/playlists/${encodeURIComponent(playlistId)}/tracks?limit=${safeLimit}&offset=${safeOffset}&fields=${encodeURIComponent(fields)}`,
+  );
+  if (!response.ok) {
+    throw new SpotifyApiError(response.status, await readError(response));
+  }
+  const body = (await response.json()) as SpotifyPaging<{ track?: unknown | null }>;
+  const items = (body.items ?? [])
+    .map((entry) => entry.track)
+    .filter((track) => track !== null && track !== undefined);
+
+  const total = body.total ?? items.length;
+  const nextOffset =
+    body.next || safeOffset + (body.items?.length ?? 0) < total
+      ? safeOffset + (body.items?.length ?? 0)
+      : null;
+
+  return { items, total, nextOffset };
+}
+
+/** One page of the user's Liked Songs (Saved Tracks). */
+export async function getLikedTracksPage(
+  accessToken: string,
+  offset: number,
+  limit = 50,
+): Promise<SpotifyTrackPage> {
+  const safeLimit = Math.min(50, Math.max(1, limit));
+  const safeOffset = Math.max(0, offset);
+  const response = await apiFetch(
+    accessToken,
+    `/me/tracks?limit=${safeLimit}&offset=${safeOffset}`,
+  );
+  if (!response.ok) {
+    throw new SpotifyApiError(response.status, await readError(response));
+  }
+  const body = (await response.json()) as SpotifyPaging<{ track?: unknown | null }>;
+  const items = (body.items ?? [])
+    .map((entry) => entry.track)
+    .filter((track) => track !== null && track !== undefined);
+
+  const total = body.total ?? items.length;
+  const nextOffset =
+    body.next || safeOffset + (body.items?.length ?? 0) < total
+      ? safeOffset + (body.items?.length ?? 0)
+      : null;
+
+  return { items, total, nextOffset };
+}
+
+/** Total liked-song count without fetching every page. */
+export async function getLikedTracksTotal(accessToken: string): Promise<number> {
+  const page = await getLikedTracksPage(accessToken, 0, 1);
+  return page.total;
 }

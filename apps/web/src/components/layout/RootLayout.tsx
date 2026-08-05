@@ -1,6 +1,8 @@
 import { Outlet, useLocation } from "react-router-dom";
+import { Toaster } from "sonner";
 import { OnboardingGate } from "@/components/onboarding/OnboardingGate";
 import { ScreenKeepAwake } from "@/components/ScreenKeepAwake";
+import { SpotifyImportProgress } from "@/components/library/SpotifyImportProgress";
 import { MobileBottomNav } from "@/components/layout/MobileBottomNav";
 import { Navbar } from "@/components/layout/Navbar";
 import { ScrollToTopOnNavigate } from "@/components/layout/ScrollToTopOnNavigate";
@@ -59,6 +61,8 @@ export function RootLayout() {
             {showBottomNav ? <MobileBottomNav /> : null}
           </div>
           <PartyPanel />
+          <SpotifyImportProgress />
+          <Toaster theme="dark" position="bottom-right" richColors closeButton />
         </OnboardingGate>
       </PartyProvider>
     </MusicPlayerProvider>

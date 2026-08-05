@@ -5,10 +5,11 @@ import {
   useMutation,
   useQuery,
 } from "convex/react";
-import { PlusIcon, StackIcon } from "@radix-ui/react-icons";
+import { DownloadIcon, PlusIcon, StackIcon } from "@radix-ui/react-icons";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
+import { ImportPlaylistDialog } from "@/components/library/ImportPlaylistDialog";
 import { AppLink } from "@/components/layout/AppLink";
 import { Button } from "@/components/ui/button";
 import {
@@ -53,6 +54,7 @@ function LibraryPlaylists() {
   const playlists = useQuery(api.playlists.list);
   const createPlaylist = useMutation(api.playlists.create);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -80,7 +82,7 @@ function LibraryPlaylists() {
 
   return (
     <>
-      <div className="mb-6">
+      <div className="mb-6 flex flex-wrap gap-2">
         <Button
           type="button"
           className="bg-red-600 hover:bg-red-700"
@@ -88,6 +90,15 @@ function LibraryPlaylists() {
         >
           <PlusIcon className="mr-2 h-4 w-4" />
           Create playlist
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          className="border-zinc-700 text-zinc-200 hover:bg-zinc-900 hover:text-white"
+          onClick={() => setImportOpen(true)}
+        >
+          <DownloadIcon className="mr-2 h-4 w-4" />
+          Import from Spotify
         </Button>
       </div>
 
@@ -97,9 +108,18 @@ function LibraryPlaylists() {
         <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-8 text-center">
           <StackIcon className="mx-auto mb-3 h-8 w-8 text-zinc-500" />
           <p className="mb-2 text-zinc-300">No playlists yet</p>
-          <p className="text-sm text-zinc-500">
-            Create a playlist, then add songs from the fullscreen player.
+          <p className="mb-4 text-sm text-zinc-500">
+            Create a playlist, or import your Spotify library.
           </p>
+          <Button
+            type="button"
+            variant="outline"
+            className="border-zinc-600"
+            onClick={() => setImportOpen(true)}
+          >
+            <DownloadIcon className="mr-2 h-4 w-4" />
+            Import from Spotify
+          </Button>
         </div>
       ) : (
         <ul className="divide-y divide-zinc-900">
@@ -123,7 +143,7 @@ function LibraryPlaylists() {
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium text-white">{playlist.name}</p>
                   <p className="truncate text-sm text-zinc-500">
-                    {playlist.trackCount}{" "}
+                    {playlist.trackCount.toLocaleString()}{" "}
                     {playlist.trackCount === 1 ? "song" : "songs"}
                   </p>
                 </div>
@@ -176,6 +196,8 @@ function LibraryPlaylists() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ImportPlaylistDialog open={importOpen} onOpenChange={setImportOpen} />
     </>
   );
 }
