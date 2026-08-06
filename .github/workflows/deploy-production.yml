@@ -6,6 +6,7 @@ on:
       - main
   workflow_dispatch:
 
+# Prefer a fresh runner if GitHub fails to acquire one for a long time.
 concurrency:
   group: production-deploy
   cancel-in-progress: true
@@ -13,6 +14,7 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -29,6 +31,7 @@ jobs:
   deploy:
     needs: test
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     environment: production
     steps:
       - name: Checkout
