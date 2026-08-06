@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Authenticated,
   Unauthenticated,
@@ -127,13 +127,9 @@ function PlaylistDetail({ playlistId }: { playlistId: Id<"playlists"> }) {
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameValue, setRenameValue] = useState("");
   const [renameBusy, setRenameBusy] = useState(false);
-
-  // Prefetch remaining pages in the background so play queues are complete.
-  useEffect(() => {
-    if (status === "CanLoadMore") {
-      loadMore(PAGE_SIZE);
-    }
-  }, [status, loadMore]);
+  /** Active playTrack generation — used to append pages without clobbering a newer session. */
+  const queueSessionRef = useRef<number | null>(null);
+  const pendingShufflePlayRef = useRef(false);
 
   const sortedTracks = useMemo(
     () => sortPlaylistTracks(results, sortBy),
@@ -155,6 +151,45 @@ function PlaylistDetail({ playlistId }: { playlistId: Id<"playlists"> }) {
     [sortedTracks],
   );
 
+  // While a playlist is playing (or shuffle is waiting), keep pulling pages into the queue.
+  useEffect(() => {
+    const needsPages =
+      queueSessionRef.current !== null || pendingShufflePlayRef.current;
+    if (!needsPages || status !== "CanLoadMore") {
+      return;
+    }
+    loadMore(PAGE_SIZE);
+  }, [status, loadMore, results.length]);
+
+  // Finish a deferred shuffle once every page is loaded.
+  useEffect(() => {
+    if (!pendingShufflePlayRef.current) {
+      return;
+    }
+    if (status === "CanLoadMore" || status === "LoadingMore") {
+      return;
+    }
+    pendingShufflePlayRef.current = false;
+    if (queue.length === 0) {
+      return;
+    }
+    const shuffled = shuffleItems(queue);
+    const start = shuffled[0];
+    if (!start) {
+      return;
+    }
+    queueSessionRef.current = musicPlayer.playTrack(start, shuffled);
+  }, [musicPlayer, queue, status]);
+
+  // Extend the player queue as Convex pagination delivers more tracks.
+  useEffect(() => {
+    const session = queueSessionRef.current;
+    if (session === null || shuffle) {
+      return;
+    }
+    musicPlayer.extendQueueFromSource(queue, session);
+  }, [musicPlayer, queue, shuffle]);
+
   const handleNearEnd = useCallback(() => {
     if (status === "CanLoadMore") {
       loadMore(PAGE_SIZE);
@@ -167,21 +202,32 @@ function PlaylistDetail({ playlistId }: { playlistId: Id<"playlists"> }) {
         return;
       }
       if (shuffle) {
+        if (status === "CanLoadMore" || status === "LoadingMore") {
+          pendingShufflePlayRef.current = true;
+          toast.message("Loading playlist for shuffle…");
+          if (status === "CanLoadMore") {
+            loadMore(PAGE_SIZE);
+          }
+          return;
+        }
         const shuffled = shuffleItems(queue);
         const start = shuffled[0];
         if (!start) {
           return;
         }
-        musicPlayer.playTrack(start, shuffled);
+        queueSessionRef.current = musicPlayer.playTrack(start, shuffled);
         return;
       }
       const start = queue[Math.min(Math.max(startIndex, 0), queue.length - 1)];
       if (!start) {
         return;
       }
-      musicPlayer.playTrack(start, queue);
+      queueSessionRef.current = musicPlayer.playTrack(start, queue);
+      if (status === "CanLoadMore") {
+        loadMore(PAGE_SIZE);
+      }
     },
-    [musicPlayer, queue, shuffle],
+    [loadMore, musicPlayer, queue, shuffle, status],
   );
 
   const openRename = useCallback(() => {
@@ -409,12 +455,21 @@ function PlaylistDetail({ playlistId }: { playlistId: Id<"playlists"> }) {
                 onPlay={() => {
                   if (shuffle) {
                     const rest = shuffleItems(
-                      queue.filter((track) => track.id !== queueTrack.id),
+                      queue.filter((item) => item.id !== queueTrack.id),
                     );
-                    musicPlayer.playTrack(queueTrack, [queueTrack, ...rest]);
+                    queueSessionRef.current = musicPlayer.playTrack(
+                      queueTrack,
+                      [queueTrack, ...rest],
+                    );
                     return;
                   }
-                  musicPlayer.playTrack(queueTrack, queue);
+                  queueSessionRef.current = musicPlayer.playTrack(
+                    queueTrack,
+                    queue,
+                  );
+                  if (status === "CanLoadMore") {
+                    loadMore(PAGE_SIZE);
+                  }
                 }}
                 onAddToQueue={() => musicPlayer.addToQueue(queueTrack)}
                 onLike={() => void likeTrack(queueTrack)}

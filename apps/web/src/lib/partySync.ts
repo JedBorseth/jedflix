@@ -106,5 +106,12 @@ function pushDecision(local: PartySnapshot): PartySyncDecision {
 
 /** Stable identity for a queue, so it is only re-uploaded when it changes. */
 export function queueSignature(trackIds: string[]): string {
-  return trackIds.join("|");
+  if (trackIds.length <= 32) {
+    return trackIds.join("|");
+  }
+  // Avoid building multi-kilobyte strings for 1000+ song queues on every sync tick.
+  const head = trackIds.slice(0, 8).join("|");
+  const mid = trackIds[Math.floor(trackIds.length / 2)] ?? "";
+  const tail = trackIds.slice(-8).join("|");
+  return `${trackIds.length}:${head}:${mid}:${tail}`;
 }

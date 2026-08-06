@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
   Authenticated,
   Unauthenticated,
@@ -67,12 +67,7 @@ function LikedSongsList() {
   const musicPlayer = useMusicPlayer();
   const likeTrack = useLikeTrack();
   const activeTrackId = musicPlayer.current?.id;
-
-  useEffect(() => {
-    if (status === "CanLoadMore") {
-      loadMore(PAGE_SIZE);
-    }
-  }, [status, loadMore]);
+  const queueSessionRef = useRef<number | null>(null);
 
   const queue: MusicQueueTrack[] = useMemo(
     () =>
@@ -89,11 +84,37 @@ function LikedSongsList() {
     [results],
   );
 
+  // After play starts, keep paginating and grow the queue without reloading the page.
+  useEffect(() => {
+    if (queueSessionRef.current === null || status !== "CanLoadMore") {
+      return;
+    }
+    loadMore(PAGE_SIZE);
+  }, [status, loadMore, results.length]);
+
+  useEffect(() => {
+    const session = queueSessionRef.current;
+    if (session === null) {
+      return;
+    }
+    musicPlayer.extendQueueFromSource(queue, session);
+  }, [musicPlayer, queue]);
+
   const handleNearEnd = useCallback(() => {
     if (status === "CanLoadMore") {
       loadMore(PAGE_SIZE);
     }
   }, [status, loadMore]);
+
+  const playFromIndex = useCallback(
+    (queueTrack: MusicQueueTrack) => {
+      queueSessionRef.current = musicPlayer.playTrack(queueTrack, queue);
+      if (status === "CanLoadMore") {
+        loadMore(PAGE_SIZE);
+      }
+    },
+    [loadMore, musicPlayer, queue, status],
+  );
 
   if (status === "LoadingFirstPage" || likedCount === undefined) {
     return (
@@ -140,7 +161,7 @@ function LikedSongsList() {
           const isActive = activeTrackId === track.id;
           return (
             <SwipeableTrackRow
-              onPlay={() => musicPlayer.playTrack(queueTrack, queue)}
+              onPlay={() => playFromIndex(queueTrack)}
               onAddToQueue={() => musicPlayer.addToQueue(queueTrack)}
               onLike={() => void likeTrack(queueTrack)}
             >
@@ -156,22 +177,24 @@ function LikedSongsList() {
                 <ProgressiveCoverImage
                   src={track.imageUrl}
                   alt=""
+                  loading="lazy"
+                  decoding="async"
                   className="h-10 w-10 shrink-0 rounded object-cover"
                 />
                 <div className="min-w-0 flex-1">
                   <p
                     className={cn(
-                      "truncate text-sm",
+                      "truncate text-sm font-medium",
                       isActive ? "text-red-400" : "text-white",
                     )}
                   >
                     {track.title}
                   </p>
-                  <p className="truncate text-xs text-zinc-500">
-                    {track.artists.join(", ") || track.albumName}
+                  <p className="truncate text-xs text-zinc-400">
+                    {track.artists.filter(Boolean).join(", ")}
                   </p>
                 </div>
-                <span className="shrink-0 text-xs text-zinc-500">
+                <span className="shrink-0 text-xs tabular-nums text-zinc-500">
                   {formatTrackDuration(track.durationMs)}
                 </span>
               </div>

@@ -13,6 +13,11 @@ import { useMediaSession } from "@/hooks/useMediaSession";
 import { resolveStreamServerAudioError } from "@/components/player/shared/playbackErrors";
 import { playMediaElement } from "@/lib/mediaSession";
 import { remapIndexAfterReorder, reorderItems } from "@/lib/musicQueue";
+import {
+  planQueueSourceSync,
+  stripQueueArtwork,
+  withCachedArtwork,
+} from "@/lib/musicQueueArtwork";
 import { getYoutubeAudioUrl, type TrackItem } from "@/lib/spotify";
 import { recordRecentlyPlayedMusic } from "@/lib/recentlyPlayedMusic";
 import {
@@ -44,7 +49,11 @@ type MusicPlayerContextValue = {
   currentTime: number;
   duration: number;
   error: string | null;
-  playTrack: (track: MusicQueueTrack, queue?: MusicQueueTrack[]) => void;
+  /**
+   * Start playback. Returns a generation token so playlist pages can append
+   * later pages without clobbering a newer play session.
+   */
+  playTrack: (track: MusicQueueTrack, queue?: MusicQueueTrack[]) => number;
   playAlbumTracks: (
     tracks: TrackItem[],
     album: {
@@ -58,6 +67,11 @@ type MusicPlayerContextValue = {
   ) => void;
   playQueueIndex: (index: number) => void;
   addToQueue: (track: MusicQueueTrack) => void;
+  /**
+   * When a playlist is still paginating, replace the queue with `next` only if
+   * `generation` matches this session and the user has not manually edited the queue.
+   */
+  extendQueueFromSource: (next: MusicQueueTrack[], generation: number) => void;
   reorderQueue: (fromIndex: number, toIndex: number) => void;
   removeFromQueue: (index: number) => void;
   /** Drop every track after the one currently playing. */
@@ -118,6 +132,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const playIntentRef = useRef(false);
   const loadGenerationRef = useRef(0);
+  /** Bumped on every playTrack / clear so stale playlist pagination cannot append. */
+  const queueSessionRef = useRef(0);
+  /** Once the user reorders/removes/adds, stop auto-syncing from the playlist source. */
+  const queueDirtyRef = useRef(false);
   const prefetchedIdsRef = useRef<Set<string>>(new Set());
   /** Trusted catalog duration (seconds). Prefer over flaky stream metadata. */
   const catalogDurationSecRef = useRef(0);
@@ -132,8 +150,15 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const queueIndexRef = useRef(0);
+  queueIndexRef.current = queueIndex;
+  const queueRef = useRef(queue);
+  queueRef.current = queue;
 
-  const current = queue[queueIndex] ?? null;
+  const current = useMemo(() => {
+    const track = queue[queueIndex] ?? null;
+    return track ? withCachedArtwork(track) : null;
+  }, [queue, queueIndex]);
 
   const applyPlayResult = useCallback(
     (audio: HTMLAudioElement, generation: number, result: Awaited<ReturnType<typeof playMediaElement>>) => {
@@ -186,32 +211,33 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       if (!audio) {
         return;
       }
+      const playable = withCachedArtwork(track);
       const generation = ++loadGenerationRef.current;
       recordRecentlyPlayedMusic({
-        id: track.id,
-        title: track.title,
-        artists: track.artists,
-        artistIds: track.artistIds,
-        albumName: track.albumName,
-        albumId: track.albumId,
-        imageUrl: track.imageUrl,
-        durationMs: track.durationMs,
+        id: playable.id,
+        title: playable.title,
+        artists: playable.artists,
+        artistIds: playable.artistIds,
+        albumName: playable.albumName,
+        albumId: playable.albumId,
+        imageUrl: playable.imageUrl,
+        durationMs: playable.durationMs,
       });
       const videoId =
-        track.youtubeVideoId ||
-        (track.id.startsWith("yt:") ? track.id.slice(3) : undefined);
+        playable.youtubeVideoId ||
+        (playable.id.startsWith("yt:") ? playable.id.slice(3) : undefined);
       const src = getYoutubeAudioUrl({
-        artist: artistLabel(track.artists),
-        title: track.title,
-        album: track.albumName,
-        durationMs: track.durationMs > 0 ? track.durationMs : undefined,
+        artist: artistLabel(playable.artists),
+        title: playable.title,
+        album: playable.albumName,
+        durationMs: playable.durationMs > 0 ? playable.durationMs : undefined,
         videoId,
       });
       playIntentRef.current = true;
       setLoading(true);
       setError(null);
       setCurrentTime(0);
-      const catalogSec = track.durationMs > 0 ? track.durationMs / 1000 : 0;
+      const catalogSec = playable.durationMs > 0 ? playable.durationMs / 1000 : 0;
       catalogDurationSecRef.current = catalogSec;
       catalogEndedRef.current = false;
       setDuration(catalogSec);
@@ -236,13 +262,43 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         list = [track, ...list.filter((item) => item.id !== track.id)];
         index = 0;
       }
+      const session = ++queueSessionRef.current;
+      queueDirtyRef.current = false;
       prefetchedIdsRef.current = new Set([track.id]);
-      setQueue(list);
+      setQueue(stripQueueArtwork(list, index));
       setQueueIndex(index);
       setQueueOpen(false);
       loadAndPlay(list[index] ?? track, { immediatePlay: true });
+      return session;
     },
     [loadAndPlay],
+  );
+
+  const extendQueueFromSource = useCallback(
+    (next: MusicQueueTrack[], generation: number) => {
+      if (
+        generation !== queueSessionRef.current ||
+        queueDirtyRef.current ||
+        next.length === 0
+      ) {
+        return;
+      }
+      const prev = queueRef.current;
+      const currentId = prev[queueIndexRef.current]?.id ?? null;
+      const planned = planQueueSourceSync({
+        prev,
+        next,
+        currentId,
+      });
+      if (!planned) {
+        return;
+      }
+      setQueue(stripQueueArtwork(planned.queue, planned.queueIndex));
+      if (planned.queueIndex !== queueIndexRef.current) {
+        setQueueIndex(planned.queueIndex);
+      }
+    },
+    [],
   );
 
   const playAlbumTracks = useCallback(
@@ -266,8 +322,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       if (!startTrack) {
         return;
       }
+      queueSessionRef.current += 1;
+      queueDirtyRef.current = false;
       prefetchedIdsRef.current = new Set([startTrack.id]);
-      setQueue(list);
+      setQueue(stripQueueArtwork(list, index));
       setQueueIndex(index);
       setQueueOpen(false);
       loadAndPlay(startTrack, { immediatePlay: true });
@@ -282,6 +340,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         return;
       }
       setQueueIndex(index);
+      setQueue((prev) => stripQueueArtwork(prev, index));
       loadAndPlay(track, { immediatePlay: true });
     },
     [loadAndPlay, queue],
@@ -293,12 +352,14 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         playTrack(track);
         return;
       }
+      queueDirtyRef.current = true;
       setQueue((prev) => [...prev, track]);
     },
     [playTrack, queue.length],
   );
 
   const reorderQueue = useCallback((fromIndex: number, toIndex: number) => {
+    queueDirtyRef.current = true;
     setQueue((prev) => reorderItems(prev, fromIndex, toIndex));
     setQueueIndex((currentIndex) =>
       remapIndexAfterReorder(currentIndex, fromIndex, toIndex),
@@ -310,6 +371,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       if (index < 0 || index >= queue.length) {
         return;
       }
+      queueDirtyRef.current = true;
       if (queue.length === 1) {
         playIntentRef.current = false;
         loadGenerationRef.current += 1;
@@ -349,6 +411,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   );
 
   const clearUpcoming = useCallback(() => {
+    queueDirtyRef.current = true;
     setQueue((prev) => {
       if (prev.length === 0) {
         return prev;
@@ -401,6 +464,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       return;
     }
     setQueueIndex(index);
+    setQueue((prev) => stripQueueArtwork(prev, index));
     // immediatePlay keeps iOS Media Session / Control Center activation.
     loadAndPlay(track, { immediatePlay: true });
   }, [loadAndPlay, queue, queueIndex]);
@@ -443,6 +507,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       return;
     }
     setQueueIndex(index);
+    setQueue((prev) => stripQueueArtwork(prev, index));
     loadAndPlay(track, { immediatePlay: true });
   }, [loadAndPlay, queue, queueIndex]);
 
@@ -473,6 +538,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     prefetchedIdsRef.current = new Set();
     catalogDurationSecRef.current = 0;
     catalogEndedRef.current = false;
+    queueSessionRef.current += 1;
+    queueDirtyRef.current = false;
     setQueue([]);
     setQueueIndex(0);
     setPlaying(false);
@@ -537,6 +604,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       playAlbumTracks,
       playQueueIndex,
       addToQueue,
+      extendQueueFromSource,
       reorderQueue,
       removeFromQueue,
       clearUpcoming,
@@ -559,6 +627,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       duration,
       error,
       expanded,
+      extendQueueFromSource,
       handleSetExpanded,
       loading,
       next,

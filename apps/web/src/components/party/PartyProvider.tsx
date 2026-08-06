@@ -17,6 +17,8 @@ import {
 } from "@/lib/partySync";
 
 const HEARTBEAT_INTERVAL_MS = 20_000;
+/** Match Convex partyModel.MAX_PARTY_QUEUE — never upload a 1000+ local queue. */
+const MAX_PARTY_QUEUE = 100;
 
 function toPartyTrack(track: MusicQueueTrack) {
   return {
@@ -185,14 +187,18 @@ export function PartyProvider({ children }: { children: ReactNode }) {
 
     if (decision.action === "push") {
       if (local.trackId !== remote.trackId && activePlayer.current) {
-        const signature = queueSignature(activePlayer.queue.map((track) => track.id));
+        const upcoming = activePlayer.queue.slice(
+          activePlayer.queueIndex,
+          activePlayer.queueIndex + MAX_PARTY_QUEUE,
+        );
+        const signature = queueSignature(upcoming.map((track) => track.id));
         const queueChanged = signature !== queueSignatureRef.current;
         queueSignatureRef.current = signature;
         void setTrack({
           clientId,
           track: toPartyTrack(activePlayer.current),
-          queueIndex: activePlayer.queueIndex,
-          queue: queueChanged ? activePlayer.queue.map(toPartyTrack) : undefined,
+          queueIndex: 0,
+          queue: queueChanged ? upcoming.map(toPartyTrack) : undefined,
         }).catch(() => undefined);
       } else if (failedTrack) {
         // Our YouTube stream failed — do not pause the whole party / Spotify.

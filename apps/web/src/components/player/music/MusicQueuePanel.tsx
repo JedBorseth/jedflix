@@ -1,4 +1,5 @@
 import { DragHandleDots2Icon, Cross2Icon } from "@radix-ui/react-icons";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { useDrag } from "@use-gesture/react";
 import { useRef, useState } from "react";
 import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
@@ -6,6 +7,7 @@ import {
   useMusicPlayer,
   type MusicQueueTrack,
 } from "@/components/player/music/MusicPlayerContext";
+import { artworkForTrack } from "@/lib/musicQueueArtwork";
 import { formatTrackDuration } from "@/lib/spotify";
 import { dropIndexFromDrag } from "@/lib/musicQueue";
 import { cn } from "@/lib/utils";
@@ -40,6 +42,7 @@ function QueueRow({
   onRemove,
 }: QueueRowProps) {
   const artist = track.artists.filter(Boolean).join(", ");
+  const imageUrl = track.imageUrl || artworkForTrack(track.id);
 
   const bindHandle = useDrag(
     ({ active, movement: [, my], first, last, event }) => {
@@ -89,11 +92,17 @@ function QueueRow({
         className="flex min-w-0 flex-1 items-center gap-3 text-left"
         onClick={() => onPlay(index)}
       >
-        <ProgressiveCoverImage
-          src={track.imageUrl}
-          alt=""
-          className="h-11 w-11 shrink-0 rounded object-cover"
-        />
+        {imageUrl ? (
+          <ProgressiveCoverImage
+            src={imageUrl}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            className="h-11 w-11 shrink-0 rounded object-cover"
+          />
+        ) : (
+          <div className="h-11 w-11 shrink-0 rounded bg-zinc-800" aria-hidden />
+        )}
         <div className="min-w-0 flex-1">
           <p
             className={cn(
@@ -133,7 +142,7 @@ export function MusicQueuePanel() {
     removeFromQueue,
     clearUpcoming,
   } = useMusicPlayer();
-  const listRef = useRef<HTMLUListElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const [draggingVisualIndex, setDraggingVisualIndex] = useState<number | null>(null);
   const [dragOffsetY, setDragOffsetY] = useState(0);
   const [dropVisualIndex, setDropVisualIndex] = useState<number | null>(null);
@@ -142,6 +151,13 @@ export function MusicQueuePanel() {
   // Show current + upcoming only; keep earlier tracks in queue for Previous.
   const visibleQueue = queue.slice(queueIndex);
   const visibleCount = visibleQueue.length;
+
+  const virtualizer = useVirtualizer({
+    count: visibleCount,
+    getScrollElement: () => listRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 10,
+  });
 
   const toQueueIndex = (visualIndex: number) => queueIndex + visualIndex;
 
@@ -170,6 +186,9 @@ export function MusicQueuePanel() {
   if (!queueOpen) {
     return null;
   }
+
+  const virtualItems = virtualizer.getVirtualItems();
+  const headerOffset = 48;
 
   return (
     <div className="absolute inset-0 z-30 flex flex-col justify-end">
@@ -222,51 +241,78 @@ export function MusicQueuePanel() {
         dropVisualIndex !== draggingVisualIndex ? (
           <div
             className="pointer-events-none absolute left-3 right-3 z-10 h-0.5 bg-red-500"
-            style={{ top: `${48 + dropVisualIndex * ROW_HEIGHT}px` }}
+            style={{
+              top: `${headerOffset + dropVisualIndex * ROW_HEIGHT - (listRef.current?.scrollTop ?? 0)}px`,
+            }}
             aria-hidden
           />
         ) : null}
 
-        <ul
+        <div
           ref={listRef}
-          className="overflow-y-auto overscroll-contain touch-pan-y pb-[env(safe-area-inset-bottom)]"
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain touch-pan-y pb-[env(safe-area-inset-bottom)]"
         >
-          {visibleQueue.map((track, visualIndex) => {
-            const queueIdx = toQueueIndex(visualIndex);
-            return (
-              <QueueRow
-                key={`${track.id}-${queueIdx}`}
-                track={track}
-                index={visualIndex}
-                isCurrent={visualIndex === 0}
-                isDragging={draggingVisualIndex === visualIndex}
-                dragOffsetY={draggingVisualIndex === visualIndex ? dragOffsetY : 0}
-                onDragStart={(from) => {
-                  setDraggingVisualIndex(from);
-                  setDropVisualIndex(from);
-                  setDragOffsetY(0);
-                }}
-                onDragMove={(from, movementY) => {
-                  setDragOffsetY(movementY);
-                  setDropVisualIndex(
-                    dropIndexFromDrag(from, movementY, ROW_HEIGHT, visibleCount),
-                  );
-                }}
-                onDragEnd={(from, movementY) => {
-                  const to = dropIndexFromDrag(from, movementY, ROW_HEIGHT, visibleCount);
-                  if (to !== from) {
-                    reorderQueue(toQueueIndex(from), toQueueIndex(to));
-                  }
-                  setDraggingVisualIndex(null);
-                  setDropVisualIndex(null);
-                  setDragOffsetY(0);
-                }}
-                onPlay={(from) => playQueueIndex(toQueueIndex(from))}
-                onRemove={(from) => removeFromQueue(toQueueIndex(from))}
-              />
-            );
-          })}
-        </ul>
+          <ul
+            className="relative w-full"
+            style={{ height: `${virtualizer.getTotalSize()}px` }}
+          >
+            {virtualItems.map((virtualRow) => {
+              const visualIndex = virtualRow.index;
+              const track = visibleQueue[visualIndex];
+              if (!track) {
+                return null;
+              }
+              const queueIdx = toQueueIndex(visualIndex);
+              return (
+                <div
+                  key={`${track.id}-${queueIdx}`}
+                  className="absolute left-0 top-0 w-full"
+                  style={{
+                    height: `${virtualRow.size}px`,
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                >
+                  <QueueRow
+                    track={track}
+                    index={visualIndex}
+                    isCurrent={visualIndex === 0}
+                    isDragging={draggingVisualIndex === visualIndex}
+                    dragOffsetY={
+                      draggingVisualIndex === visualIndex ? dragOffsetY : 0
+                    }
+                    onDragStart={(from) => {
+                      setDraggingVisualIndex(from);
+                      setDropVisualIndex(from);
+                      setDragOffsetY(0);
+                    }}
+                    onDragMove={(from, movementY) => {
+                      setDragOffsetY(movementY);
+                      setDropVisualIndex(
+                        dropIndexFromDrag(from, movementY, ROW_HEIGHT, visibleCount),
+                      );
+                    }}
+                    onDragEnd={(from, movementY) => {
+                      const to = dropIndexFromDrag(
+                        from,
+                        movementY,
+                        ROW_HEIGHT,
+                        visibleCount,
+                      );
+                      if (to !== from) {
+                        reorderQueue(toQueueIndex(from), toQueueIndex(to));
+                      }
+                      setDraggingVisualIndex(null);
+                      setDropVisualIndex(null);
+                      setDragOffsetY(0);
+                    }}
+                    onPlay={(from) => playQueueIndex(toQueueIndex(from))}
+                    onRemove={(from) => removeFromQueue(toQueueIndex(from))}
+                  />
+                </div>
+              );
+            })}
+          </ul>
+        </div>
       </div>
     </div>
   );
