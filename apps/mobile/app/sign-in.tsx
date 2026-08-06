@@ -27,7 +27,10 @@ export default function SignInScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Sign in to JedFlix</Text>
-      <Text style={styles.subtitle}>Sync My List, watch history, and settings across devices.</Text>
+      <Text style={styles.subtitle}>
+        Sign in with GitHub or Google to add items to your watch list, save music favourites and
+        playlists, keep progress in shows, and more.
+      </Text>
       <Pressable style={styles.button} disabled={loading !== null} onPress={() => void handleSignIn("github")}>
         <Text style={styles.buttonText}>{loading === "github" ? "Opening..." : "Continue with GitHub"}</Text>
       </Pressable>

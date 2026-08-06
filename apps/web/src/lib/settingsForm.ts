@@ -48,8 +48,7 @@ export type OnboardingStepId =
   | "realDebridApiKey"
   | "externalPlayer"
   | "letterboxdUsername"
-  | "virusWarning"
-  | "ispWarning";
+  | "warnings";
 
 export const ONBOARDING_STEPS: Array<{
   id: OnboardingStepId;
@@ -64,13 +63,13 @@ export const ONBOARDING_STEPS: Array<{
   {
     id: "deviceType",
     title: "What device are you on?",
-    description: "We will remember this preference for later features.",
+    description: "Select the device you are using now.",
   },
   {
     id: "realDebridApiKey",
     title: "Add your Real Debrid key",
     description:
-      "Needed for movies, shows, audiobooks, and games. Skip if you only want music.",
+      "Real Debrid is a premium service that unlocks instant streaming from torrent sources. JedFlix does not make any money from Real Debrid subscriptions — you can use the same account outside this app for instant torrenting. Needed for movies, shows, audiobooks, and games; skip if you only want music.",
   },
   {
     id: "contentTypes",
@@ -89,14 +88,9 @@ export const ONBOARDING_STEPS: Array<{
       "Optional — personalize your home feed with recent watches. Profile must be public and have diary entries.",
   },
   {
-    id: "virusWarning",
-    title: "Virus warning",
-    description: "Please read and accept before continuing.",
-  },
-  {
-    id: "ispWarning",
-    title: "ISP warning",
-    description: "One last acknowledgement, then you are in.",
+    id: "warnings",
+    title: "Before you continue",
+    description: "Please read and accept both acknowledgements.",
   },
 ];
 
@@ -124,10 +118,14 @@ export function validateOnboardingStep(
       return undefined;
     case "externalPlayer":
       return values.externalPlayer ? undefined : "Select a player preference.";
-    case "virusWarning":
-      return values.virusWarningAccepted ? undefined : "You must accept the virus warning.";
-    case "ispWarning":
-      return values.ispWarningAccepted ? undefined : "You must accept the ISP warning.";
+    case "warnings":
+      if (!values.virusWarningAccepted) {
+        return "You must accept the virus warning.";
+      }
+      if (!values.ispWarningAccepted) {
+        return "You must accept the ISP warning.";
+      }
+      return undefined;
     default:
       return undefined;
   }

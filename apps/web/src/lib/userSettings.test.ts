@@ -201,8 +201,21 @@ describe("settingsForm helpers", () => {
     expect(validateOnboardingStep("welcome", empty)).toBeUndefined();
     expect(validateOnboardingStep("letterboxdUsername", empty)).toBeUndefined();
     expect(validateOnboardingStep("deviceType", empty)).toBe("Select a device type.");
+    expect(validateOnboardingStep("warnings", empty)).toBe(
+      "You must accept the virus warning.",
+    );
     expect(
-      validateOnboardingStep("virusWarning", { ...empty, virusWarningAccepted: true }),
+      validateOnboardingStep("warnings", {
+        ...empty,
+        virusWarningAccepted: true,
+      }),
+    ).toBe("You must accept the ISP warning.");
+    expect(
+      validateOnboardingStep("warnings", {
+        ...empty,
+        virusWarningAccepted: true,
+        ispWarningAccepted: true,
+      }),
     ).toBeUndefined();
   });
 

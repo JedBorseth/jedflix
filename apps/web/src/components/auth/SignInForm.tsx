@@ -59,7 +59,8 @@ export function SignInForm() {
       <div className="pt-navbar mx-auto flex max-w-md flex-col gap-4 px-4 pb-16">
         <h2 className="text-3xl font-bold">Sign In</h2>
         <p className="text-zinc-400">
-          Continue with GitHub or Google to save watch progress to your list.
+          Sign in with GitHub or Google to add items to your watch list, save music
+          favourites and playlists, keep progress in shows, and more.
         </p>
 
         <div className="flex flex-col gap-3 rounded-lg border border-zinc-800 bg-zinc-900/50 p-6">
