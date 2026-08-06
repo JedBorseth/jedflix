@@ -15,6 +15,7 @@ Convex agent skills for common tasks can be installed by running
 ## Learned User Preferences
 
 - Complete tasks fully before stopping; verify fixes with tests or a running dev server when relevant (including after feature work when requested).
+- Commit and push completed work directly to `main`; do not open pull requests unless explicitly asked.
 - Do not store movie/show/book catalog data in Convex; use TMDB and Open Library for metadata and keep only user-specific data (my list, ratings, watch history).
 - When no streams pass device compatibility filters, offer an option to remove filters and show all streams.
 - Direct Real Debrid streams should not route through the Go stream-server proxy.
