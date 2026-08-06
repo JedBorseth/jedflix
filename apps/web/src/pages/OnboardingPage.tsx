@@ -64,7 +64,7 @@ export function OnboardingPage() {
         ispWarningAccepted: true,
         onboardingCompleted: true,
       });
-      void navigate("/", { replace: true });
+      void navigate("/sign-in", { replace: true });
     },
   });
 
