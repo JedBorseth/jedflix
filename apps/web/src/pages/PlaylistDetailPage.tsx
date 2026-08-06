@@ -90,7 +90,7 @@ export function PlaylistDetailPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
-      <main className="pt-navbar mx-auto max-w-6xl pb-36 md:pb-32">
+      <main className="pt-navbar mx-auto max-w-6xl pb-chrome">
         <Unauthenticated>
           <div className="mx-4 rounded-lg border border-zinc-800 bg-zinc-900/50 p-8 text-center md:mx-12">
             <p className="mb-4 text-zinc-300">Sign in to view this playlist.</p>
@@ -127,9 +127,7 @@ function PlaylistDetail({ playlistId }: { playlistId: Id<"playlists"> }) {
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameValue, setRenameValue] = useState("");
   const [renameBusy, setRenameBusy] = useState(false);
-  /** Active playTrack generation — used to append pages without clobbering a newer session. */
   const queueSessionRef = useRef<number | null>(null);
-  const pendingShufflePlayRef = useRef(false);
 
   const sortedTracks = useMemo(
     () => sortPlaylistTracks(results, sortBy),
@@ -151,37 +149,7 @@ function PlaylistDetail({ playlistId }: { playlistId: Id<"playlists"> }) {
     [sortedTracks],
   );
 
-  // While a playlist is playing (or shuffle is waiting), keep pulling pages into the queue.
-  useEffect(() => {
-    const needsPages =
-      queueSessionRef.current !== null || pendingShufflePlayRef.current;
-    if (!needsPages || status !== "CanLoadMore") {
-      return;
-    }
-    loadMore(PAGE_SIZE);
-  }, [status, loadMore, results.length]);
-
-  // Finish a deferred shuffle once every page is loaded.
-  useEffect(() => {
-    if (!pendingShufflePlayRef.current) {
-      return;
-    }
-    if (status === "CanLoadMore" || status === "LoadingMore") {
-      return;
-    }
-    pendingShufflePlayRef.current = false;
-    if (queue.length === 0) {
-      return;
-    }
-    const shuffled = shuffleItems(queue);
-    const start = shuffled[0];
-    if (!start) {
-      return;
-    }
-    queueSessionRef.current = musicPlayer.playTrack(start, shuffled);
-  }, [musicPlayer, queue, status]);
-
-  // Extend the player queue as Convex pagination delivers more tracks.
+  // Grow the player queue as the user scrolls (or near-end prefetch loads pages).
   useEffect(() => {
     const session = queueSessionRef.current;
     if (session === null || shuffle) {
@@ -189,6 +157,24 @@ function PlaylistDetail({ playlistId }: { playlistId: Id<"playlists"> }) {
     }
     musicPlayer.extendQueueFromSource(queue, session);
   }, [musicPlayer, queue, shuffle]);
+
+  // Prefetch the next page only when playback is near the end of loaded tracks.
+  useEffect(() => {
+    if (queueSessionRef.current === null || shuffle || status !== "CanLoadMore") {
+      return;
+    }
+    const remaining = musicPlayer.queue.length - musicPlayer.queueIndex;
+    if (remaining > 15) {
+      return;
+    }
+    loadMore(PAGE_SIZE);
+  }, [
+    loadMore,
+    musicPlayer.queue.length,
+    musicPlayer.queueIndex,
+    shuffle,
+    status,
+  ]);
 
   const handleNearEnd = useCallback(() => {
     if (status === "CanLoadMore") {
@@ -202,14 +188,7 @@ function PlaylistDetail({ playlistId }: { playlistId: Id<"playlists"> }) {
         return;
       }
       if (shuffle) {
-        if (status === "CanLoadMore" || status === "LoadingMore") {
-          pendingShufflePlayRef.current = true;
-          toast.message("Loading playlist for shuffle…");
-          if (status === "CanLoadMore") {
-            loadMore(PAGE_SIZE);
-          }
-          return;
-        }
+        // Shuffle the currently loaded window — don't force-load thousands first.
         const shuffled = shuffleItems(queue);
         const start = shuffled[0];
         if (!start) {
@@ -223,11 +202,8 @@ function PlaylistDetail({ playlistId }: { playlistId: Id<"playlists"> }) {
         return;
       }
       queueSessionRef.current = musicPlayer.playTrack(start, queue);
-      if (status === "CanLoadMore") {
-        loadMore(PAGE_SIZE);
-      }
     },
-    [loadMore, musicPlayer, queue, shuffle, status],
+    [musicPlayer, queue, shuffle],
   );
 
   const openRename = useCallback(() => {
@@ -302,7 +278,7 @@ function PlaylistDetail({ playlistId }: { playlistId: Id<"playlists"> }) {
 
   // Prefer position order so the cover doesn't jump when the user changes sort.
   const cover = playlist.trackCount > 0 ? results[0]?.imageUrl : undefined;
-  const loadingMore = status === "LoadingMore" || status === "CanLoadMore";
+  const loadingMore = status === "LoadingMore";
   const sortLabel =
     PLAYLIST_SORT_OPTIONS.find((option) => option.value === sortBy)?.label ??
     "Date added";
@@ -331,8 +307,8 @@ function PlaylistDetail({ playlistId }: { playlistId: Id<"playlists"> }) {
                 <p className="mt-1 text-sm text-zinc-400">
                   {playlist.trackCount.toLocaleString()}{" "}
                   {playlist.trackCount === 1 ? "song" : "songs"}
-                  {loadingMore && results.length < playlist.trackCount
-                    ? ` · loaded ${results.length.toLocaleString()}`
+                  {results.length < playlist.trackCount
+                    ? ` · showing ${results.length.toLocaleString()}${loadingMore ? "…" : ""}`
                     : ""}
                 </p>
               </div>
@@ -467,9 +443,6 @@ function PlaylistDetail({ playlistId }: { playlistId: Id<"playlists"> }) {
                     queueTrack,
                     queue,
                   );
-                  if (status === "CanLoadMore") {
-                    loadMore(PAGE_SIZE);
-                  }
                 }}
                 onAddToQueue={() => musicPlayer.addToQueue(queueTrack)}
                 onLike={() => void likeTrack(queueTrack)}

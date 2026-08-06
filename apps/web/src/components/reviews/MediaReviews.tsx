@@ -27,7 +27,7 @@ export function MediaReviews(props: MediaReviewsArgs) {
   const reviews = useQuery(api.reviews.getForMedia, args);
 
   return (
-    <section className="mx-auto max-w-6xl px-4 pb-24 md:px-12 md:pb-16">
+    <section className="mx-auto max-w-6xl px-4 pb-chrome md:px-12">
       <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold">Ratings & Reviews</h2>

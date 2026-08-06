@@ -117,7 +117,7 @@ export function MovieDetailPage({ mediaType }: MovieDetailPageProps) {
         />
         <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/80 to-black/40" />
 
-        <div className="pt-navbar relative z-10 mx-auto flex max-w-6xl flex-col gap-8 px-4 pb-16 md:flex-row md:px-12">
+        <div className="pt-navbar relative z-10 mx-auto flex max-w-6xl flex-col gap-8 px-4 pb-chrome md:flex-row md:px-12">
           <img
             ref={posterRef}
             src={displayMovie.posterUrl}

@@ -21,11 +21,13 @@ import { formatTrackDuration } from "@/lib/spotify";
 import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 100;
+/** Prefetch the next Convex page only when playback is near the end of loaded tracks. */
+const QUEUE_PREFETCH_REMAINING = 15;
 
 export function LikedSongsPage() {
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
-      <main className="pt-navbar mx-auto max-w-6xl pb-36 md:pb-32">
+      <main className="pt-navbar mx-auto max-w-6xl pb-chrome">
         <div className="px-4 md:px-12">
           <div className="mb-8 flex items-center gap-4">
             <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-rose-600 to-rose-900 md:h-24 md:w-24">
@@ -84,14 +86,7 @@ function LikedSongsList() {
     [results],
   );
 
-  // After play starts, keep paginating and grow the queue without reloading the page.
-  useEffect(() => {
-    if (queueSessionRef.current === null || status !== "CanLoadMore") {
-      return;
-    }
-    loadMore(PAGE_SIZE);
-  }, [status, loadMore, results.length]);
-
+  // Grow the player queue only as scroll / near-end prefetch delivers pages.
   useEffect(() => {
     const session = queueSessionRef.current;
     if (session === null) {
@@ -99,6 +94,24 @@ function LikedSongsList() {
     }
     musicPlayer.extendQueueFromSource(queue, session);
   }, [musicPlayer, queue]);
+
+  // While this liked-songs session is playing, fetch the next page only when
+  // the playhead is near the end of what we have loaded (not the whole library).
+  useEffect(() => {
+    if (queueSessionRef.current === null || status !== "CanLoadMore") {
+      return;
+    }
+    const remaining = musicPlayer.queue.length - musicPlayer.queueIndex;
+    if (remaining > QUEUE_PREFETCH_REMAINING) {
+      return;
+    }
+    loadMore(PAGE_SIZE);
+  }, [
+    loadMore,
+    musicPlayer.queue.length,
+    musicPlayer.queueIndex,
+    status,
+  ]);
 
   const handleNearEnd = useCallback(() => {
     if (status === "CanLoadMore") {
@@ -109,11 +122,8 @@ function LikedSongsList() {
   const playFromIndex = useCallback(
     (queueTrack: MusicQueueTrack) => {
       queueSessionRef.current = musicPlayer.playTrack(queueTrack, queue);
-      if (status === "CanLoadMore") {
-        loadMore(PAGE_SIZE);
-      }
     },
-    [loadMore, musicPlayer, queue, status],
+    [musicPlayer, queue],
   );
 
   if (status === "LoadingFirstPage" || likedCount === undefined) {
@@ -139,14 +149,12 @@ function LikedSongsList() {
     );
   }
 
-  const loadingMore = status === "LoadingMore" || status === "CanLoadMore";
-
   return (
     <section>
       <p className="mb-4 px-4 text-sm text-zinc-400 md:px-12">
         {likedCount.toLocaleString()} {likedCount === 1 ? "song" : "songs"}
-        {loadingMore && results.length < likedCount
-          ? ` · loaded ${results.length.toLocaleString()}`
+        {results.length < likedCount
+          ? ` · showing ${results.length.toLocaleString()}`
           : ""}
       </p>
       <VirtualTrackList

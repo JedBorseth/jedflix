@@ -64,7 +64,7 @@ export function AudiobooksPage() {
         <HeroBannerSkeleton />
       )}
 
-      <div className="-mt-16 relative z-10 pb-24 md:pb-16">
+      <div className="-mt-16 relative z-10 pb-chrome">
         <div className="px-4 pb-6 md:px-12">
           <h1 className="sr-only">Audiobooks</h1>
         </div>

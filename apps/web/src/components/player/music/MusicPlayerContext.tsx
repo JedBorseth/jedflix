@@ -166,8 +166,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (result.status === "error") {
+        // Keep playIntent — iOS lock-screen / background resume often fails once
+        // after a pause; callers reload the stream and retry instead of giving up.
         setError(result.error.message);
-        playIntentRef.current = false;
         setPlaying(false);
         setLoading(false);
         return;
@@ -433,15 +434,26 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     if (!audio || !current) {
       return;
     }
-    // A previous MEDIA_ERR_SRC_NOT_SUPPORTED leaves the element dead — calling
-    // play() again throws "The operation is not supported". Reload the stream.
+    playIntentRef.current = true;
+    setError(null);
+    setLoading(true);
+    // A previous MEDIA_ERR_SRC_NOT_SUPPORTED / background kill leaves the
+    // element dead — calling play() again throws. Reload the stream.
     if (audio.error || !audio.src) {
       loadAndPlay(current, { immediatePlay: true });
       return;
     }
-    playIntentRef.current = true;
     const generation = loadGenerationRef.current;
     void playMediaElement(audio).then((result) => {
+      if (generation !== loadGenerationRef.current || !playIntentRef.current) {
+        return;
+      }
+      if (result.status === "error" || (result.status === "aborted" && audio.paused)) {
+        // iOS often rejects the first play() after a lock-screen pause while the
+        // tab was frozen — reload and retry with a fresh src in the same gesture.
+        loadAndPlay(current, { immediatePlay: true });
+        return;
+      }
       applyPlayResult(audio, generation, result);
     });
   }, [applyPlayResult, current, loadAndPlay]);
@@ -453,6 +465,43 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       play();
     }
   }, [pause, play, playing]);
+
+  // After returning from background / lock screen, resume if the user still wants audio.
+  useEffect(() => {
+    const resumeIfNeeded = () => {
+      if (document.visibilityState === "hidden") {
+        return;
+      }
+      const audio = audioRef.current;
+      if (!audio || !playIntentRef.current || !current) {
+        return;
+      }
+      if (!audio.paused && !audio.error) {
+        return;
+      }
+      if (audio.error || !audio.src) {
+        loadAndPlay(current, { immediatePlay: true });
+        return;
+      }
+      const generation = loadGenerationRef.current;
+      void playMediaElement(audio).then((result) => {
+        if (!playIntentRef.current) {
+          return;
+        }
+        if (result.status === "error" || (result.status === "aborted" && audio.paused)) {
+          loadAndPlay(current, { immediatePlay: true });
+          return;
+        }
+        applyPlayResult(audio, generation, result);
+      });
+    };
+    document.addEventListener("visibilitychange", resumeIfNeeded);
+    window.addEventListener("pageshow", resumeIfNeeded);
+    return () => {
+      document.removeEventListener("visibilitychange", resumeIfNeeded);
+      window.removeEventListener("pageshow", resumeIfNeeded);
+    };
+  }, [applyPlayResult, current, loadAndPlay]);
 
   const next = useCallback(() => {
     if (queueIndex >= queue.length - 1) {
@@ -728,7 +777,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           startPlayback(audio, loadGenerationRef.current);
         }}
         onError={(event) => {
-          playIntentRef.current = false;
+          // Don't clear playIntent — lock-screen Play after a background stream
+          // kill must still be able to reload. Only intentional pause clears intent.
           setPlaying(false);
           setLoading(false);
           void resolveStreamServerAudioError(event.currentTarget).then((message) => {

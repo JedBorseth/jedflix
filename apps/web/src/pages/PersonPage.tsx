@@ -94,7 +94,7 @@ export function PersonPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
-      <main className="pt-navbar mx-auto max-w-7xl px-4 pb-16 md:px-12">
+      <main className="pt-navbar mx-auto max-w-7xl px-4 pb-chrome md:px-12">
         <div className="flex flex-col gap-8 py-8 md:flex-row md:items-start">
           <img
             src={person.profileUrl}

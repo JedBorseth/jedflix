@@ -1,7 +1,6 @@
 import { useEffect, useRef } from "react";
 import {
   artworkFromImageUrl,
-  clearMediaSession,
   clearMediaSessionActionHandlers,
   hasMediaSessionSupport,
   setMediaSessionMetadata,
@@ -169,7 +168,7 @@ export function useMediaSession({
     });
 
     return () => {
-      clearMediaSession();
+      clearMediaSessionActionHandlers();
     };
   }, [enabled, preferTrackSkip]);
 }

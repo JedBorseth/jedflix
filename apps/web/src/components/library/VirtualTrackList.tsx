@@ -2,6 +2,8 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
 const DEFAULT_ROW_HEIGHT = 64;
+/** Clears fixed mini-player + bottom nav so the last rows stay tappable. */
+const CHROME_PADDING_END = 160;
 
 type Props<T> = {
   items: T[];
@@ -24,7 +26,7 @@ export function VirtualTrackList<T>({
   onNearEnd,
   estimateSize = DEFAULT_ROW_HEIGHT,
   className,
-  heightClassName = "h-[min(70vh,720px)]",
+  heightClassName = "h-[calc(100dvh-13rem)] md:h-[min(70vh,720px)]",
   getItemKey,
   renderRow,
 }: Props<T>) {
@@ -36,6 +38,7 @@ export function VirtualTrackList<T>({
     getScrollElement: () => parentRef.current,
     estimateSize: () => estimateSize,
     overscan: 12,
+    paddingEnd: CHROME_PADDING_END,
   });
 
   const virtualItems = virtualizer.getVirtualItems();

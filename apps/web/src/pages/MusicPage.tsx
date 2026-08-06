@@ -54,7 +54,7 @@ export function MusicPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
-      <div className="pt-navbar space-y-8 pb-36 md:pb-32">
+      <div className="pt-navbar space-y-8 pb-chrome">
         <div className="flex flex-wrap items-center gap-2 px-4 md:px-12">
           <PartyStatusButton />
           <AppLink

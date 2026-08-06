@@ -25,7 +25,7 @@ import { Input } from "@/components/ui/input";
 export function MusicLibraryPage() {
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
-      <main className="pt-navbar mx-auto max-w-6xl px-4 pb-36 md:px-12 md:pb-32">
+      <main className="pt-navbar mx-auto max-w-6xl px-4 pb-chrome md:px-12">
         <div className="mb-8 flex items-end justify-between gap-4">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">My Library</h1>

@@ -227,7 +227,7 @@ export function AlbumDetailPage() {
       ) : null}
 
       {relatedAlbums.length > 0 ? (
-        <section className="mx-auto max-w-6xl px-4 pb-36 md:px-12 md:pb-32">
+        <section className="mx-auto max-w-6xl px-4 pb-chrome md:px-12">
           <h2 className="mb-4 text-xl font-semibold">More from this artist</h2>
           <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2 scrollbar-hide">
             {relatedAlbums.map((item) => (
@@ -236,7 +236,7 @@ export function AlbumDetailPage() {
           </div>
         </section>
       ) : (
-        <div className="pb-36 md:pb-32" />
+        <div className="pb-chrome" />
       )}
     </div>
   );

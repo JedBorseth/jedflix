@@ -91,7 +91,7 @@ export function AuthorPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
-      <main className="pt-navbar mx-auto max-w-6xl px-4 pb-24 md:px-12 md:pb-16">
+      <main className="pt-navbar mx-auto max-w-6xl px-4 pb-chrome md:px-12">
         <div className="mb-10 flex flex-col gap-8 md:flex-row">
           <ProgressiveCoverImage
             src={author.photoUrl}

@@ -68,7 +68,7 @@ export function MyListPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
-      <main className="pt-navbar mx-auto max-w-6xl px-4 pb-24 md:px-12 md:pb-16">
+      <main className="pt-navbar mx-auto max-w-6xl px-4 pb-chrome md:px-12">
         <h1 className="mb-8 text-3xl font-bold">My List</h1>
 
         <Unauthenticated>

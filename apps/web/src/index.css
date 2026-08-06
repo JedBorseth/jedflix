@@ -146,4 +146,19 @@
   .pt-navbar {
     padding-top: calc(7rem + env(safe-area-inset-top, 0px));
   }
+
+  /**
+   * Bottom inset for fixed mobile nav + collapsed music player.
+   * Mini player ~64px + bottom nav ~56px + safe area + small buffer.
+   */
+  .pb-chrome {
+    padding-bottom: calc(10.5rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  @media (min-width: 768px) {
+    .pb-chrome {
+      /* Desktop has no bottom nav — player only. */
+      padding-bottom: 8rem;
+    }
+  }
 }

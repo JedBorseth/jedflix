@@ -125,7 +125,7 @@ export function SettingsPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
-      <main className="pt-navbar mx-auto max-w-4xl px-4 pb-28 md:px-12 md:pb-16">
+      <main className="pt-navbar mx-auto max-w-4xl px-4 pb-chrome md:px-12">
         <div className="mb-8">
           <h1 className="text-3xl font-bold">Settings</h1>
           <p className="mt-2 text-zinc-400">

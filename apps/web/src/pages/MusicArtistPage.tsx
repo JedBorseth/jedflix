@@ -79,7 +79,7 @@ export function MusicArtistPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
-      <main className="pt-navbar mx-auto max-w-6xl px-4 pb-36 md:px-12 md:pb-32">
+      <main className="pt-navbar mx-auto max-w-6xl px-4 pb-chrome md:px-12">
         <div className="mb-10 flex flex-col items-center gap-8 md:flex-row md:items-start">
           <ProgressiveCoverImage
             src={artist.imageUrl}

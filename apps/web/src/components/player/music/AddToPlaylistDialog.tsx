@@ -2,7 +2,11 @@ import { useState } from "react";
 import { Authenticated, Unauthenticated, useMutation, useQuery } from "convex/react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { PlusIcon } from "@radix-ui/react-icons";
+import {
+  CheckIcon,
+  HeartFilledIcon,
+  PlusIcon,
+} from "@radix-ui/react-icons";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import type { MusicQueueTrack } from "@/components/player/music/MusicPlayerContext";
@@ -16,6 +20,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 
 type AddToPlaylistDialogProps = {
   open: boolean;
@@ -68,11 +73,47 @@ function AddToPlaylistDialogInner({
   onDone: () => void;
 }) {
   const playlists = useQuery(api.playlists.list);
+  const liked = useQuery(api.likedSongs.isLiked, { trackId: track.id });
+  const likedCount = useQuery(api.likedSongs.count);
   const createPlaylist = useMutation(api.playlists.create);
   const addTrack = useMutation(api.playlists.addTrack);
+  const likeSong = useMutation(api.likedSongs.like);
+  const unlikeSong = useMutation(api.likedSongs.unlike);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
+
+  async function toggleLikedSongs() {
+    setBusy(true);
+    try {
+      if (liked) {
+        await unlikeSong({ trackId: track.id });
+        toast.success("Removed from Liked Songs");
+      } else {
+        await likeSong({
+          track: {
+            id: track.id,
+            title: track.title,
+            artists: track.artists,
+            artistIds: track.artistIds,
+            albumName: track.albumName,
+            albumId: track.albumId,
+            imageUrl: track.imageUrl,
+            durationMs: track.durationMs,
+          },
+        });
+        toast.success("Added to Liked Songs");
+      }
+      onDone();
+    } catch (error: unknown) {
+      console.error(error);
+      toast.error(
+        error instanceof Error ? error.message : "Could not update Liked Songs",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function addToPlaylist(playlistId: Id<"playlists">, playlistName: string) {
     setBusy(true);
@@ -125,17 +166,46 @@ function AddToPlaylistDialogInner({
     }
   }
 
+  const isLiked = liked === true;
+
   return (
     <div className="space-y-3">
-      {playlists === undefined ? (
-        <p className="text-sm text-zinc-500">Loading playlists…</p>
-      ) : playlists.length === 0 && !creating ? (
-        <p className="text-sm text-zinc-400">
-          You don’t have any playlists yet. Create one to get started.
-        </p>
-      ) : (
-        <ul className="max-h-64 space-y-1 overflow-y-auto">
-          {playlists?.map((playlist) => (
+      <ul className="max-h-64 space-y-1 overflow-y-auto">
+        <li>
+          <button
+            type="button"
+            disabled={busy || liked === undefined}
+            onClick={() => void toggleLikedSongs()}
+            className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors hover:bg-zinc-900 disabled:opacity-50"
+          >
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded bg-gradient-to-br from-rose-600 to-rose-900">
+              <HeartFilledIcon className="h-5 w-5 text-white" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium text-white">Liked Songs</p>
+              <p className="truncate text-xs text-zinc-500">
+                {likedCount === undefined
+                  ? "…"
+                  : `${likedCount.toLocaleString()} ${likedCount === 1 ? "song" : "songs"}`}
+              </p>
+            </div>
+            {isLiked ? (
+              <span
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-red-600 text-white"
+                aria-label="Already in Liked Songs"
+              >
+                <CheckIcon className="h-4 w-4" />
+              </span>
+            ) : (
+              <PlusIcon className="h-5 w-5 shrink-0 text-zinc-500" />
+            )}
+          </button>
+        </li>
+
+        {playlists === undefined ? (
+          <li className="px-3 py-2 text-sm text-zinc-500">Loading playlists…</li>
+        ) : (
+          playlists.map((playlist) => (
             <li key={playlist._id}>
               <button
                 type="button"
@@ -165,9 +235,15 @@ function AddToPlaylistDialogInner({
                 </div>
               </button>
             </li>
-          ))}
-        </ul>
-      )}
+          ))
+        )}
+      </ul>
+
+      {playlists !== undefined && playlists.length === 0 && !creating ? (
+        <p className={cn("text-sm text-zinc-400")}>
+          You don’t have any playlists yet. Create one to get started.
+        </p>
+      ) : null}
 
       {creating ? (
         <div className="space-y-3 border-t border-zinc-800 pt-3">
