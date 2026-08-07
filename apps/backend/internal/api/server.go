@@ -739,6 +739,18 @@ func writeSpotifyError(w http.ResponseWriter, err error) {
 	case errors.Is(err, spotify.ErrNotConfigured):
 		status = http.StatusServiceUnavailable
 		message = "spotify is not configured"
+	case errors.Is(err, spotify.ErrRateLimited):
+		status = http.StatusTooManyRequests
+		message = "spotify rate limited"
+		w.Header().Set("Retry-After", "5")
+	default:
+		// Include upstream detail for ops (still safe — no secrets).
+		if err != nil {
+			detail := err.Error()
+			if idx := strings.LastIndex(detail, "status "); idx >= 0 {
+				message = "spotify request failed (" + detail[idx:] + ")"
+			}
+		}
 	}
 	writeJSON(w, status, map[string]string{"error": message})
 }

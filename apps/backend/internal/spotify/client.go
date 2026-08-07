@@ -57,6 +57,7 @@ type Client struct {
 	// Lightweight summaries remembered from search/browse for Dev Mode fallbacks.
 	albumSummaries  sync.Map // id -> Album (may omit tracks)
 	artistSummaries sync.Map // id -> Artist
+	requestSem      chan struct{}
 	now             func() time.Time
 }
 
@@ -173,6 +174,7 @@ func NewClient(cfg config.Config) *Client {
 		http:         httpClient,
 		refreshTTL:   ttl,
 		genres:       DefaultGenres,
+		requestSem:   make(chan struct{}, 3), // keep Spotify under Dev Mode rate limits
 		now:          time.Now,
 	}
 }
@@ -1084,49 +1086,78 @@ func (c *Client) fetchArtistAlbums(ctx context.Context, artistID string, maxItem
 }
 
 func (c *Client) getJSON(ctx context.Context, path string, dest any) error {
-	token, err := c.getAccessToken(ctx)
-	if err != nil {
-		return err
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.apiBaseURL+path, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return fmt.Errorf("%w: %v", ErrFetchFailed, err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
-	if err != nil {
-		return fmt.Errorf("%w: read body: %v", ErrFetchFailed, err)
-	}
-
-	switch resp.StatusCode {
-	case http.StatusOK:
-		if err := json.Unmarshal(body, dest); err != nil {
-			return fmt.Errorf("%w: decode: %v", ErrFetchFailed, err)
+	if c.requestSem != nil {
+		select {
+		case c.requestSem <- struct{}{}:
+			defer func() { <-c.requestSem }()
+		case <-ctx.Done():
+			return ctx.Err()
 		}
-		return nil
-	case http.StatusNotFound:
-		return ErrNotFound
-	case http.StatusBadRequest:
-		return fmt.Errorf("%w: %s", ErrBadRequest, strings.TrimSpace(string(body)))
-	case http.StatusUnauthorized:
-		// Force token refresh on next call.
-		c.mu.Lock()
-		c.accessToken = ""
-		c.tokenExpiry = time.Time{}
-		c.mu.Unlock()
-		return fmt.Errorf("%w: unauthorized", ErrFetchFailed)
-	default:
-		return fmt.Errorf("%w: status %d: %s", ErrFetchFailed, resp.StatusCode, strings.TrimSpace(string(body)))
 	}
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		token, err := c.getAccessToken(ctx)
+		if err != nil {
+			return err
+		}
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.apiBaseURL+path, nil)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Accept", "application/json")
+
+		resp, err := c.http.Do(req)
+		if err != nil {
+			return fmt.Errorf("%w: %v", ErrFetchFailed, err)
+		}
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+		resp.Body.Close()
+		if err != nil {
+			return fmt.Errorf("%w: read body: %v", ErrFetchFailed, err)
+		}
+
+		switch resp.StatusCode {
+		case http.StatusOK:
+			if err := json.Unmarshal(body, dest); err != nil {
+				return fmt.Errorf("%w: decode: %v", ErrFetchFailed, err)
+			}
+			return nil
+		case http.StatusNotFound:
+			return ErrNotFound
+		case http.StatusBadRequest:
+			return fmt.Errorf("%w: %s", ErrBadRequest, strings.TrimSpace(string(body)))
+		case http.StatusUnauthorized:
+			c.mu.Lock()
+			c.accessToken = ""
+			c.tokenExpiry = time.Time{}
+			c.mu.Unlock()
+			lastErr = fmt.Errorf("%w: unauthorized", ErrFetchFailed)
+			// Retry once with a fresh token.
+			continue
+		case http.StatusTooManyRequests:
+			lastErr = fmt.Errorf("%w: %s", ErrRateLimited, strings.TrimSpace(string(body)))
+			sleep := time.Duration(attempt+1) * time.Second
+			if ra := strings.TrimSpace(resp.Header.Get("Retry-After")); ra != "" {
+				if secs, parseErr := strconv.Atoi(ra); parseErr == nil && secs > 0 && secs < 30 {
+					sleep = time.Duration(secs) * time.Second
+				}
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(sleep):
+			}
+			continue
+		default:
+			return fmt.Errorf("%w: status %d: %s", ErrFetchFailed, resp.StatusCode, strings.TrimSpace(string(body)))
+		}
+	}
+	if lastErr != nil {
+		return lastErr
+	}
+	return fmt.Errorf("%w: retries exhausted", ErrFetchFailed)
 }
 
 func (c *Client) getAccessToken(ctx context.Context) (string, error) {

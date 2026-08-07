@@ -7,6 +7,7 @@ var (
 	ErrBadRequest    = errors.New("invalid spotify request")
 	ErrFetchFailed   = errors.New("spotify fetch failed")
 	ErrNotConfigured = errors.New("spotify client credentials are not configured")
+	ErrRateLimited   = errors.New("spotify rate limited")
 )
 
 type Track struct {
