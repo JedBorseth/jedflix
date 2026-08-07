@@ -120,12 +120,9 @@ func (c *Client) searchArtists(ctx context.Context, query string, limit int) ([]
 	out := make([]musiccatalog.Artist, 0, len(payload.Artists))
 	for _, item := range payload.Artists {
 		artist := mapArtist(item)
-		artist.ImageURL = c.artistImage(ctx, artist.Name)
+		// Don't fan out to Last.fm during search — keeps latency predictable.
 		out = append(out, artist)
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		return payload.Artists[i].Score > payload.Artists[j].Score
-	})
 	return out, nil
 }
 

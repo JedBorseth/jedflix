@@ -11,7 +11,7 @@ import (
 	"github.com/jedborseth/jeds-movies/backend/internal/musiccatalog"
 )
 
-// Enricher adapts Last.fm chart/info endpoints for the MusicBrainz catalog.
+// Enricher adapts Last.fm chart/info/search endpoints for the music catalog.
 type Enricher struct {
 	client *Client
 }
@@ -46,22 +46,34 @@ func (e *Enricher) ArtistTopTracks(ctx context.Context, name string, limit int) 
 	out := make([]musiccatalog.TopTrack, 0, len(raw))
 	for _, item := range raw {
 		out = append(out, musiccatalog.TopTrack{
-			ID:        strings.TrimSpace(item.MBID),
-			Name:      item.Name,
-			Artists:   []string{name},
-			AlbumName: item.AlbumName,
-			ImageURL:  item.ImageURL,
+			ID:         strings.TrimSpace(item.MBID),
+			Name:       item.Name,
+			Artists:    []string{name},
+			AlbumName:  item.AlbumName,
+			ImageURL:   item.ImageURL,
 			DurationMs: item.DurationMs,
 		})
 	}
 	return out, nil
 }
 
-func (e *Enricher) TagTopArtists(ctx context.Context, tag string, limit int) ([]string, error) {
+func (e *Enricher) TagTopArtists(ctx context.Context, tag string, limit int) ([]musicbrainz.TagArtistHint, error) {
 	if !e.Configured() {
 		return nil, ErrNotConfigured
 	}
-	return e.client.GetTagTopArtists(ctx, tag, limit)
+	raw, err := e.client.GetTagTopArtists(ctx, tag, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]musicbrainz.TagArtistHint, 0, len(raw))
+	for _, item := range raw {
+		out = append(out, musicbrainz.TagArtistHint{
+			Name:     item.Name,
+			MBID:     item.MBID,
+			ImageURL: item.ImageURL,
+		})
+	}
+	return out, nil
 }
 
 func (e *Enricher) TagTopAlbums(ctx context.Context, tag string, limit int) ([]musicbrainz.TagAlbumHint, error) {
@@ -74,7 +86,83 @@ func (e *Enricher) TagTopAlbums(ctx context.Context, tag string, limit int) ([]m
 	}
 	out := make([]musicbrainz.TagAlbumHint, 0, len(raw))
 	for _, item := range raw {
-		out = append(out, musicbrainz.TagAlbumHint{Name: item.Name, Artist: item.Artist})
+		out = append(out, musicbrainz.TagAlbumHint{
+			Name:       item.Name,
+			Artist:     item.Artist,
+			MBID:       item.MBID,
+			ArtistMBID: item.ArtistMBID,
+			ImageURL:   item.ImageURL,
+		})
+	}
+	return out, nil
+}
+
+func (e *Enricher) SearchArtists(ctx context.Context, query string, limit int) ([]musicbrainz.TagArtistHint, error) {
+	if !e.Configured() {
+		return nil, ErrNotConfigured
+	}
+	raw, err := e.client.SearchArtists(ctx, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]musicbrainz.TagArtistHint, 0, len(raw))
+	for _, item := range raw {
+		out = append(out, musicbrainz.TagArtistHint{
+			Name:     item.Name,
+			MBID:     item.MBID,
+			ImageURL: item.ImageURL,
+		})
+	}
+	return out, nil
+}
+
+func (e *Enricher) SearchAlbums(ctx context.Context, query string, limit int) ([]musicbrainz.TagAlbumHint, error) {
+	if !e.Configured() {
+		return nil, ErrNotConfigured
+	}
+	raw, err := e.client.SearchAlbums(ctx, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]musicbrainz.TagAlbumHint, 0, len(raw))
+	for _, item := range raw {
+		out = append(out, musicbrainz.TagAlbumHint{
+			Name:       item.Name,
+			Artist:     item.Artist,
+			MBID:       item.MBID,
+			ArtistMBID: item.ArtistMBID,
+			ImageURL:   item.ImageURL,
+		})
+	}
+	return out, nil
+}
+
+func (e *Enricher) SearchTracks(ctx context.Context, query string, limit int) ([]musiccatalog.TopTrack, error) {
+	if !e.Configured() {
+		return nil, ErrNotConfigured
+	}
+	raw, err := e.client.SearchTracks(ctx, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]musiccatalog.TopTrack, 0, len(raw))
+	for _, item := range raw {
+		id := strings.TrimSpace(item.MBID)
+		if id == "" {
+			continue
+		}
+		artists := []string{}
+		if item.Artist != "" {
+			artists = []string{item.Artist}
+		}
+		out = append(out, musiccatalog.TopTrack{
+			ID:        id,
+			Name:      item.Name,
+			Artists:   artists,
+			ArtistIDs: []string{strings.TrimSpace(item.ArtistMBID)},
+			AlbumName: item.AlbumName,
+			ImageURL:  item.ImageURL,
+		})
 	}
 	return out, nil
 }
@@ -94,9 +182,27 @@ type TopTrackHint struct {
 	DurationMs int
 }
 
+type TagArtist struct {
+	Name     string
+	MBID     string
+	ImageURL string
+}
+
 type TagAlbum struct {
-	Name   string
-	Artist string
+	Name       string
+	Artist     string
+	MBID       string
+	ArtistMBID string
+	ImageURL   string
+}
+
+type SearchTrack struct {
+	Name       string
+	MBID       string
+	Artist     string
+	ArtistMBID string
+	AlbumName  string
+	ImageURL   string
 }
 
 func (c *Client) GetArtistInfo(ctx context.Context, artist string) (*ArtistInfo, error) {
@@ -193,7 +299,7 @@ func (c *Client) GetArtistTopTracks(ctx context.Context, artist string, limit in
 	return out, nil
 }
 
-func (c *Client) GetTagTopArtists(ctx context.Context, tag string, limit int) ([]string, error) {
+func (c *Client) GetTagTopArtists(ctx context.Context, tag string, limit int) ([]TagArtist, error) {
 	if !c.Configured() {
 		return nil, ErrNotConfigured
 	}
@@ -202,10 +308,10 @@ func (c *Client) GetTagTopArtists(ctx context.Context, tag string, limit int) ([
 		return nil, fmt.Errorf("%w: tag is required", ErrBadRequest)
 	}
 	limit = clampLimit(limit)
-	cacheKey := fmt.Sprintf("tag-top-artists:%s:%d", strings.ToLower(tag), limit)
+	cacheKey := fmt.Sprintf("tag-top-artists-rich:%s:%d", strings.ToLower(tag), limit)
 	if cached, ok := c.getCache(cacheKey); ok {
-		if names, ok := cached.([]string); ok {
-			return names, nil
+		if artists, ok := cached.([]TagArtist); ok {
+			return artists, nil
 		}
 	}
 
@@ -222,12 +328,17 @@ func (c *Client) GetTagTopArtists(ctx context.Context, tag string, limit int) ([
 		return nil, mapAPIError(payload.Error, payload.Message)
 	}
 
-	out := make([]string, 0, len(payload.TopArtists.Artist))
+	out := make([]TagArtist, 0, len(payload.TopArtists.Artist))
 	for _, item := range payload.TopArtists.Artist {
 		name := strings.TrimSpace(item.Name)
-		if name != "" {
-			out = append(out, name)
+		if name == "" {
+			continue
 		}
+		out = append(out, TagArtist{
+			Name:     name,
+			MBID:     strings.TrimSpace(item.MBID),
+			ImageURL: pickImage(item.Image),
+		})
 	}
 	c.putCache(cacheKey, out)
 	return out, nil
@@ -242,7 +353,7 @@ func (c *Client) GetTagTopAlbums(ctx context.Context, tag string, limit int) ([]
 		return nil, fmt.Errorf("%w: tag is required", ErrBadRequest)
 	}
 	limit = clampLimit(limit)
-	cacheKey := fmt.Sprintf("tag-top-albums:%s:%d", strings.ToLower(tag), limit)
+	cacheKey := fmt.Sprintf("tag-top-albums-rich:%s:%d", strings.ToLower(tag), limit)
 	if cached, ok := c.getCache(cacheKey); ok {
 		if albums, ok := cached.([]TagAlbum); ok {
 			return albums, nil
@@ -269,7 +380,151 @@ func (c *Client) GetTagTopAlbums(ctx context.Context, tag string, limit int) ([]
 		if name == "" || artist == "" {
 			continue
 		}
-		out = append(out, TagAlbum{Name: name, Artist: artist})
+		out = append(out, TagAlbum{
+			Name:       name,
+			Artist:     artist,
+			MBID:       strings.TrimSpace(item.MBID),
+			ArtistMBID: strings.TrimSpace(item.Artist.MBID),
+			ImageURL:   pickImage(item.Image),
+		})
+	}
+	c.putCache(cacheKey, out)
+	return out, nil
+}
+
+func (c *Client) SearchArtists(ctx context.Context, query string, limit int) ([]TagArtist, error) {
+	if !c.Configured() {
+		return nil, ErrNotConfigured
+	}
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, fmt.Errorf("%w: query is required", ErrBadRequest)
+	}
+	limit = clampLimit(limit)
+	cacheKey := fmt.Sprintf("search-artists:%s:%d", strings.ToLower(query), limit)
+	if cached, ok := c.getCache(cacheKey); ok {
+		if artists, ok := cached.([]TagArtist); ok {
+			return artists, nil
+		}
+	}
+
+	params := url.Values{}
+	params.Set("method", "artist.search")
+	params.Set("artist", query)
+	params.Set("limit", strconv.Itoa(limit))
+
+	var payload artistSearchResponse
+	if err := c.getJSON(ctx, params, &payload); err != nil {
+		return nil, err
+	}
+	if payload.Error != 0 {
+		return nil, mapAPIError(payload.Error, payload.Message)
+	}
+
+	out := make([]TagArtist, 0, len(payload.Results.ArtistMatches.Artist))
+	for _, item := range payload.Results.ArtistMatches.Artist {
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			continue
+		}
+		out = append(out, TagArtist{
+			Name:     name,
+			MBID:     strings.TrimSpace(item.MBID),
+			ImageURL: pickImage(item.Image),
+		})
+	}
+	c.putCache(cacheKey, out)
+	return out, nil
+}
+
+func (c *Client) SearchAlbums(ctx context.Context, query string, limit int) ([]TagAlbum, error) {
+	if !c.Configured() {
+		return nil, ErrNotConfigured
+	}
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, fmt.Errorf("%w: query is required", ErrBadRequest)
+	}
+	limit = clampLimit(limit)
+	cacheKey := fmt.Sprintf("search-albums:%s:%d", strings.ToLower(query), limit)
+	if cached, ok := c.getCache(cacheKey); ok {
+		if albums, ok := cached.([]TagAlbum); ok {
+			return albums, nil
+		}
+	}
+
+	params := url.Values{}
+	params.Set("method", "album.search")
+	params.Set("album", query)
+	params.Set("limit", strconv.Itoa(limit))
+
+	var payload albumSearchResponse
+	if err := c.getJSON(ctx, params, &payload); err != nil {
+		return nil, err
+	}
+	if payload.Error != 0 {
+		return nil, mapAPIError(payload.Error, payload.Message)
+	}
+
+	out := make([]TagAlbum, 0, len(payload.Results.AlbumMatches.Album))
+	for _, item := range payload.Results.AlbumMatches.Album {
+		name := strings.TrimSpace(item.Name)
+		artist := strings.TrimSpace(item.Artist)
+		if name == "" {
+			continue
+		}
+		out = append(out, TagAlbum{
+			Name:     name,
+			Artist:   artist,
+			MBID:     strings.TrimSpace(item.MBID),
+			ImageURL: pickImage(item.Image),
+		})
+	}
+	c.putCache(cacheKey, out)
+	return out, nil
+}
+
+func (c *Client) SearchTracks(ctx context.Context, query string, limit int) ([]SearchTrack, error) {
+	if !c.Configured() {
+		return nil, ErrNotConfigured
+	}
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, fmt.Errorf("%w: query is required", ErrBadRequest)
+	}
+	limit = clampLimit(limit)
+	cacheKey := fmt.Sprintf("search-tracks:%s:%d", strings.ToLower(query), limit)
+	if cached, ok := c.getCache(cacheKey); ok {
+		if tracks, ok := cached.([]SearchTrack); ok {
+			return tracks, nil
+		}
+	}
+
+	params := url.Values{}
+	params.Set("method", "track.search")
+	params.Set("track", query)
+	params.Set("limit", strconv.Itoa(limit))
+
+	var payload trackSearchResponse
+	if err := c.getJSON(ctx, params, &payload); err != nil {
+		return nil, err
+	}
+	if payload.Error != 0 {
+		return nil, mapAPIError(payload.Error, payload.Message)
+	}
+
+	out := make([]SearchTrack, 0, len(payload.Results.TrackMatches.Track))
+	for _, item := range payload.Results.TrackMatches.Track {
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			continue
+		}
+		out = append(out, SearchTrack{
+			Name:       name,
+			MBID:       strings.TrimSpace(item.MBID),
+			Artist:     strings.TrimSpace(item.Artist),
+			ImageURL:   pickImage(item.Image),
+		})
 	}
 	c.putCache(cacheKey, out)
 	return out, nil
@@ -306,8 +561,9 @@ type tagTopArtistsResponse struct {
 	Message    string `json:"message"`
 	TopArtists struct {
 		Artist []struct {
-			Name string `json:"name"`
-			MBID string `json:"mbid"`
+			Name  string     `json:"name"`
+			MBID  string     `json:"mbid"`
+			Image []lfmImage `json:"image"`
 		} `json:"artist"`
 	} `json:"topartists"`
 }
@@ -318,9 +574,56 @@ type tagTopAlbumsResponse struct {
 	TopAlbums struct {
 		Album []struct {
 			Name   string `json:"name"`
+			MBID   string `json:"mbid"`
 			Artist struct {
 				Name string `json:"name"`
+				MBID string `json:"mbid"`
 			} `json:"artist"`
+			Image []lfmImage `json:"image"`
 		} `json:"album"`
 	} `json:"topalbums"`
+}
+
+type artistSearchResponse struct {
+	Error   int    `json:"error"`
+	Message string `json:"message"`
+	Results struct {
+		ArtistMatches struct {
+			Artist []struct {
+				Name  string     `json:"name"`
+				MBID  string     `json:"mbid"`
+				Image []lfmImage `json:"image"`
+			} `json:"artist"`
+		} `json:"artistmatches"`
+	} `json:"results"`
+}
+
+type albumSearchResponse struct {
+	Error   int    `json:"error"`
+	Message string `json:"message"`
+	Results struct {
+		AlbumMatches struct {
+			Album []struct {
+				Name   string     `json:"name"`
+				Artist string     `json:"artist"`
+				MBID   string     `json:"mbid"`
+				Image  []lfmImage `json:"image"`
+			} `json:"album"`
+		} `json:"albummatches"`
+	} `json:"results"`
+}
+
+type trackSearchResponse struct {
+	Error   int    `json:"error"`
+	Message string `json:"message"`
+	Results struct {
+		TrackMatches struct {
+			Track []struct {
+				Name   string     `json:"name"`
+				Artist string     `json:"artist"`
+				MBID   string     `json:"mbid"`
+				Image  []lfmImage `json:"image"`
+			} `json:"track"`
+		} `json:"trackmatches"`
+	} `json:"results"`
 }
