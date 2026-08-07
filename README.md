@@ -102,13 +102,12 @@ Configure the frontend:
 ```bash
 # .env.local
 VITE_BACKEND_URL=/backend
-VITE_BACKEND_KEY=
 ```
 
-Configure the stream server (see [`apps/backend/.env.example`](apps/backend/.env.example)):
+Configure the Go backend (see [`apps/backend/.env.example`](apps/backend/.env.example)):
 
 ```bash
-REALDEBRID_TOKEN=your_token
+TMDB_API_KEY=your_tmdb_key
 CORS_ORIGINS=http://localhost:5173
 ABB_USERNAME=  # optional AudiobookBay account (recommended)
 ABB_PASSWORD=
@@ -141,8 +140,8 @@ Production Docker builds use repo root context with `apps/web/Dockerfile`.
 
 ## Notes
 
-- Direct streaming requires a Real Debrid API key saved in Settings
-- Proxy streaming can use a saved user Real Debrid API key or `REALDEBRID_TOKEN` on the Go backend
+- Direct streaming requires a Real Debrid API key saved in Settings (bring-your-own; never stored as a shared server token)
+- Movie/TV metadata uses TMDB via the Go backend (`TMDB_API_KEY` server-side only)
 - Player components are GPL-2.0 derived from Stremio Web
 - Use `bunx convex deploy` (without `--bun`) for CI/production deploys
 - Convex functions run in Convex's runtime; Bun is used locally for tooling

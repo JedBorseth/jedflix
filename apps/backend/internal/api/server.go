@@ -18,6 +18,7 @@ import (
 	"github.com/jedborseth/jeds-movies/backend/internal/resolvejobs"
 	"github.com/jedborseth/jeds-movies/backend/internal/resolver"
 	"github.com/jedborseth/jeds-movies/backend/internal/spotify"
+	"github.com/jedborseth/jeds-movies/backend/internal/tmdb"
 	"github.com/jedborseth/jeds-movies/backend/internal/youtube"
 )
 
@@ -28,6 +29,7 @@ type Server struct {
 	letterboxd  *letterboxd.Client
 	openLibrary *openlibrary.Client
 	spotify     *spotify.Client
+	tmdb        *tmdb.Client
 	youtube     *youtube.Resolver
 	limiter     *ipRateLimiter
 	resolveSem  chan struct{}
@@ -41,6 +43,7 @@ func NewServer(
 	openLibraryClient *openlibrary.Client,
 	spotifyClient *spotify.Client,
 	youtubeResolver *youtube.Resolver,
+	tmdbClient *tmdb.Client,
 ) *Server {
 	if youtubeResolver == nil {
 		youtubeResolver = youtube.NewResolver()
@@ -60,6 +63,7 @@ func NewServer(
 		letterboxd:  letterboxdClient,
 		openLibrary: openLibraryClient,
 		spotify:     spotifyClient,
+		tmdb:        tmdbClient,
 		youtube:     youtubeResolver,
 		limiter:     newIPRateLimiter(20, 40), // ~20 req/s sustained, burst 40
 		resolveSem:  make(chan struct{}, resolveSlots),
@@ -78,7 +82,7 @@ func (s *Server) Router() http.Handler {
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   s.cfg.CORSOrigins,
 		AllowedMethods:   []string{"GET", "HEAD", "POST", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "Range", "X-Api-Key"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "Range"},
 		ExposedHeaders:   []string{"Content-Range", "Accept-Ranges", "Content-Length"},
 		AllowCredentials: false,
 		MaxAge:           300,
@@ -86,7 +90,7 @@ func (s *Server) Router() http.Handler {
 
 	r.Get("/health", s.handleHealth)
 
-	// Cover/photo proxy is public so <img> tags work without an API key.
+	// Cover/photo proxy is public so <img> tags work without cookies/headers.
 	// Upstream Open Library covers are already public; production still sits
 	// behind Caddy. Cached images follow the same TTL/eviction as book data.
 	r.Get("/api/v1/openlibrary/covers/b/id/{id}.jpg", s.handleOpenLibraryCover)
@@ -94,7 +98,6 @@ func (s *Server) Router() http.Handler {
 	r.Get("/api/v1/openlibrary/covers/a/olid/{id}.jpg", s.handleOpenLibraryAuthorPhotoOLID)
 
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Use(s.authMiddleware)
 		r.Post("/sources", s.handleSources)
 		r.Post("/resolve", s.handleResolve)
 		r.Get("/resolve/jobs/{jobId}", s.handleResolveJob)
@@ -108,6 +111,7 @@ func (s *Server) Router() http.Handler {
 		r.Get("/spotify/search", s.handleSpotifySearch)
 		r.Get("/spotify/albums/{albumId}", s.handleSpotifyAlbum)
 		r.Get("/spotify/artists/{artistId}", s.handleSpotifyArtist)
+		r.Get("/tmdb/*", s.handleTmdbProxy)
 		r.Get("/youtube/search", s.handleYouTubeSearch)
 		r.Get("/youtube/audio", s.handleYouTubeAudio)
 		r.Head("/youtube/audio", s.handleYouTubeAudio)
@@ -401,6 +405,33 @@ func (s *Server) handleOpenLibraryAuthorPhotoOLID(w http.ResponseWriter, r *http
 		return
 	}
 	writeImage(w, contentType, data)
+}
+
+func (s *Server) handleTmdbProxy(w http.ResponseWriter, r *http.Request) {
+	if s.tmdb == nil || !s.tmdb.Configured() {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "tmdb is not configured"})
+		return
+	}
+	path := chi.URLParam(r, "*")
+	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
+	defer cancel()
+
+	result, err := s.tmdb.ProxyGET(ctx, path, r.URL.Query())
+	if err != nil {
+		msg := err.Error()
+		status := http.StatusBadGateway
+		if strings.Contains(msg, "invalid tmdb path") || strings.Contains(msg, "missing tmdb path") {
+			status = http.StatusBadRequest
+		}
+		writeJSON(w, status, map[string]string{"error": "tmdb request failed"})
+		return
+	}
+	if result.StatusCode >= 200 && result.StatusCode < 400 {
+		w.Header().Set("Cache-Control", "public, max-age=300")
+	}
+	w.Header().Set("Content-Type", result.ContentType)
+	w.WriteHeader(result.StatusCode)
+	_, _ = w.Write(result.Body)
 }
 
 func (s *Server) handleSpotifyBrowse(w http.ResponseWriter, r *http.Request) {

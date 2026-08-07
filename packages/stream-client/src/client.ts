@@ -231,7 +231,6 @@ export type YoutubeMusicSearchResponse = {
 
 export type StreamClientConfig = {
   apiBase: string;
-  apiKey?: string;
 };
 
 export type StreamClient = {
@@ -267,15 +266,11 @@ export type StreamClient = {
 /** JSON contract mirrors apps/backend/internal/resolver/resolver.go */
 export function createStreamClient(config: StreamClientConfig): StreamClient {
   const apiBase = config.apiBase.replace(/\/$/, "");
-  const apiKey = config.apiKey;
 
   function headers(realDebridToken?: string): HeadersInit {
     const result: Record<string, string> = {
       "Content-Type": "application/json",
     };
-    if (apiKey) {
-      result["X-Api-Key"] = apiKey;
-    }
     if (realDebridToken) {
       result.Authorization = `Bearer ${realDebridToken}`;
     }
@@ -656,9 +651,6 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
     }
     if (params.durationMs && Number.isFinite(params.durationMs) && params.durationMs > 0) {
       query.set("durationMs", String(Math.round(params.durationMs)));
-    }
-    if (apiKey) {
-      query.set("apikey", apiKey);
     }
     return `${apiBase}/api/v1/youtube/audio?${query.toString()}`;
   }

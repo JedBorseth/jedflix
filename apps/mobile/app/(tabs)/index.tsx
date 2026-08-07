@@ -98,7 +98,7 @@ export default function BrowseScreen() {
     return (
       <View style={styles.centered}>
         <Text style={styles.errorText}>{error}</Text>
-        <Text style={styles.hintText}>Set EXPO_PUBLIC_TMDB_API_KEY in apps/mobile/.env</Text>
+        <Text style={styles.hintText}>Set EXPO_PUBLIC_BACKEND_URL in apps/mobile/.env</Text>
       </View>
     );
   }

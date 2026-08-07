@@ -4,7 +4,6 @@ services:
     ports:
       - "8080:8080"
     environment:
-      REALDEBRID_TOKEN: ${REALDEBRID_TOKEN}
       TORRENTIO_URL: https://torrentio.strem.fun
       MAX_VIDEO_SIZE_GB: "50"
       MIN_SEEDERS: "3"
@@ -12,9 +11,8 @@ services:
       OPEN_LIBRARY_BASE_URL: ${OPEN_LIBRARY_BASE_URL:-https://openlibrary.org}
       OPEN_LIBRARY_CACHE_TTL: ${OPEN_LIBRARY_CACHE_TTL:-12h}
       OPEN_LIBRARY_COVER_PUBLIC_BASE: ${OPEN_LIBRARY_COVER_PUBLIC_BASE:-/backend/api/v1/openlibrary/covers}
+      TMDB_API_KEY: ${TMDB_API_KEY:-}
       CORS_ORIGINS: http://localhost:5173
-      BACKEND_API_KEY: ${BACKEND_API_KEY:-${STREAM_SERVER_API_KEY:-}}
-      REQUIRE_API_KEY: "false"
       ABB_BASE_URL: ${ABB_BASE_URL:-https://audiobookbay.lu}
       ABB_USERNAME: ${ABB_USERNAME:-}
       ABB_PASSWORD: ${ABB_PASSWORD:-}

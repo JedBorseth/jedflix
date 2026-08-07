@@ -10,20 +10,14 @@ import (
 )
 
 type Config struct {
-	Addr                   string
-	RealDebridToken        string
-	TorrentioURL           string
-	MaxVideoSizeGB         float64
-	MinSeeders             int
-	PreferInstant          bool
-	BlockedKeywords        []string
-	RDBlockedFilenameRegex string
-	MaxResolution          int
-	// BackendAPIKey gates /api/v1 (except public cover proxies). Accepts
-	// BACKEND_API_KEY with legacy STREAM_SERVER_API_KEY fallback.
-	BackendAPIKey string
-	// RequireAPIKey forces fail-closed auth when true (default in production).
-	RequireAPIKey              bool
+	Addr                       string
+	TorrentioURL               string
+	MaxVideoSizeGB             float64
+	MinSeeders                 int
+	PreferInstant              bool
+	BlockedKeywords            []string
+	RDBlockedFilenameRegex     string
+	MaxResolution              int
 	CORSOrigins                []string
 	HTTPProxy                  string
 	HTTPSProxy                 string
@@ -41,19 +35,17 @@ type Config struct {
 	SpotifyAPIBaseURL          string
 	SpotifyAuthURL             string
 	SpotifyCacheTTL            time.Duration
-	AbbBaseURL                 string
-	AbbUsername                string
-	AbbPassword                string
+	// TMDBAPIKey is server-only; clients call /api/v1/tmdb/* and never see this.
+	TMDBAPIKey     string
+	TMDBAPIBaseURL string
+	AbbBaseURL     string
+	AbbUsername    string
+	AbbPassword    string
 }
 
 func Load() Config {
-	apiKey := firstNonEmpty(
-		strings.TrimSpace(os.Getenv("BACKEND_API_KEY")),
-		strings.TrimSpace(os.Getenv("STREAM_SERVER_API_KEY")),
-	)
 	cfg := Config{
 		Addr:                       envOr("ADDR", ":8080"),
-		RealDebridToken:            strings.TrimSpace(os.Getenv("REALDEBRID_TOKEN")),
 		TorrentioURL:               strings.TrimRight(envOr("TORRENTIO_URL", "https://torrentio.strem.fun"), "/"),
 		MaxVideoSizeGB:             envFloat("MAX_VIDEO_SIZE_GB", 50),
 		MinSeeders:                 envInt("MIN_SEEDERS", 3),
@@ -61,8 +53,6 @@ func Load() Config {
 		BlockedKeywords:            splitCSV(envOr("BLOCKED_KEYWORDS", "cam,ts,telesync,hdcam")),
 		RDBlockedFilenameRegex:     envOr("RD_BLOCKED_FILENAME_REGEX", `web-dl|webrip|bdrip|hdrip|dvdrip|BluRay\.x264|HDTV\.x264|HDTV\.XviD|WEB\.x264|WEB\.h264`),
 		MaxResolution:              envInt("MAX_RESOLUTION", 2160),
-		BackendAPIKey:              apiKey,
-		RequireAPIKey:              envBool("REQUIRE_API_KEY", isProduction()),
 		CORSOrigins:                splitOrigins(envOr("CORS_ORIGINS", "http://localhost:5173")),
 		HTTPProxy:                  os.Getenv("HTTP_PROXY"),
 		HTTPSProxy:                 os.Getenv("HTTPS_PROXY"),
@@ -80,6 +70,8 @@ func Load() Config {
 		SpotifyAPIBaseURL:          strings.TrimRight(envOr("SPOTIFY_API_BASE_URL", "https://api.spotify.com/v1"), "/"),
 		SpotifyAuthURL:             strings.TrimRight(envOr("SPOTIFY_AUTH_URL", "https://accounts.spotify.com/api/token"), "/"),
 		SpotifyCacheTTL:            envDuration("SPOTIFY_CACHE_TTL", 6*time.Hour),
+		TMDBAPIKey:                 strings.TrimSpace(os.Getenv("TMDB_API_KEY")),
+		TMDBAPIBaseURL:             strings.TrimRight(envOr("TMDB_API_BASE_URL", "https://api.themoviedb.org/3"), "/"),
 		AbbBaseURL:                 strings.TrimRight(envOr("ABB_BASE_URL", "https://audiobookbay.lu"), "/"),
 		AbbUsername:                strings.TrimSpace(os.Getenv("ABB_USERNAME")),
 		AbbPassword:                os.Getenv("ABB_PASSWORD"),
@@ -102,29 +94,6 @@ func (c Config) HTTPClient() *http.Client {
 		Timeout:   30 * time.Second,
 		Transport: transport,
 	}
-}
-
-func isProduction() bool {
-	env := strings.ToLower(strings.TrimSpace(os.Getenv("ENV")))
-	if env == "" {
-		env = strings.ToLower(strings.TrimSpace(os.Getenv("GO_ENV")))
-	}
-	switch env {
-	case "production", "prod":
-		return true
-	default:
-		// Docker compose / Caddy deploy typically sets DOMAIN.
-		return strings.TrimSpace(os.Getenv("DOMAIN")) != ""
-	}
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }
 
 func envOr(key, fallback string) string {

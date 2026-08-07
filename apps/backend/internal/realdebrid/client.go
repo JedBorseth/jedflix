@@ -25,7 +25,8 @@ type Client struct {
 }
 
 func NewClient(cfg config.Config) *Client {
-	return NewClientWithToken(cfg, cfg.RealDebridToken)
+	// Resolve always uses the caller's BYO Real Debrid token via NewClientWithToken.
+	return NewClientWithToken(cfg, "")
 }
 
 func NewClientWithToken(cfg config.Config, token string) *Client {

@@ -7,7 +7,6 @@ import type {
   PersonSummary,
 } from "@jedflix/shared";
 
-const TMDB_API_BASE = "https://api.themoviedb.org/3";
 const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p";
 const FALLBACK_POSTER =
   "https://placehold.co/500x750/18181b/a1a1aa?text=No+Poster";
@@ -112,7 +111,11 @@ type TmdbSessionCacheEntry = {
 const tmdbSessionCache = new Map<string, TmdbSessionCacheEntry>();
 
 export type TmdbClientConfig = {
-  apiKey: string;
+  /**
+   * Go backend public base (same as stream client), e.g. "/backend" or
+   * "http://localhost:8080". TMDB calls go to `{backendBaseUrl}/api/v1/tmdb/...`.
+   */
+  backendBaseUrl: string;
 };
 
 export type TmdbClient = {
@@ -133,10 +136,10 @@ export type TmdbClient = {
   clearTmdbSessionCache: typeof clearTmdbSessionCache;
 };
 
-let configuredApiKey = "";
+let configuredBackendBase = "";
 
 export function configureTmdb(config: TmdbClientConfig) {
-  configuredApiKey = config.apiKey;
+  configuredBackendBase = config.backendBaseUrl.replace(/\/$/, "");
 }
 
 /** Clears the in-memory TMDB session cache (useful in tests). */
@@ -623,8 +626,8 @@ export async function getTvSeasonEpisodes(
 }
 
 async function tmdbFetch<T>(path: string, options: FetchOptions = {}): Promise<T> {
-  if (!configuredApiKey) {
-    throw new Error("Missing TMDB API key");
+  if (!configuredBackendBase) {
+    throw new Error("Missing TMDB backend URL");
   }
 
   const cacheKey = tmdbCacheKey(path, options);
@@ -633,14 +636,14 @@ async function tmdbFetch<T>(path: string, options: FetchOptions = {}): Promise<T
     return cached.promise as Promise<T>;
   }
 
-  const url = new URL(`${TMDB_API_BASE}${path}`);
-  url.searchParams.set("api_key", configuredApiKey);
-
+  const params = new URLSearchParams();
   for (const [key, value] of Object.entries(options)) {
     if (value !== undefined) {
-      url.searchParams.set(key, String(value));
+      params.set(key, String(value));
     }
   }
+  const query = params.toString();
+  const url = `${configuredBackendBase}/api/v1/tmdb${path}${query ? `?${query}` : ""}`;
 
   const entry: TmdbSessionCacheEntry = {
     promise: Promise.resolve(undefined as unknown as T),

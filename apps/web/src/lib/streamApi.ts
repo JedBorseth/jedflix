@@ -1,9 +1,8 @@
 import { createStreamClient } from "@jedflix/stream-client";
-import { getBackendApiBase, getBackendApiKey } from "@/lib/backendEnv";
+import { getBackendApiBase } from "@/lib/backendEnv";
 
 const streamClient = createStreamClient({
   apiBase: getBackendApiBase(),
-  apiKey: getBackendApiKey(),
 });
 
 export type {

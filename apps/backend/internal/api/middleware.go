@@ -1,8 +1,6 @@
 package api
 
 import (
-	"crypto/sha256"
-	"crypto/subtle"
 	"log"
 	"net"
 	"net/http"
@@ -101,43 +99,6 @@ func (s *Server) rateLimitMiddleware(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
-}
-
-func (s *Server) authMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		expected := s.cfg.BackendAPIKey
-		if expected == "" {
-			if s.cfg.RequireAPIKey {
-				writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-					"error": "backend api key is not configured",
-				})
-				return
-			}
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		provided := r.Header.Get("X-Api-Key")
-		if provided == "" {
-			// Legacy query param for media elements; prefer header everywhere else.
-			provided = r.URL.Query().Get("apikey")
-		}
-		if !apiKeysEqual(expected, provided) {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-func apiKeysEqual(expected, provided string) bool {
-	if expected == "" || provided == "" {
-		return false
-	}
-	// Hash to fixed length so ConstantTimeCompare always runs.
-	a := sha256.Sum256([]byte(expected))
-	b := sha256.Sum256([]byte(provided))
-	return subtle.ConstantTimeCompare(a[:], b[:]) == 1
 }
 
 // redactLogger wraps chi's logger to strip secrets from request URIs.

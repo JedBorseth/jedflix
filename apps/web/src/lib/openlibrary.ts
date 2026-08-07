@@ -6,7 +6,7 @@ import {
   type OpenLibraryBrowseResponse,
   type OpenLibrarySearchResponse,
 } from "@jedflix/stream-client";
-import { getBackendApiBase, getBackendApiKey } from "@/lib/backendEnv";
+import { getBackendApiBase } from "@/lib/backendEnv";
 
 export type BookItem = OpenLibraryBook;
 export type BookDetails = OpenLibraryBook;
@@ -17,7 +17,6 @@ export type AudiobookBrowseResponse = OpenLibraryBrowseResponse;
 
 const streamClient = createStreamClient({
   apiBase: getBackendApiBase(),
-  apiKey: getBackendApiKey(),
 });
 
 export const bookSubjectRows = [

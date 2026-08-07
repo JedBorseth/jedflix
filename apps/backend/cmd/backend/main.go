@@ -19,18 +19,13 @@ import (
 	"github.com/jedborseth/jeds-movies/backend/internal/resolver"
 	"github.com/jedborseth/jeds-movies/backend/internal/search"
 	"github.com/jedborseth/jeds-movies/backend/internal/spotify"
+	"github.com/jedborseth/jeds-movies/backend/internal/tmdb"
 	"github.com/jedborseth/jeds-movies/backend/internal/youtube"
 )
 
 func main() {
 	config.LoadEnvFiles()
 	cfg := config.Load()
-	if cfg.RequireAPIKey && cfg.BackendAPIKey == "" {
-		log.Fatal("BACKEND_API_KEY is required (set REQUIRE_API_KEY=false to allow open local access)")
-	}
-	if cfg.RealDebridToken == "" {
-		log.Println("note: REALDEBRID_TOKEN is unused for resolve; clients send their own Real Debrid key")
-	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -58,8 +53,15 @@ func main() {
 	}
 	spotifyClient.Start(ctx)
 
+	tmdbClient := tmdb.NewClient(cfg)
+	if tmdbClient.Configured() {
+		log.Println("TMDB API key configured (proxied via /api/v1/tmdb)")
+	} else {
+		log.Println("warning: TMDB_API_KEY not set; movie/TV catalog disabled")
+	}
+
 	youtubeResolver := youtube.NewResolver()
-	server := api.NewServer(cfg, resolverService, letterboxdClient, openLibraryClient, spotifyClient, youtubeResolver)
+	server := api.NewServer(cfg, resolverService, letterboxdClient, openLibraryClient, spotifyClient, youtubeResolver, tmdbClient)
 	httpServer := &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           server.Router(),
