@@ -75,4 +75,10 @@ export const catalogQueryKeys = {
     search: (query: string, includeYoutube = false) =>
       ["spotify", "search", query, includeYoutube ? "yt" : "spotify"] as const,
   },
+  lastfm: {
+    all: ["lastfm"] as const,
+    similarArtists: (artist: string) =>
+      ["lastfm", "similar-artists", artist] as const,
+    related: (key: string) => ["lastfm", "related", key] as const,
+  },
 } as const;

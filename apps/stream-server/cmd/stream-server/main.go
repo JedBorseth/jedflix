@@ -13,6 +13,7 @@ import (
 	"github.com/jedborseth/jeds-movies/stream-server/internal/abb"
 	"github.com/jedborseth/jeds-movies/stream-server/internal/api"
 	"github.com/jedborseth/jeds-movies/stream-server/internal/config"
+	"github.com/jedborseth/jeds-movies/stream-server/internal/lastfm"
 	"github.com/jedborseth/jeds-movies/stream-server/internal/letterboxd"
 	"github.com/jedborseth/jeds-movies/stream-server/internal/openlibrary"
 	"github.com/jedborseth/jeds-movies/stream-server/internal/realdebrid"
@@ -57,8 +58,16 @@ func main() {
 	}
 	spotifyClient.Start(ctx)
 
+	lastfmClient := lastfm.NewClient(cfg)
+	lastfmService := lastfm.NewService(lastfmClient, spotifyClient)
+	if lastfmService.Configured() {
+		log.Println("Last.fm API key configured")
+	} else {
+		log.Println("warning: LASTFM_API_KEY not set (or Spotify missing); related music recommendations disabled")
+	}
+
 	youtubeResolver := youtube.NewResolver()
-	server := api.NewServer(cfg, resolverService, letterboxdClient, openLibraryClient, spotifyClient, youtubeResolver)
+	server := api.NewServer(cfg, resolverService, letterboxdClient, openLibraryClient, spotifyClient, lastfmService, youtubeResolver)
 	httpServer := &http.Server{
 		Addr:    cfg.Addr,
 		Handler: server.Router(),

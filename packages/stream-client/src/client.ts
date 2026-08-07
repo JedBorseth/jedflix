@@ -229,6 +229,28 @@ export type YoutubeMusicSearchResponse = {
   tracks: YoutubeMusicSearchTrack[];
 };
 
+export type LastFmTag = {
+  name: string;
+  count?: number;
+};
+
+export type LastFmSimilarArtistsResponse = {
+  artists: SpotifyArtist[];
+};
+
+export type LastFmSimilarTracksResponse = {
+  tracks: SpotifyTopTrack[];
+};
+
+export type LastFmRelatedResponse = {
+  artists: SpotifyArtist[];
+  tracks: SpotifyTopTrack[];
+};
+
+export type LastFmArtistTagsResponse = {
+  tags: LastFmTag[];
+};
+
 export type StreamClientConfig = {
   apiBase: string;
   apiKey?: string;
@@ -254,6 +276,22 @@ export type StreamClient = {
   searchSpotify: (query: string) => Promise<SpotifySearchResponse>;
   fetchSpotifyAlbum: (albumId: string) => Promise<SpotifyAlbum>;
   fetchSpotifyArtist: (artistId: string) => Promise<SpotifyArtistDetails>;
+  fetchLastFmSimilarArtists: (
+    artist: string,
+    limit?: number,
+  ) => Promise<LastFmSimilarArtistsResponse>;
+  fetchLastFmSimilarTracks: (
+    artist: string,
+    track: string,
+    limit?: number,
+  ) => Promise<LastFmSimilarTracksResponse>;
+  fetchLastFmRelated: (params: {
+    artist?: string;
+    track?: string;
+    seeds?: Array<{ artist: string; track: string }>;
+    limit?: number;
+  }) => Promise<LastFmRelatedResponse>;
+  fetchLastFmArtistTags: (artist: string) => Promise<LastFmArtistTagsResponse>;
   searchYoutubeMusic: (query: string) => Promise<YoutubeMusicSearchResponse>;
   getYoutubeAudioUrl: (params: {
     artist: string;
@@ -619,6 +657,105 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
     };
   }
 
+  async function fetchLastFmSimilarArtists(
+    artist: string,
+    limit = 12,
+  ): Promise<LastFmSimilarArtistsResponse> {
+    const params = new URLSearchParams({
+      artist: artist.trim(),
+      limit: String(limit),
+    });
+    const response = await fetch(`${apiBase}/api/v1/lastfm/similar-artists?${params}`, {
+      headers: headers(),
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(payload?.error ?? `Last.fm similar artists failed (${response.status})`);
+    }
+    const payload = (await response.json()) as LastFmSimilarArtistsResponse;
+    return {
+      artists: (payload.artists ?? []).map(normalizeSpotifyArtist),
+    };
+  }
+
+  async function fetchLastFmSimilarTracks(
+    artist: string,
+    track: string,
+    limit = 16,
+  ): Promise<LastFmSimilarTracksResponse> {
+    const params = new URLSearchParams({
+      artist: artist.trim(),
+      track: track.trim(),
+      limit: String(limit),
+    });
+    const response = await fetch(`${apiBase}/api/v1/lastfm/similar-tracks?${params}`, {
+      headers: headers(),
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(payload?.error ?? `Last.fm similar tracks failed (${response.status})`);
+    }
+    const payload = (await response.json()) as LastFmSimilarTracksResponse;
+    return {
+      tracks: (payload.tracks ?? []).map(normalizeSpotifyTopTrack),
+    };
+  }
+
+  async function fetchLastFmRelated(params: {
+    artist?: string;
+    track?: string;
+    seeds?: Array<{ artist: string; track: string }>;
+    limit?: number;
+  }): Promise<LastFmRelatedResponse> {
+    const query = new URLSearchParams();
+    if (params.artist?.trim()) {
+      query.set("artist", params.artist.trim());
+    }
+    if (params.track?.trim()) {
+      query.set("track", params.track.trim());
+    }
+    if (params.limit) {
+      query.set("limit", String(params.limit));
+    }
+    for (const seed of params.seeds ?? []) {
+      if (seed.artist?.trim() && seed.track?.trim()) {
+        query.append("seed", `${seed.artist.trim()}|||${seed.track.trim()}`);
+      }
+    }
+    const response = await fetch(`${apiBase}/api/v1/lastfm/related?${query}`, {
+      headers: headers(),
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(payload?.error ?? `Last.fm related failed (${response.status})`);
+    }
+    const payload = (await response.json()) as LastFmRelatedResponse;
+    return {
+      artists: (payload.artists ?? []).map(normalizeSpotifyArtist),
+      tracks: (payload.tracks ?? []).map(normalizeSpotifyTopTrack),
+    };
+  }
+
+  async function fetchLastFmArtistTags(artist: string): Promise<LastFmArtistTagsResponse> {
+    const params = new URLSearchParams({ artist: artist.trim() });
+    const response = await fetch(`${apiBase}/api/v1/lastfm/artist-tags?${params}`, {
+      headers: headers(),
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(payload?.error ?? `Last.fm artist tags failed (${response.status})`);
+    }
+    const payload = (await response.json()) as LastFmArtistTagsResponse;
+    return {
+      tags: (payload.tags ?? [])
+        .map((tag) => ({
+          name: tag.name ?? "",
+          count: tag.count,
+        }))
+        .filter((tag) => tag.name.length > 0),
+    };
+  }
+
   async function searchYoutubeMusic(query: string): Promise<YoutubeMusicSearchResponse> {
     const params = new URLSearchParams({ q: query.trim() });
     const response = await fetch(`${apiBase}/api/v1/youtube/search?${params.toString()}`, {
@@ -679,6 +816,10 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
     searchSpotify,
     fetchSpotifyAlbum,
     fetchSpotifyArtist,
+    fetchLastFmSimilarArtists,
+    fetchLastFmSimilarTracks,
+    fetchLastFmRelated,
+    fetchLastFmArtistTags,
     searchYoutubeMusic,
     getYoutubeAudioUrl,
   };

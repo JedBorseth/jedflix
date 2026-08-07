@@ -141,6 +141,8 @@ export function MusicQueuePanel() {
     playQueueIndex,
     removeFromQueue,
     clearUpcoming,
+    infiniteQueue,
+    setInfiniteQueue,
   } = useMusicPlayer();
   const listRef = useRef<HTMLDivElement>(null);
   const [draggingVisualIndex, setDraggingVisualIndex] = useState<number | null>(null);
@@ -220,19 +222,40 @@ export function MusicQueuePanel() {
                 {visibleCount} {visibleCount === 1 ? "song" : "songs"}
               </p>
             </div>
-            {visibleCount > 1 ? (
+            <div className="flex shrink-0 items-center gap-2">
               <button
                 type="button"
-                className="shrink-0 rounded-full px-2.5 py-1 text-xs font-medium text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-white"
+                role="switch"
+                aria-checked={infiniteQueue}
+                aria-label="Infinite Queue"
+                className={cn(
+                  "rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
+                  infiniteQueue
+                    ? "bg-red-600/20 text-red-400 hover:bg-red-600/30"
+                    : "text-zinc-300 hover:bg-zinc-800 hover:text-white",
+                )}
                 onClick={(event) => {
                   event.stopPropagation();
-                  clearUpcoming();
+                  setInfiniteQueue(!infiniteQueue);
                 }}
                 onPointerDown={(event) => event.stopPropagation()}
               >
-                Clear
+                Infinite Queue
               </button>
-            ) : null}
+              {visibleCount > 1 ? (
+                <button
+                  type="button"
+                  className="rounded-full px-2.5 py-1 text-xs font-medium text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-white"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    clearUpcoming();
+                  }}
+                  onPointerDown={(event) => event.stopPropagation()}
+                >
+                  Clear
+                </button>
+              ) : null}
+            </div>
           </div>
         </div>
 

@@ -2,6 +2,7 @@ import { PlayIcon } from "@radix-ui/react-icons";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
 import { AlbumCard } from "@/components/browse/AlbumCard";
+import { ArtistCard } from "@/components/browse/ArtistCard";
 import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
 import { AppLink } from "@/components/layout/AppLink";
 import { useMusicPlayer } from "@/components/player/music/MusicPlayerContext";
@@ -9,6 +10,7 @@ import { SwipeableTrackRow } from "@/components/player/music/SwipeableTrackRow";
 import { Button } from "@/components/ui/button";
 import { DetailPageSkeleton } from "@/components/ui/skeleton";
 import { useLikeTrack } from "@/hooks/useLikeTrack";
+import { getSimilarArtists } from "@/lib/lastfm";
 import {
   formatTrackDuration,
   getArtistDetails,
@@ -38,6 +40,15 @@ export function MusicArtistPage() {
     : !normalizedId
       ? "Artist not found."
       : null;
+
+  const similarQuery = useQuery({
+    queryKey: catalogQueryKeys.lastfm.similarArtists(artist?.name ?? ""),
+    queryFn: () => getSimilarArtists(artist!.name, 12),
+    enabled: Boolean(artist?.name),
+  });
+  const similarArtists = (similarQuery.data ?? []).filter(
+    (item) => item.id && item.id !== normalizedId,
+  );
 
   if (artist === undefined) {
     return (
@@ -179,11 +190,22 @@ export function MusicArtistPage() {
         ) : null}
 
         {discography.length > 0 ? (
-          <section>
+          <section className="mb-10">
             <h2 className="mb-4 text-center text-xl font-semibold">Discography</h2>
             <div className="flex flex-wrap justify-center gap-3">
               {discography.map((album) => (
                 <AlbumCard key={`disc-${album.id}`} album={album} />
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        {similarArtists.length > 0 ? (
+          <section className="mb-4">
+            <h2 className="mb-4 text-xl font-semibold">Similar Artists</h2>
+            <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2 scrollbar-hide">
+              {similarArtists.map((similar) => (
+                <ArtistCard key={similar.id} artist={similar} />
               ))}
             </div>
           </section>

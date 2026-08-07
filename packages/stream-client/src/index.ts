@@ -28,5 +28,10 @@ export type {
   VideoSourcesRequest,
   YoutubeMusicSearchResponse,
   YoutubeMusicSearchTrack,
+  LastFmTag,
+  LastFmSimilarArtistsResponse,
+  LastFmSimilarTracksResponse,
+  LastFmRelatedResponse,
+  LastFmArtistTagsResponse,
 } from "./client";
 export { createStreamClient, StreamResolveError } from "./client";

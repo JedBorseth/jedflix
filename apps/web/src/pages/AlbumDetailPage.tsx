@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, useParams } from "react-router-dom";
 import { AlbumCard } from "@/components/browse/AlbumCard";
+import { ArtistCard } from "@/components/browse/ArtistCard";
 import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
 import { AppLink } from "@/components/layout/AppLink";
 import { useMusicPlayer } from "@/components/player/music/MusicPlayerContext";
@@ -8,6 +9,7 @@ import { SwipeableTrackRow } from "@/components/player/music/SwipeableTrackRow";
 import { Button } from "@/components/ui/button";
 import { DetailPageSkeleton } from "@/components/ui/skeleton";
 import { useLikeTrack } from "@/hooks/useLikeTrack";
+import { getRelatedMusic, topTrackToQueueFields } from "@/lib/lastfm";
 import type { AlbumItem } from "@/lib/spotify";
 import {
   formatTrackDuration,
@@ -61,6 +63,33 @@ export function AlbumDetailPage() {
   const relatedAlbums =
     relatedQuery.data?.albums.filter((item) => item.id !== normalizedId).slice(0, 12) ?? [];
 
+  const primaryArtistName = displayAlbum?.artists[0] ?? "";
+  const seedTracks = tracks.slice(0, 4).map((track) => ({
+    artist: (track.artists[0] || primaryArtistName).trim(),
+    track: track.name,
+  }));
+  const relatedKey = [
+    primaryArtistName,
+    ...seedTracks.map((seed) => `${seed.artist}:${seed.track}`),
+  ].join("|");
+
+  const lastfmRelatedQuery = useQuery({
+    queryKey: catalogQueryKeys.lastfm.related(relatedKey),
+    queryFn: () =>
+      getRelatedMusic({
+        artist: primaryArtistName,
+        seeds: seedTracks,
+        limit: 12,
+      }),
+    enabled: Boolean(primaryArtistName) && tracks.length > 0,
+  });
+  const recommendedTracks = (lastfmRelatedQuery.data?.tracks ?? []).filter(
+    (track) => track.id && !tracks.some((albumTrack) => albumTrack.id === track.id),
+  );
+  const recommendedArtists = (lastfmRelatedQuery.data?.artists ?? []).filter(
+    (artist) => artist.id && !displayAlbum?.artistIds.includes(artist.id),
+  );
+
   if (album === undefined && !preview) {
     return (
       <div className="min-h-screen bg-zinc-950 text-white">
@@ -99,6 +128,18 @@ export function AlbumDetailPage() {
     );
   }
 
+  function playRecommendedFrom(index: number) {
+    if (recommendedTracks.length === 0) {
+      return;
+    }
+    const queue = recommendedTracks.map(topTrackToQueueFields);
+    const start = queue[Math.min(Math.max(index, 0), queue.length - 1)];
+    if (!start) {
+      return;
+    }
+    musicPlayer.playTrack(start, queue);
+  }
+
   const activeTrackId = musicPlayer.current?.id;
 
   return (
@@ -126,9 +167,7 @@ export function AlbumDetailPage() {
               {displayAlbum.artists.map((name, index) => {
                 const artistId = displayAlbum.artistIds[index];
                 if (!artistId) {
-                  return (
-                    <span key={`${name}-${index}`}>{name}</span>
-                  );
+                  return <span key={`${name}-${index}`}>{name}</span>;
                 }
                 return (
                   <AppLink
@@ -222,6 +261,64 @@ export function AlbumDetailPage() {
                 </SwipeableTrackRow>
               );
             })}
+          </div>
+        </section>
+      ) : null}
+
+      {recommendedTracks.length > 0 ? (
+        <section className="mx-auto max-w-6xl px-4 pb-8 md:px-12">
+          <h2 className="mb-4 text-xl font-semibold">Recommended</h2>
+          <div className="divide-y divide-zinc-900 rounded-lg border border-zinc-900">
+            {recommendedTracks.slice(0, 8).map((track, index) => {
+              const isActive = activeTrackId === track.id;
+              const queueTrack = topTrackToQueueFields(track);
+              return (
+                <SwipeableTrackRow
+                  key={track.id || `${track.name}-${index}`}
+                  onPlay={() => playRecommendedFrom(index)}
+                  onAddToQueue={() => musicPlayer.addToQueue(queueTrack)}
+                  onLike={() => void likeTrack(queueTrack)}
+                >
+                  <div
+                    className={cn(
+                      "flex w-full items-center gap-3 px-3 py-3 text-left transition-colors hover:bg-zinc-900/80",
+                      isActive && "bg-zinc-900 text-white",
+                    )}
+                  >
+                    <ProgressiveCoverImage
+                      src={track.imageUrl}
+                      alt=""
+                      className="h-10 w-10 shrink-0 rounded object-cover"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p
+                        className={cn(
+                          "truncate text-sm",
+                          isActive ? "text-red-400" : "text-white",
+                        )}
+                      >
+                        {track.name}
+                      </p>
+                      <p className="truncate text-xs text-zinc-500">{track.artists.join(", ")}</p>
+                    </div>
+                    <span className="shrink-0 text-xs text-zinc-500">
+                      {formatTrackDuration(track.durationMs)}
+                    </span>
+                  </div>
+                </SwipeableTrackRow>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
+
+      {recommendedArtists.length > 0 ? (
+        <section className="mx-auto max-w-6xl px-4 pb-8 md:px-12">
+          <h2 className="mb-4 text-xl font-semibold">Similar Artists</h2>
+          <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-2 scrollbar-hide">
+            {recommendedArtists.map((artist) => (
+              <ArtistCard key={artist.id} artist={artist} />
+            ))}
           </div>
         </section>
       ) : null}

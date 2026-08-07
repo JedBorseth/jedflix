@@ -35,6 +35,9 @@ type Config struct {
 	SpotifyAPIBaseURL          string
 	SpotifyAuthURL             string
 	SpotifyCacheTTL            time.Duration
+	LastFMAPIKey               string
+	LastFMAPIBaseURL           string
+	LastFMCacheTTL             time.Duration
 	AbbBaseURL                 string
 	AbbUsername                string
 	AbbPassword                string
@@ -67,6 +70,9 @@ func Load() Config {
 		SpotifyAPIBaseURL:          strings.TrimRight(envOr("SPOTIFY_API_BASE_URL", "https://api.spotify.com/v1"), "/"),
 		SpotifyAuthURL:             strings.TrimRight(envOr("SPOTIFY_AUTH_URL", "https://accounts.spotify.com/api/token"), "/"),
 		SpotifyCacheTTL:            envDuration("SPOTIFY_CACHE_TTL", 6*time.Hour),
+		LastFMAPIKey:               strings.TrimSpace(os.Getenv("LASTFM_API_KEY")),
+		LastFMAPIBaseURL:           strings.TrimRight(envOr("LASTFM_API_BASE_URL", "https://ws.audioscrobbler.com/2.0"), "/"),
+		LastFMCacheTTL:             envDuration("LASTFM_CACHE_TTL", 6*time.Hour),
 		AbbBaseURL:                 strings.TrimRight(envOr("ABB_BASE_URL", "https://audiobookbay.lu"), "/"),
 		AbbUsername:                strings.TrimSpace(os.Getenv("ABB_USERNAME")),
 		AbbPassword:                os.Getenv("ABB_PASSWORD"),

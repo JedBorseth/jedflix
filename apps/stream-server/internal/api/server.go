@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"github.com/jedborseth/jeds-movies/stream-server/internal/config"
+	"github.com/jedborseth/jeds-movies/stream-server/internal/lastfm"
 	"github.com/jedborseth/jeds-movies/stream-server/internal/letterboxd"
 	"github.com/jedborseth/jeds-movies/stream-server/internal/openlibrary"
 	"github.com/jedborseth/jeds-movies/stream-server/internal/resolvejobs"
@@ -28,6 +29,7 @@ type Server struct {
 	letterboxd  *letterboxd.Client
 	openLibrary *openlibrary.Client
 	spotify     *spotify.Client
+	lastfm      *lastfm.Service
 	youtube     *youtube.Resolver
 }
 
@@ -37,6 +39,7 @@ func NewServer(
 	letterboxdClient *letterboxd.Client,
 	openLibraryClient *openlibrary.Client,
 	spotifyClient *spotify.Client,
+	lastfmService *lastfm.Service,
 	youtubeResolver *youtube.Resolver,
 ) *Server {
 	if youtubeResolver == nil {
@@ -49,6 +52,7 @@ func NewServer(
 		letterboxd:  letterboxdClient,
 		openLibrary: openLibraryClient,
 		spotify:     spotifyClient,
+		lastfm:      lastfmService,
 		youtube:     youtubeResolver,
 	}
 }
@@ -93,6 +97,10 @@ func (s *Server) Router() http.Handler {
 		r.Get("/spotify/search", s.handleSpotifySearch)
 		r.Get("/spotify/albums/{albumId}", s.handleSpotifyAlbum)
 		r.Get("/spotify/artists/{artistId}", s.handleSpotifyArtist)
+		r.Get("/lastfm/similar-artists", s.handleLastFMSimilarArtists)
+		r.Get("/lastfm/similar-tracks", s.handleLastFMSimilarTracks)
+		r.Get("/lastfm/artist-tags", s.handleLastFMArtistTags)
+		r.Get("/lastfm/related", s.handleLastFMRelated)
 		r.Get("/youtube/search", s.handleYouTubeSearch)
 		r.Get("/youtube/audio", s.handleYouTubeAudio)
 		r.Head("/youtube/audio", s.handleYouTubeAudio)
@@ -425,6 +433,94 @@ func (s *Server) handleSpotifyArtist(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
+func (s *Server) handleLastFMSimilarArtists(w http.ResponseWriter, r *http.Request) {
+	if s.lastfm == nil || !s.lastfm.Configured() {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "last.fm is not configured"})
+		return
+	}
+	artist := strings.TrimSpace(r.URL.Query().Get("artist"))
+	limit := parsePositiveInt(r.URL.Query().Get("limit"), 12)
+	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
+	defer cancel()
+
+	artists, err := s.lastfm.SimilarArtists(ctx, artist, limit)
+	if err != nil {
+		writeLastFMError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"artists": artists})
+}
+
+func (s *Server) handleLastFMSimilarTracks(w http.ResponseWriter, r *http.Request) {
+	if s.lastfm == nil || !s.lastfm.Configured() {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "last.fm is not configured"})
+		return
+	}
+	artist := strings.TrimSpace(r.URL.Query().Get("artist"))
+	track := strings.TrimSpace(r.URL.Query().Get("track"))
+	limit := parsePositiveInt(r.URL.Query().Get("limit"), 16)
+	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
+	defer cancel()
+
+	tracks, err := s.lastfm.SimilarTracks(ctx, artist, track, limit)
+	if err != nil {
+		writeLastFMError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tracks": tracks})
+}
+
+func (s *Server) handleLastFMArtistTags(w http.ResponseWriter, r *http.Request) {
+	if s.lastfm == nil || !s.lastfm.Configured() {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "last.fm is not configured"})
+		return
+	}
+	artist := strings.TrimSpace(r.URL.Query().Get("artist"))
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	tags, err := s.lastfm.ArtistTags(ctx, artist)
+	if err != nil {
+		writeLastFMError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tags": tags})
+}
+
+func (s *Server) handleLastFMRelated(w http.ResponseWriter, r *http.Request) {
+	if s.lastfm == nil || !s.lastfm.Configured() {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "last.fm is not configured"})
+		return
+	}
+	artist := strings.TrimSpace(r.URL.Query().Get("artist"))
+	limit := parsePositiveInt(r.URL.Query().Get("limit"), 12)
+	seeds := make([]struct{ Artist, Track string }, 0)
+	for _, raw := range r.URL.Query()["seed"] {
+		artistName, trackName, ok := splitSeed(raw)
+		if !ok {
+			continue
+		}
+		seeds = append(seeds, struct{ Artist, Track string }{Artist: artistName, Track: trackName})
+	}
+	// Also accept a single track= + artist= pair as a seed.
+	if track := strings.TrimSpace(r.URL.Query().Get("track")); track != "" && artist != "" {
+		seeds = append([]struct{ Artist, Track string }{{Artist: artist, Track: track}}, seeds...)
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
+	defer cancel()
+
+	artists, tracks, err := s.lastfm.RelatedForAlbum(ctx, artist, seeds, limit)
+	if err != nil {
+		writeLastFMError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"artists": artists,
+		"tracks":  tracks,
+	})
+}
+
 func (s *Server) handleYouTubeSearch(w http.ResponseWriter, r *http.Request) {
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	ctx, cancel := context.WithTimeout(r.Context(), youtube.ResolveTimeout)
@@ -533,6 +629,49 @@ func writeSpotifyError(w http.ResponseWriter, err error) {
 		status = http.StatusServiceUnavailable
 	}
 	writeJSON(w, status, map[string]string{"error": err.Error()})
+}
+
+func writeLastFMError(w http.ResponseWriter, err error) {
+	status := http.StatusBadGateway
+	switch {
+	case errors.Is(err, lastfm.ErrBadRequest):
+		status = http.StatusBadRequest
+	case errors.Is(err, lastfm.ErrNotFound):
+		status = http.StatusNotFound
+	case errors.Is(err, lastfm.ErrNotConfigured):
+		status = http.StatusServiceUnavailable
+	case errors.Is(err, context.Canceled):
+		status = http.StatusRequestTimeout
+	case errors.Is(err, context.DeadlineExceeded):
+		status = http.StatusGatewayTimeout
+	}
+	writeJSON(w, status, map[string]string{"error": err.Error()})
+}
+
+func parsePositiveInt(raw string, fallback int) int {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return fallback
+	}
+	return n
+}
+
+// splitSeed parses "Artist|||Track" seed pairs from query params.
+func splitSeed(raw string) (artist, track string, ok bool) {
+	parts := strings.SplitN(raw, "|||", 2)
+	if len(parts) != 2 {
+		return "", "", false
+	}
+	artist = strings.TrimSpace(parts[0])
+	track = strings.TrimSpace(parts[1])
+	if artist == "" || track == "" {
+		return "", "", false
+	}
+	return artist, track, true
 }
 
 func (s *Server) authMiddleware(next http.Handler) http.Handler {

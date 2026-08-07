@@ -21,6 +21,10 @@ import {
 import { getYoutubeAudioUrl, type TrackItem } from "@/lib/spotify";
 import { recordRecentlyPlayedMusic } from "@/lib/recentlyPlayedMusic";
 import {
+  generateInfiniteQueueTracks,
+  INFINITE_QUEUE_THRESHOLD,
+} from "@/lib/infiniteQueueRecommendations";
+import {
   prefetchYoutubeAudioTracks,
   upcomingTracksForPrefetch,
 } from "@/lib/youtubeAudioPrefetch";
@@ -36,6 +40,8 @@ export type MusicQueueTrack = {
   durationMs: number;
   /** When set, audio resolve uses this YouTube video instead of searching. */
   youtubeVideoId?: string;
+  /** Appended by Infinite Queue — manual addToQueue inserts ahead of these. */
+  autoQueued?: boolean;
 };
 
 type MusicPlayerContextValue = {
@@ -46,6 +52,7 @@ type MusicPlayerContextValue = {
   loading: boolean;
   expanded: boolean;
   queueOpen: boolean;
+  infiniteQueue: boolean;
   currentTime: number;
   duration: number;
   error: string | null;
@@ -76,6 +83,7 @@ type MusicPlayerContextValue = {
   removeFromQueue: (index: number) => void;
   /** Drop every track after the one currently playing. */
   clearUpcoming: () => void;
+  setInfiniteQueue: (enabled: boolean) => void;
   toggle: () => void;
   pause: () => void;
   play: () => void;
@@ -147,6 +155,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
+  const [infiniteQueue, setInfiniteQueueState] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -154,6 +163,11 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   queueIndexRef.current = queueIndex;
   const queueRef = useRef(queue);
   queueRef.current = queue;
+  const infiniteQueueRef = useRef(false);
+  infiniteQueueRef.current = infiniteQueue;
+  /** Recently played tracks for Infinite Queue recommendation context. */
+  const playHistoryRef = useRef<MusicQueueTrack[]>([]);
+  const infiniteRefillInFlightRef = useRef(false);
 
   const current = useMemo(() => {
     const track = queue[queueIndex] ?? null;
@@ -224,6 +238,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         imageUrl: playable.imageUrl,
         durationMs: playable.durationMs,
       });
+      const history = playHistoryRef.current.filter((item) => item.id !== playable.id);
+      history.push(playable);
+      playHistoryRef.current = history.slice(-20);
       const videoId =
         playable.youtubeVideoId ||
         (playable.id.startsWith("yt:") ? playable.id.slice(3) : undefined);
@@ -266,6 +283,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       const session = ++queueSessionRef.current;
       queueDirtyRef.current = false;
       prefetchedIdsRef.current = new Set([track.id]);
+      playHistoryRef.current = [];
       setQueue(stripQueueArtwork(list, index));
       setQueueIndex(index);
       setQueueOpen(false);
@@ -326,6 +344,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       queueSessionRef.current += 1;
       queueDirtyRef.current = false;
       prefetchedIdsRef.current = new Set([startTrack.id]);
+      playHistoryRef.current = [];
       setQueue(stripQueueArtwork(list, index));
       setQueueIndex(index);
       setQueueOpen(false);
@@ -354,7 +373,14 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         return;
       }
       queueDirtyRef.current = true;
-      setQueue((prev) => [...prev, track]);
+      const manualTrack = { ...track, autoQueued: false };
+      setQueue((prev) => {
+        // Manual adds jump ahead of Infinite Queue auto-fills.
+        const insertAt = findManualInsertIndex(prev, queueIndexRef.current);
+        const next = [...prev];
+        next.splice(insertAt, 0, manualTrack);
+        return next;
+      });
     },
     [playTrack, queue.length],
   );
@@ -422,6 +448,65 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     });
     setQueueIndex(0);
   }, [queueIndex]);
+
+  const setInfiniteQueue = useCallback((enabled: boolean) => {
+    setInfiniteQueueState(enabled);
+    infiniteQueueRef.current = enabled;
+  }, []);
+
+  const appendInfiniteRecommendations = useCallback(async () => {
+    if (!infiniteQueueRef.current || infiniteRefillInFlightRef.current) {
+      return;
+    }
+    const currentQueue = queueRef.current;
+    const index = queueIndexRef.current;
+    const remaining = currentQueue.length - index - 1;
+    if (remaining >= INFINITE_QUEUE_THRESHOLD) {
+      return;
+    }
+    const currentTrack = currentQueue[index] ?? null;
+    if (!currentTrack) {
+      return;
+    }
+
+    infiniteRefillInFlightRef.current = true;
+    const session = queueSessionRef.current;
+    try {
+      const excludeIds = new Set(currentQueue.map((track) => track.id));
+      const recent = playHistoryRef.current.slice(-8);
+      const recentArtistNames = [...recent, ...currentQueue.slice(Math.max(0, index - 3), index + 1)]
+        .map((track) => track.artists[0] ?? "")
+        .filter(Boolean);
+
+      const recommendations = await generateInfiniteQueueTracks({
+        current: currentTrack,
+        recent,
+        excludeIds,
+        recentArtistNames,
+      });
+      if (
+        session !== queueSessionRef.current ||
+        !infiniteQueueRef.current ||
+        recommendations.length === 0
+      ) {
+        return;
+      }
+      setQueue((prev) => {
+        const existing = new Set(prev.map((track) => track.id));
+        const toAppend = recommendations
+          .filter((track) => !existing.has(track.id))
+          .map((track) => ({ ...track, autoQueued: true }));
+        if (toAppend.length === 0) {
+          return prev;
+        }
+        return [...prev, ...toAppend];
+      });
+    } catch {
+      // Last.fm / network failures must never interrupt playback.
+    } finally {
+      infiniteRefillInFlightRef.current = false;
+    }
+  }, []);
 
   const pause = useCallback(() => {
     playIntentRef.current = false;
@@ -589,6 +674,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     catalogEndedRef.current = false;
     queueSessionRef.current += 1;
     queueDirtyRef.current = false;
+    playHistoryRef.current = [];
+    infiniteRefillInFlightRef.current = false;
     setQueue([]);
     setQueueIndex(0);
     setPlaying(false);
@@ -620,6 +707,17 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     return () => controller.abort();
   }, [queue, queueIndex]);
 
+  useEffect(() => {
+    if (!infiniteQueue) {
+      return;
+    }
+    const remaining = queue.length - queueIndex - 1;
+    if (remaining >= INFINITE_QUEUE_THRESHOLD) {
+      return;
+    }
+    void appendInfiniteRecommendations();
+  }, [appendInfiniteRecommendations, infiniteQueue, queue, queueIndex]);
+
   useMediaSession({
     title: current?.title ?? "",
     artist: current ? artistLabel(current.artists) : undefined,
@@ -646,6 +744,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       loading,
       expanded,
       queueOpen,
+      infiniteQueue,
       currentTime,
       duration,
       error,
@@ -657,6 +756,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       reorderQueue,
       removeFromQueue,
       clearUpcoming,
+      setInfiniteQueue,
       toggle,
       pause,
       play,
@@ -678,6 +778,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       expanded,
       extendQueueFromSource,
       handleSetExpanded,
+      infiniteQueue,
       loading,
       next,
       pause,
@@ -693,6 +794,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       removeFromQueue,
       reorderQueue,
       seek,
+      setInfiniteQueue,
       toggle,
     ],
   );
@@ -810,4 +912,14 @@ export function useMusicPlayer(): MusicPlayerContextValue {
 
 export function useOptionalMusicPlayer(): MusicPlayerContextValue | null {
   return useContext(MusicPlayerContext);
+}
+
+/** Insert manual tracks before the first upcoming auto-queued recommendation. */
+function findManualInsertIndex(queue: MusicQueueTrack[], currentIndex: number): number {
+  for (let i = currentIndex + 1; i < queue.length; i += 1) {
+    if (queue[i]?.autoQueued) {
+      return i;
+    }
+  }
+  return queue.length;
 }
