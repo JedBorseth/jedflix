@@ -7,7 +7,7 @@ DATA_ROOT="${JEDFLIX_DATA_ROOT:-/mnt/disk1/jedflix}"
 MB_ROOT="${DATA_ROOT}/musicbrainz"
 DUMP_DIR="${MB_ROOT}/dumps"
 PGDATA="${MB_ROOT}/pgdata"
-COMPOSE_FILE="${COMPOSE_FILE:-$(cd "$(dirname "$0")/../.." && pwd)/docker-compose.yml}"
+COMPOSE_FILE="${COMPOSE_FILE:-$(cd "$(dirname "$0")/.." && pwd)/docker-compose.yml}"
 
 mkdir -p "${DUMP_DIR}" "${PGDATA}" "${MB_ROOT}/replication" "${MB_ROOT}/meili"
 mkdir -p "${DATA_ROOT}/music-artwork"/{by-mbid,by-hash,missing}
