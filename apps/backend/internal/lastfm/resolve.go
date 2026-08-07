@@ -2,6 +2,7 @@ package lastfm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -59,7 +60,13 @@ func (s *Service) SimilarArtists(ctx context.Context, artist string, limit int) 
 			continue
 		}
 		resolved, err := s.resolveArtist(ctx, item.Name)
-		if err != nil || resolved == nil || resolved.ID == "" {
+		if err != nil {
+			if errors.Is(err, spotify.ErrRateLimited) {
+				break
+			}
+			continue
+		}
+		if resolved == nil || resolved.ID == "" {
 			continue
 		}
 		if _, ok := seen[resolved.ID]; ok {
@@ -91,7 +98,13 @@ func (s *Service) SimilarTracks(ctx context.Context, artist, track string, limit
 			continue
 		}
 		resolved, err := s.resolveTrack(ctx, item.Artist, item.Name)
-		if err != nil || resolved == nil || resolved.ID == "" {
+		if err != nil {
+			if errors.Is(err, spotify.ErrRateLimited) {
+				break
+			}
+			continue
+		}
+		if resolved == nil || resolved.ID == "" {
 			continue
 		}
 		if _, ok := seen[resolved.ID]; ok {
@@ -147,10 +160,10 @@ func (s *Service) RelatedForAlbum(
 		seen := make(map[string]struct{})
 		collected := make([]spotify.TopTrack, 0, trackLimit)
 		seeds := seedTracks
-		if len(seeds) > 4 {
-			seeds = seeds[:4]
+		if len(seeds) > 2 {
+			seeds = seeds[:2]
 		}
-		perSeed := max(4, (trackLimit/max(1, len(seeds)))+2)
+		perSeed := max(3, (trackLimit/max(1, len(seeds)))+1)
 		for _, seed := range seeds {
 			if ctx.Err() != nil {
 				break
@@ -210,6 +223,9 @@ func (s *Service) resolveArtist(ctx context.Context, name string) (*spotify.Arti
 	query := fmt.Sprintf(`artist:"%s"`, escapeSearchQuotes(name))
 	result, err := s.spotify.Search(ctx, query)
 	if err != nil {
+		if errors.Is(err, spotify.ErrRateLimited) {
+			return nil, err
+		}
 		// Fall back to plain name search.
 		result, err = s.spotify.Search(ctx, name)
 		if err != nil {
@@ -240,6 +256,9 @@ func (s *Service) resolveTrack(ctx context.Context, artist, track string) (*spot
 	query := fmt.Sprintf(`track:"%s" artist:"%s"`, escapeSearchQuotes(track), escapeSearchQuotes(artist))
 	result, err := s.spotify.Search(ctx, query)
 	if err != nil {
+		if errors.Is(err, spotify.ErrRateLimited) {
+			return nil, err
+		}
 		result, err = s.spotify.Search(ctx, track+" "+artist)
 		if err != nil {
 			return nil, err

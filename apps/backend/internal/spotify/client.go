@@ -442,7 +442,10 @@ func (c *Client) GetAlbumWithHints(ctx context.Context, albumID string, hints Al
 	}
 	tracks, trackErr := c.searchAlbumTracks(ctx, albumID, summary.Name, summary.Artists)
 	if trackErr != nil {
-		return nil, err
+		// Prefer a partial album (name/art) over failing the whole page during rate limits.
+		summary.Tracks = []Track{}
+		c.rememberAlbumSummary(summary)
+		return &summary, nil
 	}
 	summary.Tracks = tracks
 	if summary.TotalTracks == 0 {
