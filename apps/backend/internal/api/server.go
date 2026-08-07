@@ -15,10 +15,11 @@ import (
 	"github.com/jedborseth/jeds-movies/backend/internal/config"
 	"github.com/jedborseth/jeds-movies/backend/internal/lastfm"
 	"github.com/jedborseth/jeds-movies/backend/internal/letterboxd"
+	"github.com/jedborseth/jeds-movies/backend/internal/musicbrainz"
+	"github.com/jedborseth/jeds-movies/backend/internal/musiccatalog"
 	"github.com/jedborseth/jeds-movies/backend/internal/openlibrary"
 	"github.com/jedborseth/jeds-movies/backend/internal/resolvejobs"
 	"github.com/jedborseth/jeds-movies/backend/internal/resolver"
-	"github.com/jedborseth/jeds-movies/backend/internal/spotify"
 	"github.com/jedborseth/jeds-movies/backend/internal/tmdb"
 	"github.com/jedborseth/jeds-movies/backend/internal/youtube"
 )
@@ -29,7 +30,7 @@ type Server struct {
 	jobs        *resolvejobs.Store
 	letterboxd  *letterboxd.Client
 	openLibrary *openlibrary.Client
-	spotify     *spotify.Client
+	music       *musicbrainz.Client
 	lastfm      *lastfm.Service
 	tmdb        *tmdb.Client
 	youtube     *youtube.Resolver
@@ -43,7 +44,7 @@ func NewServer(
 	resolverService *resolver.Service,
 	letterboxdClient *letterboxd.Client,
 	openLibraryClient *openlibrary.Client,
-	spotifyClient *spotify.Client,
+	musicClient *musicbrainz.Client,
 	lastfmService *lastfm.Service,
 	youtubeResolver *youtube.Resolver,
 	tmdbClient *tmdb.Client,
@@ -65,7 +66,7 @@ func NewServer(
 		jobs:        resolvejobs.NewStore(30 * time.Minute),
 		letterboxd:  letterboxdClient,
 		openLibrary: openLibraryClient,
-		spotify:     spotifyClient,
+		music:       musicClient,
 		lastfm:      lastfmService,
 		tmdb:        tmdbClient,
 		youtube:     youtubeResolver,
@@ -444,45 +445,45 @@ func (s *Server) handleTmdbProxy(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSpotifyBrowse(w http.ResponseWriter, r *http.Request) {
-	if s.spotify == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "spotify is not configured"})
+	if s.music == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "music catalog is not configured"})
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
 
-	result, err := s.spotify.Browse(ctx)
+	result, err := s.music.Browse(ctx)
 	if err != nil {
-		writeSpotifyError(w, err)
+		writeMusicCatalogError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) handleSpotifySearch(w http.ResponseWriter, r *http.Request) {
-	if s.spotify == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "spotify is not configured"})
+	if s.music == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "music catalog is not configured"})
 		return
 	}
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	defer cancel()
 
-	result, err := s.spotify.Search(ctx, query)
+	result, err := s.music.Search(ctx, query)
 	if err != nil {
-		writeSpotifyError(w, err)
+		writeMusicCatalogError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) handleSpotifyAlbum(w http.ResponseWriter, r *http.Request) {
-	if s.spotify == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "spotify is not configured"})
+	if s.music == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "music catalog is not configured"})
 		return
 	}
 	albumID := chi.URLParam(r, "albumId")
-	hints := spotify.AlbumHints{
+	hints := musiccatalog.AlbumHints{
 		Name: strings.TrimSpace(r.URL.Query().Get("name")),
 	}
 	if artists := strings.TrimSpace(r.URL.Query().Get("artist")); artists != "" {
@@ -491,53 +492,53 @@ func (s *Server) handleSpotifyAlbum(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	defer cancel()
 
-	result, err := s.spotify.GetAlbumWithHints(ctx, albumID, hints)
+	result, err := s.music.GetAlbumWithHints(ctx, albumID, hints)
 	if err != nil {
-		writeSpotifyError(w, err)
+		writeMusicCatalogError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) handleSpotifyArtist(w http.ResponseWriter, r *http.Request) {
-	if s.spotify == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "spotify is not configured"})
+	if s.music == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "music catalog is not configured"})
 		return
 	}
 	artistID := chi.URLParam(r, "artistId")
-	hints := spotify.ArtistHints{
+	hints := musiccatalog.ArtistHints{
 		Name: strings.TrimSpace(r.URL.Query().Get("name")),
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	defer cancel()
 
-	result, err := s.spotify.GetArtistWithHints(ctx, artistID, hints)
+	result, err := s.music.GetArtistWithHints(ctx, artistID, hints)
 	if err != nil {
-		writeSpotifyError(w, err)
+		writeMusicCatalogError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) handleSpotifyArtistAlbums(w http.ResponseWriter, r *http.Request) {
-	if s.spotify == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "spotify is not configured"})
+	if s.music == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "music catalog is not configured"})
 		return
 	}
 	artistID := chi.URLParam(r, "artistId")
-	hints := spotify.ArtistHints{
+	hints := musiccatalog.ArtistHints{
 		Name: strings.TrimSpace(r.URL.Query().Get("name")),
 	}
 	limit := parsePositiveInt(r.URL.Query().Get("limit"), 10)
-	if limit > 10 {
-		limit = 10
+	if limit > 25 {
+		limit = 25
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	albums, err := s.spotify.ListArtistAlbums(ctx, artistID, limit, hints)
+	albums, err := s.music.ListArtistAlbums(ctx, artistID, limit, hints)
 	if err != nil {
-		writeSpotifyError(w, err)
+		writeMusicCatalogError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"albums": albums})
@@ -751,29 +752,28 @@ func writeOpenLibraryError(w http.ResponseWriter, err error) {
 	writeJSON(w, status, map[string]string{"error": message})
 }
 
-func writeSpotifyError(w http.ResponseWriter, err error) {
+func writeMusicCatalogError(w http.ResponseWriter, err error) {
 	status := http.StatusBadGateway
-	message := "spotify request failed"
+	message := "music catalog request failed"
 	switch {
-	case errors.Is(err, spotify.ErrBadRequest):
+	case errors.Is(err, musiccatalog.ErrBadRequest):
 		status = http.StatusBadRequest
-		message = "invalid spotify request"
-	case errors.Is(err, spotify.ErrNotFound):
+		message = "invalid music catalog request"
+	case errors.Is(err, musiccatalog.ErrNotFound):
 		status = http.StatusNotFound
-		message = "spotify resource not found"
-	case errors.Is(err, spotify.ErrNotConfigured):
+		message = "music catalog resource not found"
+	case errors.Is(err, musiccatalog.ErrNotConfigured):
 		status = http.StatusServiceUnavailable
-		message = "spotify is not configured"
-	case errors.Is(err, spotify.ErrRateLimited):
+		message = "music catalog is not configured"
+	case errors.Is(err, musiccatalog.ErrRateLimited):
 		status = http.StatusTooManyRequests
-		message = "spotify rate limited"
-		w.Header().Set("Retry-After", "5")
+		message = "music catalog rate limited"
+		w.Header().Set("Retry-After", "2")
 	default:
-		// Include upstream detail for ops (still safe — no secrets).
 		if err != nil {
 			detail := err.Error()
 			if idx := strings.LastIndex(detail, "status "); idx >= 0 {
-				message = "spotify request failed (" + detail[idx:] + ")"
+				message = "music catalog request failed (" + detail[idx:] + ")"
 			}
 		}
 	}

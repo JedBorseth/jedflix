@@ -15,11 +15,11 @@ import (
 	"github.com/jedborseth/jeds-movies/backend/internal/config"
 	"github.com/jedborseth/jeds-movies/backend/internal/lastfm"
 	"github.com/jedborseth/jeds-movies/backend/internal/letterboxd"
+	"github.com/jedborseth/jeds-movies/backend/internal/musicbrainz"
 	"github.com/jedborseth/jeds-movies/backend/internal/openlibrary"
 	"github.com/jedborseth/jeds-movies/backend/internal/realdebrid"
 	"github.com/jedborseth/jeds-movies/backend/internal/resolver"
 	"github.com/jedborseth/jeds-movies/backend/internal/search"
-	"github.com/jedborseth/jeds-movies/backend/internal/spotify"
 	"github.com/jedborseth/jeds-movies/backend/internal/tmdb"
 	"github.com/jedborseth/jeds-movies/backend/internal/youtube"
 )
@@ -46,23 +46,26 @@ func main() {
 	letterboxdClient := letterboxd.NewClient(cfg)
 	openLibraryClient := openlibrary.NewClient(cfg)
 	openLibraryClient.Start(ctx)
-	spotifyClient := spotify.NewClient(cfg)
-	if spotifyClient.Configured() {
-		log.Println("Spotify client credentials configured")
-		if cfg.SpotifyCatalogPath != "" {
-			log.Printf("Spotify catalog persist path: %s", cfg.SpotifyCatalogPath)
-		}
-	} else {
-		log.Println("warning: SPOTIFY_CLIENT_ID/SPOTIFY_CLIENT_SECRET not set; music catalog disabled")
-	}
-	spotifyClient.Start(ctx)
 
+	musicClient := musicbrainz.NewClient(cfg)
 	lastfmClient := lastfm.NewClient(cfg)
-	lastfmService := lastfm.NewService(lastfmClient, spotifyClient)
-	if lastfmService.Configured() {
-		log.Println("Last.fm API key configured")
+	if lastfmClient.Configured() {
+		musicClient.SetEnricher(lastfm.NewEnricher(lastfmClient))
+		log.Println("Last.fm API key configured (charts, top tracks, artist images)")
 	} else {
-		log.Println("warning: LASTFM_API_KEY not set (or Spotify missing); related music recommendations disabled")
+		log.Println("warning: LASTFM_API_KEY not set; catalog shelves use MusicBrainz seeds only")
+	}
+	log.Println("Music catalog provider: MusicBrainz (+ Cover Art Archive)")
+	if cfg.MusicCatalogPath != "" {
+		log.Printf("Music catalog persist path: %s", cfg.MusicCatalogPath)
+	}
+	musicClient.Start(ctx)
+
+	lastfmService := lastfm.NewService(lastfmClient, musicClient)
+	if lastfmService.Configured() {
+		log.Println("Last.fm recommendations enabled")
+	} else {
+		log.Println("warning: LASTFM_API_KEY not set; related music recommendations disabled")
 	}
 
 	tmdbClient := tmdb.NewClient(cfg)
@@ -73,7 +76,7 @@ func main() {
 	}
 
 	youtubeResolver := youtube.NewResolver()
-	server := api.NewServer(cfg, resolverService, letterboxdClient, openLibraryClient, spotifyClient, lastfmService, youtubeResolver, tmdbClient)
+	server := api.NewServer(cfg, resolverService, letterboxdClient, openLibraryClient, musicClient, lastfmService, youtubeResolver, tmdbClient)
 	httpServer := &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           server.Router(),

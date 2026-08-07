@@ -109,9 +109,10 @@ Configure the Go backend (see [`apps/backend/.env.example`](apps/backend/.env.ex
 ```bash
 TMDB_API_KEY=your_tmdb_key
 CORS_ORIGINS=http://localhost:5173
+LASTFM_API_KEY=  # optional — shelves, artist images, similar artists/tracks + Infinite Queue
+# Spotify only needed on Convex for party mode / playlist sync (not for catalog)
 SPOTIFY_CLIENT_ID=
 SPOTIFY_CLIENT_SECRET=
-LASTFM_API_KEY=  # optional — similar artists/tracks + Infinite Queue
 ABB_USERNAME=  # optional AudiobookBay account (recommended)
 ABB_PASSWORD=
 RD_BLOCKED_FILENAME_REGEX=web-dl|webrip|bdrip|hdrip|dvdrip|BluRay\.x264|HDTV\.x264|HDTV\.XviD|WEB\.x264|WEB\.h264
@@ -127,7 +128,7 @@ This starts Vite, Convex, and the Go backend.
 
 ### Music playback (local dev)
 
-Spotify → YouTube audio uses **yt-dlp** on the backend (bundled in the production Docker image). Install it locally:
+Music catalog metadata comes from **MusicBrainz** (+ Cover Art Archive). Audio still uses **yt-dlp** on the backend (bundled in the production Docker image). Install it locally:
 
 ```bash
 brew install yt-dlp
