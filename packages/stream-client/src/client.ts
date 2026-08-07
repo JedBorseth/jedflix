@@ -281,6 +281,11 @@ export type StreamClient = {
     artistId: string,
     hints?: { name?: string },
   ) => Promise<SpotifyArtistDetails>;
+  /** Lightweight album shelf — avoids full artist rebuild (top tracks + discography). */
+  fetchSpotifyArtistAlbums: (
+    artistId: string,
+    options?: { name?: string; limit?: number },
+  ) => Promise<SpotifyAlbum[]>;
   fetchLastFmSimilarArtists: (
     artist: string,
     limit?: number,
@@ -677,6 +682,31 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
     };
   }
 
+  async function fetchSpotifyArtistAlbums(
+    artistId: string,
+    options?: { name?: string; limit?: number },
+  ): Promise<SpotifyAlbum[]> {
+    const encoded = encodeURIComponent(artistId.trim());
+    const query = new URLSearchParams();
+    if (options?.name?.trim()) {
+      query.set("name", options.name.trim());
+    }
+    if (options?.limit && Number.isFinite(options.limit) && options.limit > 0) {
+      query.set("limit", String(Math.min(10, Math.round(options.limit))));
+    }
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    const response = await fetch(
+      `${apiBase}/api/v1/spotify/artists/${encoded}/albums${suffix}`,
+      { headers: headers() },
+    );
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(payload?.error ?? `Spotify artist albums failed (${response.status})`);
+    }
+    const payload = (await response.json()) as { albums?: SpotifyAlbum[] };
+    return (payload.albums ?? []).map(normalizeSpotifyAlbum);
+  }
+
   async function fetchLastFmSimilarArtists(
     artist: string,
     limit = 12,
@@ -833,6 +863,7 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
     searchSpotify,
     fetchSpotifyAlbum,
     fetchSpotifyArtist,
+    fetchSpotifyArtistAlbums,
     fetchLastFmSimilarArtists,
     fetchLastFmSimilarTracks,
     fetchLastFmRelated,

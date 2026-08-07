@@ -100,6 +100,14 @@ export async function getArtistDetails(
   return streamClient.fetchSpotifyArtist(artistId, hints);
 }
 
+/** One Spotify albums page — for album detail "More from this artist". */
+export async function getArtistAlbums(
+  artistId: string,
+  options?: { name?: string; limit?: number },
+): Promise<AlbumItem[]> {
+  return streamClient.fetchSpotifyArtistAlbums(artistId, options);
+}
+
 export function getYoutubeAudioUrl(params: {
   artist: string;
   title: string;

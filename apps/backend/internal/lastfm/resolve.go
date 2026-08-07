@@ -13,10 +13,10 @@ import (
 var nonAlnumPattern = regexp.MustCompile(`[^a-z0-9]+`)
 
 const (
-	defaultSimilarArtists = 6
-	defaultSimilarTracks  = 8
-	maxSimilarArtists     = 8
-	maxSimilarTracks      = 8
+	defaultSimilarArtists = 4
+	defaultSimilarTracks  = 6
+	maxSimilarArtists     = 6
+	maxSimilarTracks      = 6
 )
 
 // SpotifySearcher is the subset of the Spotify client needed to resolve Last.fm hits.

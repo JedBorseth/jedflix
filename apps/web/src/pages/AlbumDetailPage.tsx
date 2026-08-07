@@ -14,7 +14,7 @@ import type { AlbumItem } from "@/lib/spotify";
 import {
   formatTrackDuration,
   getAlbumDetails,
-  getArtistDetails,
+  getArtistAlbums,
   getArtistPath,
   normalizeSpotifyId,
 } from "@/lib/spotify";
@@ -64,20 +64,21 @@ export function AlbumDetailPage() {
   const primaryArtistName = displayAlbum?.artists[0] ?? "";
 
   const relatedArtistId = displayAlbum?.artistIds[0];
+  // Lite albums shelf only — full GetArtist was ~5–50 Spotify calls per album view.
   const relatedQuery = useQuery({
-    queryKey: catalogQueryKeys.spotify.artist(
+    queryKey: catalogQueryKeys.spotify.artistAlbums(
       relatedArtistId ?? "",
       primaryArtistName,
     ),
     queryFn: () =>
-      getArtistDetails(relatedArtistId!, {
+      getArtistAlbums(relatedArtistId!, {
         name: primaryArtistName || undefined,
+        limit: 12,
       }),
-    // Wait for album details so we don't race GetAlbum + GetArtist + Last.fm.
     enabled: Boolean(relatedArtistId) && albumQuery.isSuccess,
   });
   const relatedAlbums =
-    relatedQuery.data?.albums.filter((item) => item.id !== normalizedId).slice(0, 12) ?? [];
+    (relatedQuery.data ?? []).filter((item) => item.id !== normalizedId).slice(0, 12);
 
   const seedTracks = tracks.slice(0, 1).map((track) => ({
     artist: (track.artists[0] || primaryArtistName).trim(),
@@ -96,11 +97,7 @@ export function AlbumDetailPage() {
         seeds: seedTracks,
         limit: 6,
       }),
-    enabled:
-      Boolean(primaryArtistName) &&
-      tracks.length > 0 &&
-      albumQuery.isSuccess &&
-      (!relatedArtistId || relatedQuery.isFetched),
+    enabled: Boolean(primaryArtistName) && tracks.length > 0 && albumQuery.isSuccess,
     staleTime: 30 * 60 * 1000,
   });
   const recommendedTracks = (lastfmRelatedQuery.data?.tracks ?? []).filter(

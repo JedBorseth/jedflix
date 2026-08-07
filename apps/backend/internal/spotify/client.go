@@ -23,12 +23,15 @@ const (
 	defaultAuthURL    = "https://accounts.spotify.com/api/token"
 	fallbackImage     = "https://placehold.co/640x640/18181b/a1a1aa?text=No+Cover"
 	// Development Mode caps GET /search (and several list endpoints) at limit=10.
-	defaultLimit        = 10
-	catalogPageCount    = 2 // 2 × 10 ≈ 20 items per shelf
-	featuredAlbumLimit  = 10
-	discographyMaxPages = 5 // 5 × 10 = up to 50 releases
-	// Dev Mode artist pages rebuild via search — keep this small to protect quota.
-	artistSearchMaxPages     = 2 // 2 × 10 ≈ 20 releases
+	defaultLimit       = 10
+	catalogPageCount   = 2 // 2 × 10 ≈ 20 items per shelf
+	featuredAlbumLimit = 10
+	// Artist discography used to paginate until maxItems unique albums. Spotify
+	// often returns duplicate market/group rows, so that loop could issue
+	// hundreds of /artists/{id}/albums calls per page view. Hard-cap pages.
+	discographyMaxPages = 2 // 2 × 10 = up to 20 releases (enough for UI)
+	// Dev Mode artist rebuild via search — one page only; never fan out.
+	artistSearchMaxPages     = 1
 	albumTrackSearchPages    = 1 // one page is enough for most albums under Dev Mode
 	maxDetailCacheSize       = 400
 	maxArtistCacheSize       = 200
@@ -539,13 +542,20 @@ func (c *Client) GetArtistWithHints(ctx context.Context, artistID string, hints 
 		topTracks = []TopTrack{}
 	}
 
-	discography, err := c.fetchArtistAlbums(ctx, artistID, discographyMaxPages*defaultLimit, "album,single,compilation")
-	if err != nil || len(discography) == 0 {
-		// Cap search rebuild — each page is a Spotify request under Dev Mode.
-		if searched, searchErr := c.searchArtistAlbums(ctx, artistID, artist.Name, artistSearchMaxPages*defaultLimit); searchErr == nil {
-			discography = searched
-		} else if len(discography) == 0 {
-			discography = []Album{}
+	// Bail early when the circuit is open — albums+search fan-out only worsens 429s.
+	discography := []Album{}
+	if c.checkRateLimit() == nil {
+		var albumsErr error
+		discography, albumsErr = c.fetchArtistAlbums(
+			ctx, artistID, discographyMaxPages*defaultLimit, "album,single,compilation",
+		)
+		if (albumsErr != nil || len(discography) == 0) && !errors.Is(albumsErr, ErrRateLimited) {
+			// Cap search rebuild — each page is a Spotify request under Dev Mode.
+			if searched, searchErr := c.searchArtistAlbums(
+				ctx, artistID, artist.Name, artistSearchMaxPages*defaultLimit,
+			); searchErr == nil {
+				discography = searched
+			}
 		}
 	}
 	if discography == nil {
@@ -571,6 +581,72 @@ func (c *Client) GetArtistWithHints(ctx context.Context, artistID string, hints 
 	}
 	c.storeArtist(details)
 	return &details, nil
+}
+
+// ListArtistAlbums returns a small album shelf for "More from this artist" without
+// rebuilding top tracks / full discography (those cost several Spotify calls).
+func (c *Client) ListArtistAlbums(
+	ctx context.Context,
+	artistID string,
+	limit int,
+	hints ArtistHints,
+) ([]Album, error) {
+	if !c.Configured() {
+		return nil, ErrNotConfigured
+	}
+	artistID = NormalizeID(artistID)
+	if artistID == "" {
+		return nil, fmt.Errorf("%w: invalid artist id", ErrBadRequest)
+	}
+	if limit <= 0 || limit > featuredAlbumLimit {
+		limit = featuredAlbumLimit
+	}
+
+	if cached, ok := c.artistCache.Load(artistID); ok {
+		entry := cached.(cachedArtist)
+		if c.now().Sub(entry.cachedAt) < c.refreshTTL {
+			source := entry.artist.Albums
+			if len(source) == 0 {
+				source = entry.artist.Discography
+			}
+			if len(source) > 0 {
+				if len(source) > limit {
+					source = source[:limit]
+				}
+				out := make([]Album, len(source))
+				copy(out, source)
+				return out, nil
+			}
+		}
+	}
+
+	if err := c.checkRateLimit(); err != nil {
+		return nil, err
+	}
+
+	// Albums only (skip singles/compilations) — one Spotify page for related shelf.
+	albums, err := c.fetchArtistAlbums(ctx, artistID, limit, "album")
+	if err != nil || len(albums) == 0 {
+		if errors.Is(err, ErrRateLimited) {
+			return nil, err
+		}
+		name := strings.TrimSpace(hints.Name)
+		if name == "" {
+			name = c.lookupArtistSummary(artistID, hints).Name
+		}
+		if name != "" {
+			if searched, searchErr := c.searchArtistAlbums(ctx, artistID, name, limit); searchErr == nil && len(searched) > 0 {
+				return searched, nil
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	if len(albums) > limit {
+		albums = albums[:limit]
+	}
+	return albums, nil
 }
 
 func NormalizeID(value string) string {
@@ -1085,7 +1161,19 @@ func (c *Client) fetchArtistAlbums(ctx context.Context, artistID string, maxItem
 	seen := make(map[string]struct{})
 	albums := make([]Album, 0, maxItems)
 
-	for offset := 0; len(albums) < maxItems; offset += defaultLimit {
+	// Hard page ceiling: never walk Spotify's full artist catalog. Duplicate
+	// market/group rows used to stall unique-count progress while Next stayed set,
+	// burning ~1k /artists/{id}/albums calls for a single user session.
+	maxPages := (maxItems + defaultLimit - 1) / defaultLimit
+	if maxPages < 1 {
+		maxPages = 1
+	}
+	if maxPages > discographyMaxPages {
+		maxPages = discographyMaxPages
+	}
+
+	for page := 0; page < maxPages && len(albums) < maxItems; page++ {
+		offset := page * defaultLimit
 		params := url.Values{}
 		params.Set("include_groups", includeGroups)
 		params.Set("limit", strconv.Itoa(defaultLimit))
@@ -1102,6 +1190,7 @@ func (c *Client) fetchArtistAlbums(ctx context.Context, artistID string, maxItem
 		if len(payload.Items) == 0 {
 			break
 		}
+		added := 0
 		for _, item := range payload.Items {
 			album := mapAlbum(item)
 			if album.ID == "" {
@@ -1112,11 +1201,14 @@ func (c *Client) fetchArtistAlbums(ctx context.Context, artistID string, maxItem
 			}
 			seen[album.ID] = struct{}{}
 			albums = append(albums, album)
+			added++
+			c.rememberAlbumSummary(album)
 			if len(albums) >= maxItems {
 				break
 			}
 		}
-		if len(payload.Items) < defaultLimit || payload.Next == "" {
+		// Duplicate-only page: further offsets rarely help and waste quota.
+		if added == 0 || len(payload.Items) < defaultLimit || payload.Next == "" {
 			break
 		}
 	}
@@ -1499,12 +1591,10 @@ func (c *Client) searchArtistAlbums(ctx context.Context, artistID, artistName st
 
 	seen := make(map[string]struct{})
 	albums := make([]Album, 0, maxItems)
+	// Never expand past artistSearchMaxPages — Dev Mode search quota is tiny.
 	maxPages := artistSearchMaxPages
-	if maxItems > artistSearchMaxPages*defaultLimit {
-		maxPages = (maxItems + defaultLimit - 1) / defaultLimit
-		if maxPages > discographyMaxPages {
-			maxPages = discographyMaxPages
-		}
+	if maxPages < 1 {
+		maxPages = 1
 	}
 	for page := 0; page < maxPages && len(albums) < maxItems; page++ {
 		params.Set("offset", strconv.Itoa(page*defaultLimit))

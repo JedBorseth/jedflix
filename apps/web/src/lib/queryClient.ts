@@ -74,6 +74,8 @@ export const catalogQueryKeys = {
       ["spotify", "album", "v2", albumId, name, artist] as const,
     artist: (artistId: string, name = "") =>
       ["spotify", "artist", "v3", artistId, name] as const,
+    artistAlbums: (artistId: string, name = "") =>
+      ["spotify", "artist-albums", "v1", artistId, name] as const,
     search: (query: string, includeYoutube = false) =>
       ["spotify", "search", query, includeYoutube ? "yt" : "spotify"] as const,
   },

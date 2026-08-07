@@ -6,7 +6,7 @@ import type { MusicQueueTrack } from "@/components/player/music/MusicPlayerConte
 export const INFINITE_QUEUE_THRESHOLD = 5;
 
 /** How many auto-recommended tracks to append per refill. */
-export const INFINITE_QUEUE_BATCH_SIZE = 6;
+export const INFINITE_QUEUE_BATCH_SIZE = 4;
 
 /** Avoid repeating the same primary artist within this many recent plays. */
 export const ARTIST_COOLDOWN_WINDOW = 4;
@@ -41,7 +41,7 @@ export async function generateInfiniteQueueTracks(options: {
   const similarPool = await getSimilarTracks(
     primaryArtist,
     primary.title,
-    Math.min(Math.max(limit + 2, 6), 8),
+    Math.min(Math.max(limit + 2, 4), 6),
   );
   const shuffled = softShuffle(similarPool, 0.35);
 

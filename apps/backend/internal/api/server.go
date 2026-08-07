@@ -114,6 +114,7 @@ func (s *Server) Router() http.Handler {
 		r.Get("/spotify/browse", s.handleSpotifyBrowse)
 		r.Get("/spotify/search", s.handleSpotifySearch)
 		r.Get("/spotify/albums/{albumId}", s.handleSpotifyAlbum)
+		r.Get("/spotify/artists/{artistId}/albums", s.handleSpotifyArtistAlbums)
 		r.Get("/spotify/artists/{artistId}", s.handleSpotifyArtist)
 		r.Get("/lastfm/similar-artists", s.handleLastFMSimilarArtists)
 		r.Get("/lastfm/similar-tracks", s.handleLastFMSimilarTracks)
@@ -516,6 +517,30 @@ func (s *Server) handleSpotifyArtist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleSpotifyArtistAlbums(w http.ResponseWriter, r *http.Request) {
+	if s.spotify == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "spotify is not configured"})
+		return
+	}
+	artistID := chi.URLParam(r, "artistId")
+	hints := spotify.ArtistHints{
+		Name: strings.TrimSpace(r.URL.Query().Get("name")),
+	}
+	limit := parsePositiveInt(r.URL.Query().Get("limit"), 10)
+	if limit > 10 {
+		limit = 10
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	albums, err := s.spotify.ListArtistAlbums(ctx, artistID, limit, hints)
+	if err != nil {
+		writeSpotifyError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"albums": albums})
 }
 
 func (s *Server) handleLastFMSimilarArtists(w http.ResponseWriter, r *http.Request) {
