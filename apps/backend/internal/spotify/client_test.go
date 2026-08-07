@@ -68,9 +68,7 @@ func TestMapAlbumAndArtist(t *testing.T) {
 
 func TestRefreshBuildsCuratedGenreRows(t *testing.T) {
 	var browseHits int
-	var relatedHits int
 	var searchHits int
-	var artistAlbumHits int
 
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -85,20 +83,14 @@ func TestRefreshBuildsCuratedGenreRows(t *testing.T) {
 			http.Error(w, `{"error":{"status":403,"message":"Forbidden"}}`, http.StatusForbidden)
 		case r.URL.Path == "/search":
 			searchHits++
-			q := r.URL.Query().Get("q")
 			typ := r.URL.Query().Get("type")
+			q := r.URL.Query().Get("q")
 			if typ == "artist" {
-				id := "seedartist000000000001"
-				name := q
-				if q == "Taylor Swift" {
-					id = "taylorswift00000000001"
-					name = "Taylor Swift"
-				}
 				_ = json.NewEncoder(w).Encode(map[string]any{
 					"artists": map[string]any{
 						"items": []map[string]any{{
-							"id":         id,
-							"name":       name,
+							"id":         "popartist00000000000001",
+							"name":       "Pop Star",
 							"popularity": 90,
 							"images":     []map[string]any{{"url": "https://img/ar.jpg", "width": 300}},
 							"followers":  map[string]any{"total": 1000},
@@ -108,58 +100,25 @@ func TestRefreshBuildsCuratedGenreRows(t *testing.T) {
 				})
 				return
 			}
-			// New releases album search
+			albumName := "Album " + q
+			albumType := "album"
+			albumID := "popalbum000000000000001"
+			if strings.Contains(q, "single") {
+				albumType = "single"
+				albumID = "popsingle00000000000001"
+				albumName = "Single " + q
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"albums": map[string]any{
 					"items": []map[string]any{{
-						"id":           "newrelease0000000000001",
-						"name":         "Album " + q,
-						"album_type":   "album",
+						"id":           albumID,
+						"name":         albumName,
+						"album_type":   albumType,
 						"release_date": "2026-01-01",
 						"images":       []map[string]any{{"url": "https://img/a.jpg", "width": 300}},
-						"artists":      []map[string]any{{"id": "artistid00000000000001", "name": "Artist"}},
+						"artists":      []map[string]any{{"id": "popartist00000000000001", "name": "Pop Star"}},
 					}},
 				},
-			})
-		case strings.HasSuffix(r.URL.Path, "/related-artists"):
-			relatedHits++
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"artists": []map[string]any{
-					{
-						"id": "relatedartist0000000001", "name": "Related One", "popularity": 85,
-						"images":    []map[string]any{{"url": "https://img/r1.jpg", "width": 300}},
-						"followers": map[string]any{"total": 800},
-					},
-					{
-						"id": "relatedartist0000000002", "name": "Related Two", "popularity": 70,
-						"images":    []map[string]any{{"url": "https://img/r2.jpg", "width": 300}},
-						"followers": map[string]any{"total": 400},
-					},
-					// Duplicate of seed should be deduped.
-					{
-						"id": "taylorswift00000000001", "name": "Taylor Swift", "popularity": 95,
-						"images":    []map[string]any{{"url": "https://img/ts.jpg", "width": 300}},
-						"followers": map[string]any{"total": 2000},
-					},
-				},
-			})
-		case strings.Contains(r.URL.Path, "/albums") && strings.HasPrefix(r.URL.Path, "/artists/"):
-			artistAlbumHits++
-			group := r.URL.Query().Get("include_groups")
-			albumType := "album"
-			albumID := "albumid000000000000001"
-			if group == "single" {
-				albumType = "single"
-				albumID = "singleid00000000000001"
-			}
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"items": []map[string]any{{
-					"id": albumID, "name": "Release " + group, "album_type": albumType,
-					"release_date": "2025-06-01",
-					"images":       []map[string]any{{"url": "https://img/rel.jpg", "width": 300}},
-					"artists":      []map[string]any{{"id": "taylorswift00000000001", "name": "Taylor Swift"}},
-				}},
-				"next": "",
 			})
 		default:
 			http.NotFound(w, r)
@@ -175,7 +134,7 @@ func TestRefreshBuildsCuratedGenreRows(t *testing.T) {
 		SpotifyCacheTTL:     time.Hour,
 	})
 	client.genres = []GenreConfig{
-		{Key: "pop", Title: "Pop", Seeds: []string{"Taylor Swift"}},
+		{Key: "pop", Title: "Pop", SearchQuery: "pop"},
 	}
 
 	if err := client.Refresh(context.Background()); err != nil {
@@ -184,14 +143,9 @@ func TestRefreshBuildsCuratedGenreRows(t *testing.T) {
 	if browseHits != 0 {
 		t.Fatalf("expected no /browse calls, got %d", browseHits)
 	}
-	if relatedHits == 0 {
-		t.Fatal("expected related-artists calls")
-	}
-	if searchHits == 0 {
-		t.Fatal("expected /search calls for seed resolve + new releases")
-	}
-	if artistAlbumHits == 0 {
-		t.Fatal("expected artist album/single fetches")
+	// artists + albums + singles + new releases
+	if searchHits < 3 {
+		t.Fatalf("expected lean search refresh (>=3), got %d", searchHits)
 	}
 
 	browse, err := client.Browse(context.Background())
@@ -217,11 +171,8 @@ func TestRefreshBuildsCuratedGenreRows(t *testing.T) {
 	}
 
 	artistsRow := browse.Rows[0]
-	if len(artistsRow.Artists) != 3 {
-		t.Fatalf("expected 3 deduped artists (seed + 2 related), got %d: %+v", len(artistsRow.Artists), artistsRow.Artists)
-	}
-	if artistsRow.Artists[0].ID != "taylorswift00000000001" {
-		t.Fatalf("expected highest-popularity artist first, got %+v", artistsRow.Artists[0])
+	if len(artistsRow.Artists) != 1 || artistsRow.Artists[0].Name != "Pop Star" {
+		t.Fatalf("unexpected artists row: %+v", artistsRow.Artists)
 	}
 	if browse.Rows[1].Title != "Popular Pop Albums" || browse.Rows[2].Title != "Popular Pop Singles" {
 		t.Fatalf("unexpected titles: %q / %q", browse.Rows[1].Title, browse.Rows[2].Title)

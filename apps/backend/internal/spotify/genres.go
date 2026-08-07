@@ -11,10 +11,12 @@ import (
 )
 
 const (
-	genreArtistLimit       = 28
+	// Lean catalog refresh: one search page per shelf keeps Dev Mode under quota.
+	genreShelfLimit        = defaultLimit // 10
+	genreArtistLimit       = 28           // retained for seed-expansion helpers/tests
 	genreReleaseLimit      = 20
 	releasesPerArtist      = 4
-	releaseArtistScanLimit = 10 // how many top artists to pull albums/singles from
+	releaseArtistScanLimit = 10
 	newReleasesQuery       = "tag:new"
 	newReleasesKey         = "new-releases"
 )
@@ -23,26 +25,65 @@ type relatedArtistsPayload struct {
 	Artists []spotifyArtistPayload `json:"artists"`
 }
 
-// fetchGenreRows expands seed artists via Related Artists and builds
-// Popular Artists / Popular Albums / Popular Singles shelves for one genre.
+// fetchGenreRows builds Popular Artists / Albums / Singles via a few Spotify
+// searches. Seed+related expansion is too expensive under Dev Mode rate limits
+// (~100+ calls per full catalog refresh).
 func (c *Client) fetchGenreRows(ctx context.Context, genre GenreConfig) ([]CatalogRow, error) {
-	artists, err := c.expandGenreArtists(ctx, genre)
-	if err != nil {
-		return nil, err
+	query := strings.TrimSpace(genre.SearchQuery)
+	if query == "" {
+		query = strings.TrimSpace(genre.Title)
 	}
-	if len(artists) == 0 {
-		return nil, fmt.Errorf("%w: no artists for genre %s", ErrFetchFailed, genre.Key)
+	if query == "" {
+		query = strings.TrimSpace(genre.Key)
+	}
+	if query == "" {
+		return nil, fmt.Errorf("%w: empty genre query for %s", ErrBadRequest, genre.Key)
+	}
+
+	artists, artistErr := c.searchArtists(ctx, query, genreShelfLimit)
+	if artistErr != nil && !errors.Is(artistErr, ErrRateLimited) {
+		// Keep going — albums may still succeed.
+	}
+	if errors.Is(artistErr, ErrRateLimited) {
+		return nil, artistErr
+	}
+
+	albums, albumErr := c.searchAlbums(ctx, query, genreShelfLimit)
+	if errors.Is(albumErr, ErrRateLimited) {
+		if len(artists) == 0 {
+			return nil, albumErr
+		}
+		albumErr = nil
+		albums = nil
+	}
+
+	singles, singleErr := c.searchAlbums(ctx, query+" single", genreShelfLimit)
+	if errors.Is(singleErr, ErrRateLimited) {
+		singles = nil
+	}
+
+	if len(artists) == 0 && len(albums) == 0 && len(singles) == 0 {
+		if artistErr != nil {
+			return nil, artistErr
+		}
+		if albumErr != nil {
+			return nil, albumErr
+		}
+		if singleErr != nil {
+			return nil, singleErr
+		}
+		return nil, fmt.Errorf("%w: no catalog rows for genre %s", ErrFetchFailed, genre.Key)
 	}
 
 	rows := make([]CatalogRow, 0, 3)
-	rows = append(rows, CatalogRow{
-		Title:   "Popular " + genre.Title + " Artists",
-		Key:     genre.Key + "-artists",
-		Kind:    "artists",
-		Artists: artists,
-	})
-
-	albums := c.collectArtistReleases(ctx, artists, "album", genreReleaseLimit)
+	if len(artists) > 0 {
+		rows = append(rows, CatalogRow{
+			Title:   "Popular " + genre.Title + " Artists",
+			Key:     genre.Key + "-artists",
+			Kind:    "artists",
+			Artists: artists,
+		})
+	}
 	if len(albums) > 0 {
 		rows = append(rows, CatalogRow{
 			Title:  "Popular " + genre.Title + " Albums",
@@ -51,8 +92,6 @@ func (c *Client) fetchGenreRows(ctx context.Context, genre GenreConfig) ([]Catal
 			Albums: albums,
 		})
 	}
-
-	singles := c.collectArtistReleases(ctx, artists, "single", genreReleaseLimit)
 	if len(singles) > 0 {
 		rows = append(rows, CatalogRow{
 			Title:  "Popular " + genre.Title + " Singles",
@@ -61,12 +100,12 @@ func (c *Client) fetchGenreRows(ctx context.Context, genre GenreConfig) ([]Catal
 			Albums: singles,
 		})
 	}
-
 	return rows, nil
 }
 
 // expandGenreArtists resolves seed names, fetches related artists, dedupes by ID,
 // and returns artists sorted by popularity (descending).
+// Kept for tests / richer refresh modes; production catalog uses search shelves.
 func (c *Client) expandGenreArtists(ctx context.Context, genre GenreConfig) ([]Artist, error) {
 	byID := make(map[string]Artist)
 	for _, seedName := range genre.Seeds {
@@ -92,7 +131,6 @@ func (c *Client) expandGenreArtists(ctx context.Context, genre GenreConfig) ([]A
 				break
 			}
 			// Related Artists is unavailable for many Dev Mode apps (403).
-			// Seeds alone still produce a curated shelf.
 			continue
 		}
 		for _, artist := range related {
@@ -100,7 +138,6 @@ func (c *Client) expandGenreArtists(ctx context.Context, genre GenreConfig) ([]A
 				continue
 			}
 			if existing, ok := byID[artist.ID]; ok {
-				// Keep the richer popularity/followers when duplicates appear.
 				if artist.Popularity > existing.Popularity || artist.Followers > existing.Followers {
 					byID[artist.ID] = artist
 				}
@@ -246,7 +283,6 @@ func (c *Client) collectArtistReleases(ctx context.Context, artists []Artist, in
 		if releases[i].Popularity != releases[j].Popularity {
 			return releases[i].Popularity > releases[j].Popularity
 		}
-		// Prefer newer releases when popularity is missing (simplified album objects).
 		return releases[i].ReleaseDate > releases[j].ReleaseDate
 	})
 	if len(releases) > maxItems {
@@ -256,7 +292,7 @@ func (c *Client) collectArtistReleases(ctx context.Context, artists []Artist, in
 }
 
 func (c *Client) fetchNewReleasesRow(ctx context.Context) (CatalogRow, error) {
-	albums, err := c.searchAlbums(ctx, newReleasesQuery, catalogPageCount*defaultLimit)
+	albums, err := c.searchAlbums(ctx, newReleasesQuery, genreShelfLimit)
 	if err != nil {
 		return CatalogRow{}, err
 	}

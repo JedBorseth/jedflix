@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -66,6 +67,7 @@ type Client struct {
 	albumSummaries  sync.Map // id -> Album (may omit tracks)
 	artistSummaries sync.Map // id -> Artist
 	requestSem      chan struct{}
+	catalogPath     string
 
 	rateLimitMu    sync.Mutex
 	rateLimitUntil time.Time
@@ -192,6 +194,7 @@ func NewClient(cfg config.Config) *Client {
 		refreshTTL:   ttl,
 		genres:       DefaultGenres,
 		requestSem:   make(chan struct{}, 2), // Dev Mode quota is tiny — stay conservative
+		catalogPath:  strings.TrimSpace(cfg.SpotifyCatalogPath),
 		now:          time.Now,
 	}
 }
@@ -204,11 +207,16 @@ func (c *Client) Start(ctx context.Context) {
 	if !c.Configured() {
 		return
 	}
-	go c.refreshLoop(ctx)
+	loaded := c.loadPersistedCatalog()
+	go c.refreshLoop(ctx, loaded)
 }
 
-func (c *Client) refreshLoop(ctx context.Context) {
-	_ = c.Refresh(ctx)
+func (c *Client) refreshLoop(ctx context.Context, hadPersisted bool) {
+	// Prefer serving a persisted catalog immediately after restart. Only hit
+	// Spotify when the cache is missing or past TTL — avoids deploy stampede.
+	if !hadPersisted || c.catalogAge() >= c.refreshTTL {
+		_ = c.Refresh(ctx)
+	}
 
 	ticker := time.NewTicker(c.refreshTTL)
 	defer ticker.Stop()
@@ -247,9 +255,16 @@ func (c *Client) Refresh(ctx context.Context) error {
 	var lastErr error
 
 	for _, genre := range c.genres {
+		if ctx.Err() != nil {
+			lastErr = ctx.Err()
+			break
+		}
 		genreRows, genreErr := c.fetchGenreRows(ctx, genre)
 		if genreErr != nil {
 			lastErr = genreErr
+			if errors.Is(genreErr, ErrRateLimited) {
+				break
+			}
 			continue
 		}
 		for _, catalogRow := range genreRows {
@@ -262,11 +277,13 @@ func (c *Client) Refresh(ctx context.Context) error {
 	}
 
 	// New Releases stays search-based (`tag:new`) — not a genre keyword shelf.
-	if newRow, newErr := c.fetchNewReleasesRow(ctx); newErr != nil {
-		lastErr = newErr
-	} else {
-		newReleases = newRow.Albums
-		rows = append(rows, newRow)
+	if lastErr == nil || !errors.Is(lastErr, ErrRateLimited) {
+		if newRow, newErr := c.fetchNewReleasesRow(ctx); newErr != nil {
+			lastErr = newErr
+		} else {
+			newReleases = newRow.Albums
+			rows = append(rows, newRow)
+		}
 	}
 
 	if len(rows) == 0 {
@@ -275,7 +292,10 @@ func (c *Client) Refresh(ctx context.Context) error {
 			err = fmt.Errorf("%w: empty catalog", ErrFetchFailed)
 		}
 		c.catalogMu.Lock()
-		c.refreshErr = err
+		// Keep any previously loaded/persisted catalog so Browse stays available.
+		if c.catalog == nil {
+			c.refreshErr = err
+		}
 		c.catalogMu.Unlock()
 		return err
 	}
@@ -285,31 +305,8 @@ func (c *Client) Refresh(ctx context.Context) error {
 		Rows:        rows,
 		CachedAt:    c.now().UnixMilli(),
 	}
-	for _, album := range newReleases {
-		c.rememberAlbumSummary(album)
-		for i, artistID := range album.ArtistIDs {
-			name := ""
-			if i < len(album.Artists) {
-				name = album.Artists[i]
-			}
-			if artistID != "" && name != "" {
-				c.rememberArtistSummary(Artist{ID: artistID, Name: name, ImageURL: album.ImageURL, Genres: []string{}})
-			}
-		}
-	}
-	for _, row := range rows {
-		for _, album := range row.Albums {
-			c.rememberAlbumSummary(album)
-		}
-		for _, artist := range row.Artists {
-			c.rememberArtistSummary(artist)
-		}
-	}
-
-	c.catalogMu.Lock()
-	c.catalog = response
-	c.refreshErr = nil
-	c.catalogMu.Unlock()
+	c.applyCatalog(response)
+	c.savePersistedCatalog(response)
 	return nil
 }
 
@@ -324,13 +321,21 @@ func (c *Client) Browse(ctx context.Context) (*BrowseResponse, error) {
 	c.catalogMu.RUnlock()
 
 	if catalog != nil {
-		return catalog, nil
+		copied := *catalog
+		return &copied, nil
 	}
 	if refreshErr != nil {
 		return nil, refreshErr
 	}
 
 	if err := c.Refresh(ctx); err != nil {
+		c.catalogMu.RLock()
+		catalog = c.catalog
+		c.catalogMu.RUnlock()
+		if catalog != nil {
+			copied := *catalog
+			return &copied, nil
+		}
 		return nil, err
 	}
 
@@ -339,7 +344,8 @@ func (c *Client) Browse(ctx context.Context) (*BrowseResponse, error) {
 	if c.catalog == nil {
 		return nil, fmt.Errorf("%w: empty catalog", ErrFetchFailed)
 	}
-	return c.catalog, nil
+	copied := *c.catalog
+	return &copied, nil
 }
 
 func (c *Client) Search(ctx context.Context, query string) (*SearchResponse, error) {

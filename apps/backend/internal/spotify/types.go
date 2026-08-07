@@ -88,86 +88,66 @@ type SearchResponse struct {
 	Tracks  []TopTrack `json:"tracks"`
 }
 
-// GenreConfig defines a curated genre shelf seeded by well-known artists.
-// Seed names are resolved to Spotify IDs, then expanded via Related Artists.
+// GenreConfig defines a curated genre shelf.
+// SearchQuery (or Title) drives lean Dev Mode catalog refresh via Spotify search.
+// Seeds remain available for richer expansion helpers/tests.
 type GenreConfig struct {
-	Key   string   // stable slug used in row keys, e.g. "pop"
-	Title string   // display title, e.g. "Pop"
-	Seeds []string // seed artist display names
+	Key         string   // stable slug used in row keys, e.g. "pop"
+	Title       string   // display title, e.g. "Pop"
+	SearchQuery string   // Spotify search query; defaults to Title
+	Seeds       []string // optional seed artist names (legacy expansion helpers)
 }
 
 // DefaultGenres drive the music home catalog. Each genre expands into
-// Popular Artists, Popular Albums, and Popular Singles rows.
-// Seeds are the primary shelf source when Related Artists is unavailable (Dev Mode).
+// Popular Artists, Popular Albums, and Popular Singles rows via search.
 var DefaultGenres = []GenreConfig{
 	{
-		Key:   "pop",
-		Title: "Pop",
+		Key: "pop", Title: "Pop", SearchQuery: "pop",
 		Seeds: []string{
 			"Taylor Swift", "Dua Lipa", "Olivia Rodrigo", "Billie Eilish", "Ariana Grande",
 			"Harry Styles", "Sabrina Carpenter", "Doja Cat", "Charlie Puth", "Shawn Mendes",
-			"Ed Sheeran", "Miley Cyrus", "Lady Gaga", "Katy Perry", "The Kid LAROI",
-			"Justin Bieber", "Rihanna", "Beyoncé",
 		},
 	},
 	{
-		Key:   "rock",
-		Title: "Rock",
+		Key: "rock", Title: "Rock", SearchQuery: "rock",
 		Seeds: []string{
 			"Foo Fighters", "Linkin Park", "Green Day", "Muse", "Arctic Monkeys",
-			"Imagine Dragons", "Red Hot Chili Peppers", "The Killers", "Queens of the Stone Age", "Nirvana",
-			"Radiohead", "Paramore", "Twenty One Pilots", "Metallica", "Pearl Jam",
-			"The Strokes", "My Chemical Romance", "Fall Out Boy",
+			"Imagine Dragons", "Red Hot Chili Peppers", "The Killers", "Nirvana", "Radiohead",
 		},
 	},
 	{
-		Key:   "hipHop",
-		Title: "Hip-Hop",
+		Key: "hipHop", Title: "Hip-Hop", SearchQuery: "hip hop",
 		Seeds: []string{
 			"Drake", "Kendrick Lamar", "Travis Scott", "J. Cole", "Future",
 			"Lil Baby", "Megan Thee Stallion", "Cardi B", "Lil Uzi Vert", "Playboi Carti",
-			"Gunna", "Young Thug", "Don Toliver", "A$AP Rocky", "Tyler, The Creator",
-			"Childish Gambino", "JID", "Latto",
 		},
 	},
 	{
-		Key:   "rap",
-		Title: "Rap",
+		Key: "rap", Title: "Rap", SearchQuery: "rap",
 		Seeds: []string{
-			"Kanye West", "Nicki Minaj", "21 Savage", "Metro Boomin", "Tyler, The Creator",
-			"Eminem", "Jay-Z", "Lil Wayne", "Nas", "Ice Spice",
-			"Offset", "Quavo", "Lil Durk", "Polo G", "NBA YoungBoy",
-			"Central Cee", "Dave", "Jack Harlow",
+			"Kanye West", "Nicki Minaj", "21 Savage", "Metro Boomin", "Eminem",
+			"Jay-Z", "Lil Wayne", "Nas", "Ice Spice", "Jack Harlow",
 		},
 	},
 	{
-		Key:   "electronic",
-		Title: "Electronic",
+		Key: "electronic", Title: "Electronic", SearchQuery: "electronic",
 		Seeds: []string{
 			"David Guetta", "Calvin Harris", "Fred again..", "The Chainsmokers", "Skrillex",
 			"Marshmello", "Martin Garrix", "Tiësto", "Disclosure", "Flume",
-			"ODESZA", "Kygo", "Avicii", "Deadmau5", "Diplo",
-			"Peggy Gou", "RÜFÜS DU SOL", "Porter Robinson",
 		},
 	},
 	{
-		Key:   "country",
-		Title: "Country",
+		Key: "country", Title: "Country", SearchQuery: "country",
 		Seeds: []string{
 			"Morgan Wallen", "Luke Combs", "Chris Stapleton", "Zach Bryan", "Kacey Musgraves",
 			"Luke Bryan", "Carrie Underwood", "Kane Brown", "Thomas Rhett", "Lainey Wilson",
-			"Bailey Zimmerman", "Jelly Roll", "Cody Johnson", "Megan Moroney", "Riley Green",
-			"Blake Shelton", "Eric Church", "Miranda Lambert",
 		},
 	},
 	{
-		Key:   "rnb",
-		Title: "R&B",
+		Key: "rnb", Title: "R&B", SearchQuery: "r&b",
 		Seeds: []string{
 			"The Weeknd", "SZA", "Frank Ocean", "Bruno Mars", "H.E.R.",
 			"Summer Walker", "Jhené Aiko", "Brent Faiyaz", "Giveon", "Daniel Caesar",
-			"Victoria Monét", "Chloe Bailey", "Usher", "Alicia Keys", "Chris Brown",
-			"Khalid", "Miguel", "Tinashe",
 		},
 	},
 }

@@ -49,6 +49,9 @@ func main() {
 	spotifyClient := spotify.NewClient(cfg)
 	if spotifyClient.Configured() {
 		log.Println("Spotify client credentials configured")
+		if cfg.SpotifyCatalogPath != "" {
+			log.Printf("Spotify catalog persist path: %s", cfg.SpotifyCatalogPath)
+		}
 	} else {
 		log.Println("warning: SPOTIFY_CLIENT_ID/SPOTIFY_CLIENT_SECRET not set; music catalog disabled")
 	}

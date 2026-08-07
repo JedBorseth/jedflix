@@ -14,7 +14,9 @@ RUN apk add --no-cache ca-certificates python3 py3-pip ffmpeg \
 	&& bun --version
 WORKDIR /app
 COPY --from=builder /backend /app/backend
+RUN mkdir -p /data
 EXPOSE 8080
 ENV ADDR=:8080
+ENV SPOTIFY_CATALOG_PATH=/data/spotify-catalog.json
 ENV PATH="/usr/local/bin:${PATH}"
 CMD ["/app/backend"]
