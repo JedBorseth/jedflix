@@ -83,12 +83,21 @@ export async function searchMusicAll(
   };
 }
 
-export async function getAlbumDetails(albumId: string): Promise<AlbumDetails> {
-  return streamClient.fetchSpotifyAlbum(albumId);
+export async function getAlbumDetails(
+  albumId: string,
+  hints?: { name?: string; artists?: string[] },
+): Promise<AlbumDetails> {
+  return streamClient.fetchSpotifyAlbum(albumId, {
+    name: hints?.name,
+    artist: hints?.artists?.[0],
+  });
 }
 
-export async function getArtistDetails(artistId: string): Promise<ArtistDetails> {
-  return streamClient.fetchSpotifyArtist(artistId);
+export async function getArtistDetails(
+  artistId: string,
+  hints?: { name?: string },
+): Promise<ArtistDetails> {
+  return streamClient.fetchSpotifyArtist(artistId, hints);
 }
 
 export function getYoutubeAudioUrl(params: {

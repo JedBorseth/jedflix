@@ -3,7 +3,7 @@ import { getRelatedMusic, getSimilarTracks, topTrackToQueueFields } from "@/lib/
 import type { MusicQueueTrack } from "@/components/player/music/MusicPlayerContext";
 
 /** Keep upcoming queue topped up when it falls below this many tracks. */
-export const INFINITE_QUEUE_THRESHOLD = 3;
+export const INFINITE_QUEUE_THRESHOLD = 5;
 
 /** How many auto-recommended tracks to append per refill. */
 export const INFINITE_QUEUE_BATCH_SIZE = 8;

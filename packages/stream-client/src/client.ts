@@ -273,8 +273,14 @@ export type StreamClient = {
   fetchOpenLibraryAuthor: (authorId: string) => Promise<OpenLibraryAuthorDetails>;
   fetchSpotifyBrowse: () => Promise<SpotifyBrowseResponse>;
   searchSpotify: (query: string) => Promise<SpotifySearchResponse>;
-  fetchSpotifyAlbum: (albumId: string) => Promise<SpotifyAlbum>;
-  fetchSpotifyArtist: (artistId: string) => Promise<SpotifyArtistDetails>;
+  fetchSpotifyAlbum: (
+    albumId: string,
+    hints?: { name?: string; artist?: string },
+  ) => Promise<SpotifyAlbum>;
+  fetchSpotifyArtist: (
+    artistId: string,
+    hints?: { name?: string },
+  ) => Promise<SpotifyArtistDetails>;
   fetchLastFmSimilarArtists: (
     artist: string,
     limit?: number,
@@ -622,9 +628,20 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
     };
   }
 
-  async function fetchSpotifyAlbum(albumId: string): Promise<SpotifyAlbum> {
+  async function fetchSpotifyAlbum(
+    albumId: string,
+    hints?: { name?: string; artist?: string },
+  ): Promise<SpotifyAlbum> {
     const encoded = encodeURIComponent(albumId.trim());
-    const response = await fetch(`${apiBase}/api/v1/spotify/albums/${encoded}`, {
+    const query = new URLSearchParams();
+    if (hints?.name?.trim()) {
+      query.set("name", hints.name.trim());
+    }
+    if (hints?.artist?.trim()) {
+      query.set("artist", hints.artist.trim());
+    }
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    const response = await fetch(`${apiBase}/api/v1/spotify/albums/${encoded}${suffix}`, {
       headers: headers(),
     });
     if (!response.ok) {
@@ -634,9 +651,17 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
     return normalizeSpotifyAlbum(await response.json());
   }
 
-  async function fetchSpotifyArtist(artistId: string): Promise<SpotifyArtistDetails> {
+  async function fetchSpotifyArtist(
+    artistId: string,
+    hints?: { name?: string },
+  ): Promise<SpotifyArtistDetails> {
     const encoded = encodeURIComponent(artistId.trim());
-    const response = await fetch(`${apiBase}/api/v1/spotify/artists/${encoded}`, {
+    const query = new URLSearchParams();
+    if (hints?.name?.trim()) {
+      query.set("name", hints.name.trim());
+    }
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    const response = await fetch(`${apiBase}/api/v1/spotify/artists/${encoded}${suffix}`, {
       headers: headers(),
     });
     if (!response.ok) {

@@ -38,8 +38,16 @@ export function AlbumDetailPage() {
       : undefined;
 
   const albumQuery = useQuery({
-    queryKey: catalogQueryKeys.spotify.album(normalizedId ?? ""),
-    queryFn: () => getAlbumDetails(normalizedId!),
+    queryKey: catalogQueryKeys.spotify.album(
+      normalizedId ?? "",
+      preview?.name ?? "",
+      preview?.artists?.[0] ?? "",
+    ),
+    queryFn: () =>
+      getAlbumDetails(normalizedId!, {
+        name: preview?.name,
+        artists: preview?.artists,
+      }),
     enabled: Boolean(normalizedId),
   });
 
@@ -53,17 +61,23 @@ export function AlbumDetailPage() {
       : null;
   const displayAlbum = album ?? preview ?? null;
   const tracks = album?.tracks ?? [];
+  const primaryArtistName = displayAlbum?.artists[0] ?? "";
 
   const relatedArtistId = displayAlbum?.artistIds[0];
   const relatedQuery = useQuery({
-    queryKey: catalogQueryKeys.spotify.artist(relatedArtistId ?? ""),
-    queryFn: () => getArtistDetails(relatedArtistId!),
+    queryKey: catalogQueryKeys.spotify.artist(
+      relatedArtistId ?? "",
+      primaryArtistName,
+    ),
+    queryFn: () =>
+      getArtistDetails(relatedArtistId!, {
+        name: primaryArtistName || undefined,
+      }),
     enabled: Boolean(relatedArtistId),
   });
   const relatedAlbums =
     relatedQuery.data?.albums.filter((item) => item.id !== normalizedId).slice(0, 12) ?? [];
 
-  const primaryArtistName = displayAlbum?.artists[0] ?? "";
   const seedTracks = tracks.slice(0, 4).map((track) => ({
     artist: (track.artists[0] || primaryArtistName).trim(),
     track: track.name,

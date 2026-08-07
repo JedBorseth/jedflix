@@ -18,6 +18,7 @@ export function ArtistCard({ artist }: ArtistCardProps) {
   return (
     <AppLink
       to={getArtistPath(artist.id)}
+      state={{ preview: artist }}
       className="group block w-36 shrink-0 snap-start md:w-44"
       data-testid="artist-card"
     >

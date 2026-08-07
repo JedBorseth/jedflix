@@ -23,7 +23,7 @@ func TestClientSimilarArtistsAndTracks(t *testing.T) {
 			_, _ = w.Write([]byte(`{
 				"similarartists": {
 					"artist": [
-						{"name":"Artist A","match":"1","mbid":"","url":"https://last.fm/a","image":[{"#text":"https://img/a","size":"large"}]},
+						{"name":"Artist A","match":1,"mbid":"","url":"https://last.fm/a","image":[{"#text":"https://img/a","size":"large"}]},
 						{"name":"Artist B","match":"0.8","mbid":"","url":"https://last.fm/b","image":[]}
 					]
 				}
@@ -32,7 +32,7 @@ func TestClientSimilarArtistsAndTracks(t *testing.T) {
 			_, _ = w.Write([]byte(`{
 				"similartracks": {
 					"track": [
-						{"name":"Song 1","match":"1","artist":{"name":"Artist A"},"image":[{"#text":"https://img/1","size":"large"}]},
+						{"name":"Song 1","match":1,"artist":{"name":"Artist A"},"image":[{"#text":"https://img/1","size":"large"}]},
 						{"name":"Song 2","match":"0.5","artist":{"name":"Artist B"},"image":[]}
 					]
 				}

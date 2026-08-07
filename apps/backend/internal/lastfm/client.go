@@ -106,7 +106,7 @@ func (c *Client) GetSimilarArtists(ctx context.Context, artist string, limit int
 			Name:     name,
 			MBID:     strings.TrimSpace(item.MBID),
 			URL:      strings.TrimSpace(item.URL),
-			Match:    parseMatch(item.Match),
+			Match:    parseMatchJSON(item.Match),
 			ImageURL: pickImage(item.Image),
 		})
 	}
@@ -159,7 +159,7 @@ func (c *Client) GetSimilarTracks(ctx context.Context, artist, track string, lim
 			Artist:   artistName,
 			MBID:     strings.TrimSpace(item.MBID),
 			URL:      strings.TrimSpace(item.URL),
-			Match:    parseMatch(item.Match),
+			Match:    parseMatchJSON(item.Match),
 			ImageURL: pickImage(item.Image),
 		})
 	}
@@ -304,6 +304,22 @@ func parseMatch(raw string) float64 {
 	return n
 }
 
+// parseMatchJSON accepts Last.fm "match" as either a JSON string or number.
+func parseMatchJSON(raw json.RawMessage) float64 {
+	if len(raw) == 0 {
+		return 0
+	}
+	var asNum float64
+	if err := json.Unmarshal(raw, &asNum); err == nil {
+		return asNum
+	}
+	var asStr string
+	if err := json.Unmarshal(raw, &asStr); err == nil {
+		return parseMatch(asStr)
+	}
+	return 0
+}
+
 func pickImage(images []lfmImage) string {
 	best := ""
 	bestRank := -1
@@ -365,11 +381,11 @@ type similarArtistsResponse struct {
 	Message        string `json:"message"`
 	SimilarArtists struct {
 		Artist []struct {
-			Name  string     `json:"name"`
-			MBID  string     `json:"mbid"`
-			Match string     `json:"match"`
-			URL   string     `json:"url"`
-			Image []lfmImage `json:"image"`
+			Name  string          `json:"name"`
+			MBID  string          `json:"mbid"`
+			Match json.RawMessage `json:"match"`
+			URL   string          `json:"url"`
+			Image []lfmImage      `json:"image"`
 		} `json:"artist"`
 	} `json:"similarartists"`
 }
@@ -379,10 +395,10 @@ type similarTracksResponse struct {
 	Message       string `json:"message"`
 	SimilarTracks struct {
 		Track []struct {
-			Name   string `json:"name"`
-			MBID   string `json:"mbid"`
-			Match  string `json:"match"`
-			URL    string `json:"url"`
+			Name   string          `json:"name"`
+			MBID   string          `json:"mbid"`
+			Match  json.RawMessage `json:"match"`
+			URL    string          `json:"url"`
 			Artist struct {
 				Name string `json:"name"`
 				MBID string `json:"mbid"`

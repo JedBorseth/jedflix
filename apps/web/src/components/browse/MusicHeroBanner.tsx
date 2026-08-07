@@ -53,7 +53,19 @@ export function MusicHeroBanner({ album }: MusicHeroBannerProps) {
             </Button>
             {primaryArtistId ? (
               <Button asChild size="lg" variant="outline" className="border-zinc-600">
-                <AppLink to={getArtistPath(primaryArtistId)}>View Artist</AppLink>
+                <AppLink
+                  to={getArtistPath(primaryArtistId)}
+                  state={{
+                    preview: {
+                      id: primaryArtistId,
+                      name: album.artists[0] ?? "Artist",
+                      imageUrl: album.imageUrl,
+                      genres: album.genres ?? [],
+                    },
+                  }}
+                >
+                  View Artist
+                </AppLink>
               </Button>
             ) : null}
           </div>

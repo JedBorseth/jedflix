@@ -54,7 +54,10 @@ type Client struct {
 
 	albumCache  sync.Map // id -> cachedAlbum
 	artistCache sync.Map // id -> cachedArtist
-	now         func() time.Time
+	// Lightweight summaries remembered from search/browse for Dev Mode fallbacks.
+	albumSummaries  sync.Map // id -> Album (may omit tracks)
+	artistSummaries sync.Map // id -> Artist
+	now             func() time.Time
 }
 
 type cachedAlbum struct {
@@ -263,6 +266,26 @@ func (c *Client) Refresh(ctx context.Context) error {
 		Rows:        rows,
 		CachedAt:    c.now().UnixMilli(),
 	}
+	for _, album := range newReleases {
+		c.rememberAlbumSummary(album)
+		for i, artistID := range album.ArtistIDs {
+			name := ""
+			if i < len(album.Artists) {
+				name = album.Artists[i]
+			}
+			if artistID != "" && name != "" {
+				c.rememberArtistSummary(Artist{ID: artistID, Name: name, ImageURL: album.ImageURL, Genres: []string{}})
+			}
+		}
+	}
+	for _, row := range rows {
+		for _, album := range row.Albums {
+			c.rememberAlbumSummary(album)
+		}
+		for _, artist := range row.Artists {
+			c.rememberArtistSummary(artist)
+		}
+	}
 
 	c.catalogMu.Lock()
 	c.catalog = response
@@ -327,6 +350,7 @@ func (c *Client) Search(ctx context.Context, query string) (*SearchResponse, err
 	if payload.Albums != nil {
 		for _, item := range payload.Albums.Items {
 			if album := mapAlbum(item); album.ID != "" {
+				c.rememberAlbumSummary(album)
 				result.Albums = append(result.Albums, album)
 			}
 		}
@@ -334,12 +358,33 @@ func (c *Client) Search(ctx context.Context, query string) (*SearchResponse, err
 	if payload.Artists != nil {
 		for _, item := range payload.Artists.Items {
 			if artist := mapArtist(item); artist.ID != "" {
+				c.rememberArtistSummary(artist)
 				result.Artists = append(result.Artists, artist)
 			}
 		}
 	}
 	if payload.Tracks != nil {
 		result.Tracks = mapTopTracks(payload.Tracks.Items)
+		for _, track := range result.Tracks {
+			if track.AlbumID != "" && track.AlbumName != "" {
+				c.rememberAlbumSummary(Album{
+					ID:        track.AlbumID,
+					Name:      track.AlbumName,
+					Artists:   track.Artists,
+					ArtistIDs: track.ArtistIDs,
+					ImageURL:  track.ImageURL,
+				})
+			}
+			for i, artistID := range track.ArtistIDs {
+				name := ""
+				if i < len(track.Artists) {
+					name = track.Artists[i]
+				}
+				if artistID != "" && name != "" {
+					c.rememberArtistSummary(Artist{ID: artistID, Name: name, ImageURL: track.ImageURL, Genres: []string{}})
+				}
+			}
+		}
 	}
 
 	sortSearchByRelevance(query, result)
@@ -348,6 +393,16 @@ func (c *Client) Search(ctx context.Context, query string) (*SearchResponse, err
 }
 
 func (c *Client) GetAlbum(ctx context.Context, albumID string) (*Album, error) {
+	return c.GetAlbumWithHints(ctx, albumID, AlbumHints{})
+}
+
+// AlbumHints help rebuild album details when Spotify Dev Mode blocks /albums/{id}.
+type AlbumHints struct {
+	Name    string
+	Artists []string
+}
+
+func (c *Client) GetAlbumWithHints(ctx context.Context, albumID string, hints AlbumHints) (*Album, error) {
 	if !c.Configured() {
 		return nil, ErrNotConfigured
 	}
@@ -358,25 +413,53 @@ func (c *Client) GetAlbum(ctx context.Context, albumID string) (*Album, error) {
 
 	if cached, ok := c.albumCache.Load(albumID); ok {
 		entry := cached.(cachedAlbum)
-		if c.now().Sub(entry.cachedAt) < c.refreshTTL {
+		if c.now().Sub(entry.cachedAt) < c.refreshTTL && len(entry.album.Tracks) > 0 {
 			album := entry.album
 			return &album, nil
 		}
 	}
 
 	var payload spotifyAlbumPayload
-	if err := c.getJSON(ctx, "/albums/"+url.PathEscape(albumID), &payload); err != nil {
+	params := url.Values{}
+	params.Set("market", defaultMarket)
+	err := c.getJSON(ctx, "/albums/"+url.PathEscape(albumID)+"?"+params.Encode(), &payload)
+	if err == nil {
+		album := mapAlbum(payload)
+		if album.ID == "" {
+			return nil, ErrNotFound
+		}
+		c.storeAlbum(album)
+		c.rememberAlbumSummary(album)
+		return &album, nil
+	}
+
+	// Dev Mode often forbids direct album lookups — rebuild via search using hints/catalog.
+	summary := c.lookupAlbumSummary(albumID, hints)
+	if summary.Name == "" {
 		return nil, err
 	}
-	album := mapAlbum(payload)
-	if album.ID == "" {
-		return nil, ErrNotFound
+	tracks, trackErr := c.searchAlbumTracks(ctx, albumID, summary.Name, summary.Artists)
+	if trackErr != nil {
+		return nil, err
 	}
-	c.storeAlbum(album)
-	return &album, nil
+	summary.Tracks = tracks
+	if summary.TotalTracks == 0 {
+		summary.TotalTracks = len(tracks)
+	}
+	c.storeAlbum(summary)
+	return &summary, nil
 }
 
 func (c *Client) GetArtist(ctx context.Context, artistID string) (*ArtistDetails, error) {
+	return c.GetArtistWithHints(ctx, artistID, ArtistHints{})
+}
+
+// ArtistHints help rebuild artist pages when Spotify Dev Mode blocks /artists/{id}.
+type ArtistHints struct {
+	Name string
+}
+
+func (c *Client) GetArtistWithHints(ctx context.Context, artistID string, hints ArtistHints) (*ArtistDetails, error) {
 	if !c.Configured() {
 		return nil, ErrNotConfigured
 	}
@@ -393,14 +476,20 @@ func (c *Client) GetArtist(ctx context.Context, artistID string) (*ArtistDetails
 		}
 	}
 
+	artist := Artist{}
 	var payload spotifyArtistPayload
 	if err := c.getJSON(ctx, "/artists/"+url.PathEscape(artistID), &payload); err != nil {
-		return nil, err
+		artist = c.lookupArtistSummary(artistID, hints)
+		if artist.Name == "" {
+			return nil, err
+		}
+	} else {
+		artist = mapArtist(payload)
+		if artist.ID == "" {
+			return nil, ErrNotFound
+		}
 	}
-	artist := mapArtist(payload)
-	if artist.ID == "" {
-		return nil, ErrNotFound
-	}
+	c.rememberArtistSummary(artist)
 
 	topTracks, err := c.resolveArtistTopTracks(ctx, artistID, artist.Name, nil)
 	if err != nil {
@@ -411,8 +500,12 @@ func (c *Client) GetArtist(ctx context.Context, artistID string) (*ArtistDetails
 	}
 
 	discography, err := c.fetchArtistAlbums(ctx, artistID, discographyMaxPages*defaultLimit, "album,single,compilation")
-	if err != nil {
-		discography = []Album{}
+	if err != nil || len(discography) == 0 {
+		if searched, searchErr := c.searchArtistAlbums(ctx, artistID, artist.Name, discographyMaxPages*defaultLimit); searchErr == nil {
+			discography = searched
+		} else if len(discography) == 0 {
+			discography = []Album{}
+		}
 	}
 	if discography == nil {
 		discography = []Album{}
@@ -427,7 +520,6 @@ func (c *Client) GetArtist(ctx context.Context, artistID string) (*ArtistDetails
 	if len(albums) > featuredAlbumLimit {
 		albums = albums[:featuredAlbumLimit]
 	}
-	// Copy featured slice so cache mutations don't share backing array unexpectedly.
 	featured := make([]Album, len(albums))
 	copy(featured, albums)
 
@@ -1088,12 +1180,246 @@ func (c *Client) getAccessToken(ctx context.Context) (string, error) {
 
 func (c *Client) storeAlbum(album Album) {
 	c.albumCache.Store(album.ID, cachedAlbum{album: album, cachedAt: c.now()})
+	c.rememberAlbumSummary(album)
 	c.pruneCache(&c.albumCache, maxDetailCacheSize)
 }
 
 func (c *Client) storeArtist(artist ArtistDetails) {
 	c.artistCache.Store(artist.ID, cachedArtist{artist: artist, cachedAt: c.now()})
+	c.rememberArtistSummary(artist.Artist)
 	c.pruneCache(&c.artistCache, maxArtistCacheSize)
+}
+
+func (c *Client) rememberAlbumSummary(album Album) {
+	if album.ID == "" || album.Name == "" {
+		return
+	}
+	c.albumSummaries.Store(album.ID, album)
+}
+
+func (c *Client) rememberArtistSummary(artist Artist) {
+	if artist.ID == "" || artist.Name == "" {
+		return
+	}
+	c.artistSummaries.Store(artist.ID, artist)
+}
+
+func (c *Client) lookupAlbumSummary(albumID string, hints AlbumHints) Album {
+	if cached, ok := c.albumSummaries.Load(albumID); ok {
+		album := cached.(Album)
+		if album.Name != "" {
+			return album
+		}
+	}
+	if cached, ok := c.albumCache.Load(albumID); ok {
+		album := cached.(cachedAlbum).album
+		if album.Name != "" {
+			return album
+		}
+	}
+	c.catalogMu.RLock()
+	catalog := c.catalog
+	c.catalogMu.RUnlock()
+	if catalog != nil {
+		for _, album := range catalog.NewReleases {
+			if album.ID == albumID {
+				return album
+			}
+		}
+		for _, row := range catalog.Rows {
+			for _, album := range row.Albums {
+				if album.ID == albumID {
+					return album
+				}
+			}
+		}
+	}
+	name := strings.TrimSpace(hints.Name)
+	if name == "" {
+		return Album{}
+	}
+	artists := make([]string, 0, len(hints.Artists))
+	for _, artist := range hints.Artists {
+		artist = strings.TrimSpace(artist)
+		if artist != "" {
+			artists = append(artists, artist)
+		}
+	}
+	return Album{
+		ID:      albumID,
+		Name:    name,
+		Artists: artists,
+	}
+}
+
+func (c *Client) lookupArtistSummary(artistID string, hints ArtistHints) Artist {
+	if cached, ok := c.artistSummaries.Load(artistID); ok {
+		artist := cached.(Artist)
+		if artist.Name != "" {
+			return artist
+		}
+	}
+	if cached, ok := c.artistCache.Load(artistID); ok {
+		artist := cached.(cachedArtist).artist.Artist
+		if artist.Name != "" {
+			return artist
+		}
+	}
+	c.catalogMu.RLock()
+	catalog := c.catalog
+	c.catalogMu.RUnlock()
+	if catalog != nil {
+		for _, row := range catalog.Rows {
+			for _, artist := range row.Artists {
+				if artist.ID == artistID {
+					return artist
+				}
+			}
+		}
+		for _, album := range catalog.NewReleases {
+			for i, id := range album.ArtistIDs {
+				if id == artistID {
+					name := ""
+					if i < len(album.Artists) {
+						name = album.Artists[i]
+					}
+					if name != "" {
+						return Artist{ID: artistID, Name: name, ImageURL: album.ImageURL, Genres: []string{}}
+					}
+				}
+			}
+		}
+	}
+	name := strings.TrimSpace(hints.Name)
+	if name == "" {
+		return Artist{}
+	}
+	return Artist{ID: artistID, Name: name, Genres: []string{}}
+}
+
+func (c *Client) searchAlbumTracks(ctx context.Context, albumID, albumName string, artists []string) ([]Track, error) {
+	albumName = strings.TrimSpace(albumName)
+	if albumName == "" {
+		return nil, fmt.Errorf("%w: missing album name for track search", ErrBadRequest)
+	}
+	query := fmt.Sprintf(`album:"%s"`, albumName)
+	if len(artists) > 0 && strings.TrimSpace(artists[0]) != "" {
+		query += fmt.Sprintf(` artist:"%s"`, strings.TrimSpace(artists[0]))
+	}
+	params := url.Values{}
+	params.Set("q", query)
+	params.Set("type", "track")
+	params.Set("limit", strconv.Itoa(defaultLimit))
+	params.Set("market", defaultMarket)
+
+	seen := make(map[string]struct{})
+	tracks := make([]Track, 0, defaultLimit*catalogPageCount)
+	for page := 0; page < catalogPageCount && len(tracks) < 50; page++ {
+		params.Set("offset", strconv.Itoa(page*defaultLimit))
+		var payload searchResponsePayload
+		if err := c.getJSON(ctx, "/search?"+params.Encode(), &payload); err != nil {
+			if len(tracks) > 0 {
+				return tracks, nil
+			}
+			return nil, err
+		}
+		if payload.Tracks == nil || len(payload.Tracks.Items) == 0 {
+			break
+		}
+		for _, item := range payload.Tracks.Items {
+			if item.ID == "" {
+				continue
+			}
+			if item.Album != nil && item.Album.ID != "" && item.Album.ID != albumID {
+				continue
+			}
+			if _, ok := seen[item.ID]; ok {
+				continue
+			}
+			seen[item.ID] = struct{}{}
+			mapped := mapTopTracks([]spotifyTrackPayload{item})
+			if len(mapped) == 0 {
+				continue
+			}
+			t := mapped[0]
+			tracks = append(tracks, Track{
+				ID:          t.ID,
+				Name:        t.Name,
+				Artists:     t.Artists,
+				ArtistIDs:   t.ArtistIDs,
+				TrackNumber: t.TrackNumber,
+				DiscNumber:  t.DiscNumber,
+				DurationMs:  t.DurationMs,
+				Explicit:    t.Explicit,
+			})
+		}
+		if len(payload.Tracks.Items) < defaultLimit {
+			break
+		}
+	}
+	return tracks, nil
+}
+
+func (c *Client) searchArtistAlbums(ctx context.Context, artistID, artistName string, maxItems int) ([]Album, error) {
+	artistName = strings.TrimSpace(artistName)
+	if artistName == "" {
+		return nil, fmt.Errorf("%w: missing artist name for album search", ErrBadRequest)
+	}
+	if maxItems <= 0 {
+		maxItems = featuredAlbumLimit
+	}
+	params := url.Values{}
+	params.Set("q", fmt.Sprintf(`artist:"%s"`, artistName))
+	params.Set("type", "album")
+	params.Set("limit", strconv.Itoa(defaultLimit))
+	params.Set("market", defaultMarket)
+
+	seen := make(map[string]struct{})
+	albums := make([]Album, 0, maxItems)
+	for page := 0; page < discographyMaxPages && len(albums) < maxItems; page++ {
+		params.Set("offset", strconv.Itoa(page*defaultLimit))
+		var payload searchResponsePayload
+		if err := c.getJSON(ctx, "/search?"+params.Encode(), &payload); err != nil {
+			if len(albums) > 0 {
+				return albums, nil
+			}
+			return nil, err
+		}
+		if payload.Albums == nil || len(payload.Albums.Items) == 0 {
+			break
+		}
+		for _, item := range payload.Albums.Items {
+			album := mapAlbum(item)
+			if album.ID == "" {
+				continue
+			}
+			if len(album.ArtistIDs) > 0 {
+				matched := false
+				for _, id := range album.ArtistIDs {
+					if id == artistID {
+						matched = true
+						break
+					}
+				}
+				if !matched {
+					continue
+				}
+			}
+			if _, ok := seen[album.ID]; ok {
+				continue
+			}
+			seen[album.ID] = struct{}{}
+			c.rememberAlbumSummary(album)
+			albums = append(albums, album)
+			if len(albums) >= maxItems {
+				break
+			}
+		}
+		if len(payload.Albums.Items) < defaultLimit {
+			break
+		}
+	}
+	return albums, nil
 }
 
 func (c *Client) pruneCache(cache *sync.Map, maxSize int) {

@@ -481,10 +481,16 @@ func (s *Server) handleSpotifyAlbum(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	albumID := chi.URLParam(r, "albumId")
+	hints := spotify.AlbumHints{
+		Name: strings.TrimSpace(r.URL.Query().Get("name")),
+	}
+	if artists := strings.TrimSpace(r.URL.Query().Get("artist")); artists != "" {
+		hints.Artists = []string{artists}
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	defer cancel()
 
-	result, err := s.spotify.GetAlbum(ctx, albumID)
+	result, err := s.spotify.GetAlbumWithHints(ctx, albumID, hints)
 	if err != nil {
 		writeSpotifyError(w, err)
 		return
@@ -498,10 +504,13 @@ func (s *Server) handleSpotifyArtist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	artistID := chi.URLParam(r, "artistId")
+	hints := spotify.ArtistHints{
+		Name: strings.TrimSpace(r.URL.Query().Get("name")),
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	defer cancel()
 
-	result, err := s.spotify.GetArtist(ctx, artistID)
+	result, err := s.spotify.GetArtistWithHints(ctx, artistID, hints)
 	if err != nil {
 		writeSpotifyError(w, err)
 		return

@@ -449,11 +449,6 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     setQueueIndex(0);
   }, [queueIndex]);
 
-  const setInfiniteQueue = useCallback((enabled: boolean) => {
-    setInfiniteQueueState(enabled);
-    infiniteQueueRef.current = enabled;
-  }, []);
-
   const appendInfiniteRecommendations = useCallback(async () => {
     if (!infiniteQueueRef.current || infiniteRefillInFlightRef.current) {
       return;
@@ -507,6 +502,18 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       infiniteRefillInFlightRef.current = false;
     }
   }, []);
+
+  const setInfiniteQueue = useCallback(
+    (enabled: boolean) => {
+      setInfiniteQueueState(enabled);
+      infiniteQueueRef.current = enabled;
+      if (enabled) {
+        // Kick a refill immediately so enabling IQ visibly grows the queue.
+        void appendInfiniteRecommendations();
+      }
+    },
+    [appendInfiniteRecommendations],
+  );
 
   const pause = useCallback(() => {
     playIntentRef.current = false;

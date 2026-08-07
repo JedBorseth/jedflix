@@ -1,6 +1,6 @@
 import { PlayIcon } from "@radix-ui/react-icons";
 import { useQuery } from "@tanstack/react-query";
-import { useParams } from "react-router-dom";
+import { useLocation, useParams } from "react-router-dom";
 import { AlbumCard } from "@/components/browse/AlbumCard";
 import { ArtistCard } from "@/components/browse/ArtistCard";
 import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
@@ -15,20 +15,34 @@ import {
   formatTrackDuration,
   getArtistDetails,
   normalizeSpotifyId,
+  type ArtistSummary,
   type TopTrackItem,
 } from "@/lib/spotify";
 import { catalogQueryKeys } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 
+type LocationState = {
+  preview?: ArtistSummary;
+};
+
 export function MusicArtistPage() {
   const { artistId } = useParams<{ artistId: string }>();
+  const location = useLocation();
   const musicPlayer = useMusicPlayer();
   const likeTrack = useLikeTrack();
   const normalizedId = normalizeSpotifyId(artistId ?? null);
+  const preview =
+    (location.state as LocationState | null)?.preview &&
+    (location.state as LocationState).preview?.id === normalizedId
+      ? (location.state as LocationState).preview
+      : undefined;
 
   const artistQuery = useQuery({
-    queryKey: catalogQueryKeys.spotify.artist(normalizedId ?? ""),
-    queryFn: () => getArtistDetails(normalizedId!),
+    queryKey: catalogQueryKeys.spotify.artist(normalizedId ?? "", preview?.name ?? ""),
+    queryFn: () =>
+      getArtistDetails(normalizedId!, {
+        name: preview?.name,
+      }),
     enabled: Boolean(normalizedId),
   });
 
