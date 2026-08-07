@@ -16,6 +16,8 @@ import (
 	"github.com/jedborseth/jeds-movies/backend/internal/lastfm"
 	"github.com/jedborseth/jeds-movies/backend/internal/letterboxd"
 	"github.com/jedborseth/jeds-movies/backend/internal/musicbrainz"
+	"github.com/jedborseth/jeds-movies/backend/internal/musicbrainz/local"
+	"github.com/jedborseth/jeds-movies/backend/internal/musicsearch"
 	"github.com/jedborseth/jeds-movies/backend/internal/openlibrary"
 	"github.com/jedborseth/jeds-movies/backend/internal/realdebrid"
 	"github.com/jedborseth/jeds-movies/backend/internal/resolver"
@@ -48,6 +50,33 @@ func main() {
 	openLibraryClient.Start(ctx)
 
 	musicClient := musicbrainz.NewClient(cfg)
+	if cfg.MusicBrainzDatabaseURL != "" {
+		store, err := local.Open(cfg.MusicBrainzDatabaseURL)
+		if err != nil {
+			log.Printf("warning: local MusicBrainz database unavailable: %v", err)
+		} else {
+			musicClient.SetLocalStore(store)
+			log.Println("MusicBrainz local Postgres replica enabled")
+			defer store.Close()
+		}
+	}
+	if cfg.MeiliURL != "" {
+		searchClient, err := musicsearch.New(cfg.MeiliURL, cfg.MeiliAPIKey)
+		if err != nil {
+			log.Printf("warning: Meilisearch unavailable: %v", err)
+		} else {
+			musicClient.SetSearch(searchClient)
+			log.Printf("Music search: Meilisearch at %s", cfg.MeiliURL)
+		}
+	}
+	if musicClient.LocalEnabled() {
+		log.Println("Music catalog: local MusicBrainz + Meilisearch (public MB API unused for search/detail)")
+	} else {
+		log.Println("Music catalog provider: MusicBrainz API (+ Cover Art Archive) — set MUSICBRAINZ_DATABASE_URL + MEILI_URL for local mode")
+	}
+	if cfg.MusicArtworkPath != "" {
+		log.Printf("Music artwork cache path: %s", cfg.MusicArtworkPath)
+	}
 	lastfmClient := lastfm.NewClient(cfg)
 	if lastfmClient.Configured() {
 		musicClient.SetEnricher(lastfm.NewEnricher(lastfmClient))
@@ -55,7 +84,6 @@ func main() {
 	} else {
 		log.Println("warning: LASTFM_API_KEY not set; catalog shelves use MusicBrainz seeds only")
 	}
-	log.Println("Music catalog provider: MusicBrainz (+ Cover Art Archive)")
 	if cfg.MusicCatalogPath != "" {
 		log.Printf("Music catalog persist path: %s", cfg.MusicCatalogPath)
 	}

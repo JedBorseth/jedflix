@@ -82,8 +82,11 @@ func (c *Client) fetchTopTracks(ctx context.Context, artist musiccatalog.Artist)
 	}
 
 	// Fallback: search popular-sounding recordings for the artist.
-	query := fmt.Sprintf(`artist:"%s"`, luceneEscape(artist.Name))
-	tracks, err := c.searchRecordings(ctx, query, 10)
+	query := artist.Name
+	if !c.useLocalSearch() {
+		query = fmt.Sprintf(`artist:"%s"`, luceneEscape(artist.Name))
+	}
+	tracks, err := c.searchRecordingsLocalOrRemote(ctx, query, 10)
 	if err != nil {
 		return nil
 	}
@@ -99,8 +102,14 @@ func (c *Client) fetchTopTracks(ctx context.Context, artist musiccatalog.Artist)
 }
 
 func (c *Client) resolveTopTrack(ctx context.Context, artist musiccatalog.Artist, hint musiccatalog.TopTrack) *musiccatalog.TopTrack {
-	query := fmt.Sprintf(`recording:"%s" AND artist:"%s"`, luceneEscape(hint.Name), luceneEscape(artist.Name))
-	tracks, err := c.searchRecordings(ctx, query, 3)
+	var tracks []musiccatalog.TopTrack
+	var err error
+	if c.useLocalSearch() {
+		tracks, err = c.search.SearchRecordings(ctx, hint.Name+" "+artist.Name, 3)
+	} else {
+		query := fmt.Sprintf(`recording:"%s" AND artist:"%s"`, luceneEscape(hint.Name), luceneEscape(artist.Name))
+		tracks, err = c.searchRecordings(ctx, query, 3)
+	}
 	if err != nil || len(tracks) == 0 {
 		// Keep Last.fm hint with a synthetic-but-stable id when MB misses.
 		if hint.ID == "" {
@@ -118,8 +127,11 @@ func (c *Client) resolveTopTrack(ctx context.Context, artist musiccatalog.Artist
 		return &hint
 	}
 	best := tracks[0]
-	if best.ImageURL == fallbackImage && hint.ImageURL != "" {
+	if (best.ImageURL == "" || best.ImageURL == fallbackImage) && hint.ImageURL != "" {
 		best.ImageURL = hint.ImageURL
+	}
+	if best.AlbumID != "" {
+		best.ImageURL = c.coverURL(best.AlbumID)
 	}
 	if best.AlbumName == "" {
 		best.AlbumName = hint.AlbumName

@@ -52,6 +52,12 @@ services:
       MUSIC_CATALOG_CACHE_TTL: ${MUSIC_CATALOG_CACHE_TTL:-6h}
       MUSICBRAINZ_API_BASE_URL: ${MUSICBRAINZ_API_BASE_URL:-https://musicbrainz.org/ws/2}
       COVER_ART_ARCHIVE_BASE_URL: ${COVER_ART_ARCHIVE_BASE_URL:-https://coverartarchive.org}
+      # Local MusicBrainz replica + Meilisearch (no public MB API for search/detail).
+      MUSICBRAINZ_DATABASE_URL: ${MUSICBRAINZ_DATABASE_URL:-postgres://musicbrainz:${MUSICBRAINZ_DB_PASSWORD:-musicbrainz}@musicbrainz-db:5432/musicbrainz?sslmode=disable}
+      MEILI_URL: ${MEILI_URL:-http://meilisearch:7700}
+      MEILI_API_KEY: ${MEILI_API_KEY:-${MEILI_MASTER_KEY:-jedflix_meili_master_change_me}}
+      MUSIC_ARTWORK_PATH: ${MUSIC_ARTWORK_PATH:-/data/music-artwork}
+      MUSIC_COVER_PUBLIC_BASE: ${MUSIC_COVER_PUBLIC_BASE:-/backend/api/v1/music/covers}
       # Spotify credentials unused for catalog; still accepted for local tooling.
       SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID:-}
       SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET:-}
@@ -65,6 +71,86 @@ services:
       MAX_CONCURRENT_YOUTUBE: ${MAX_CONCURRENT_YOUTUBE:-3}
     volumes:
       - backend_data:/data
+      # Lazy CAA artwork cache — permanent files on disk1.
+      - ${JEDFLIX_DATA_ROOT:-/mnt/disk1/jedflix}/music-artwork:/data/music-artwork
+
+  # --- Local MusicBrainz (data lives on /mnt/disk1/jedflix) ---
+  musicbrainz-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: musicbrainz
+      POSTGRES_USER: musicbrainz
+      POSTGRES_PASSWORD: ${MUSICBRAINZ_DB_PASSWORD:-musicbrainz}
+    command:
+      - postgres
+      - -c
+      - shared_buffers=1GB
+      - -c
+      - work_mem=64MB
+      - -c
+      - maintenance_work_mem=1GB
+      - -c
+      - max_wal_size=2GB
+    volumes:
+      - ${JEDFLIX_DATA_ROOT:-/mnt/disk1/jedflix}/musicbrainz/pgdata:/var/lib/postgresql/data
+      - ${JEDFLIX_DATA_ROOT:-/mnt/disk1/jedflix}/musicbrainz/dumps:/dumps
+    shm_size: 2gb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U musicbrainz -d musicbrainz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.11
+    restart: unless-stopped
+    environment:
+      MEILI_ENV: production
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-jedflix_meili_master_change_me}
+      MEILI_MAX_INDEXING_MEMORY: ${MEILI_MAX_INDEXING_MEMORY:-2GiB}
+      MEILI_DB_PATH: /meili_data
+    volumes:
+      - ${JEDFLIX_DATA_ROOT:-/mnt/disk1/jedflix}/musicbrainz/meili:/meili_data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:7700/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  mbslave:
+    build:
+      context: .
+      dockerfile: deploy/musicbrainz/Dockerfile.mbslave
+    profiles: ["music-tools"]
+    environment:
+      MBSLAVE_DB_HOST: musicbrainz-db
+      MBSLAVE_DB_PORT: 5432
+      MBSLAVE_DB_NAME: musicbrainz
+      MBSLAVE_DB_USER: musicbrainz
+      MBSLAVE_DB_PASSWORD: ${MUSICBRAINZ_DB_PASSWORD:-musicbrainz}
+      MBSLAVE_MUSICBRAINZ_TOKEN: ${MBSLAVE_MUSICBRAINZ_TOKEN:-}
+    volumes:
+      - ${JEDFLIX_DATA_ROOT:-/mnt/disk1/jedflix}/musicbrainz/dumps:/dumps
+      - ${JEDFLIX_DATA_ROOT:-/mnt/disk1/jedflix}/musicbrainz/replication:/replication
+    depends_on:
+      musicbrainz-db:
+        condition: service_healthy
+
+  music-indexer:
+    build:
+      context: ./apps/backend
+      target: indexer
+    profiles: ["music-tools"]
+    environment:
+      MUSICBRAINZ_DATABASE_URL: postgres://musicbrainz:${MUSICBRAINZ_DB_PASSWORD:-musicbrainz}@musicbrainz-db:5432/musicbrainz?sslmode=disable
+      MEILI_URL: http://meilisearch:7700
+      MEILI_API_KEY: ${MEILI_MASTER_KEY:-jedflix_meili_master_change_me}
+    depends_on:
+      musicbrainz-db:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
 
 volumes:
   caddy_data:

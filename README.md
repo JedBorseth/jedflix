@@ -67,8 +67,17 @@ packages/
   stream-client/    Stream API HTTP client
   tmdb/             TMDB API client
 convex/             Convex backend (schema, auth, user data)
-deploy/             Caddy and nginx configs
+deploy/             Caddy, nginx, and MusicBrainz local-replica configs
 ```
+
+## Local MusicBrainz (music catalog)
+
+Production music search/detail uses a full MusicBrainz Postgres replica + Meilisearch
+on `/mnt/disk1/jedflix/` (not the root disk). Cover art is cached lazily under
+`/mnt/disk1/jedflix/music-artwork/`.
+
+See [deploy/musicbrainz/README.md](deploy/musicbrainz/README.md) for import,
+replication (`mbslave sync`), and reindex steps.
 
 ## Features
 

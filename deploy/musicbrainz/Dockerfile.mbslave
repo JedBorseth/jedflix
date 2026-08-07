@@ -1,0 +1,12 @@
+# syntax=docker/dockerfile:1
+FROM python:3.12-slim
+
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends postgresql-client curl ca-certificates \
+	&& rm -rf /var/lib/apt/lists/* \
+	&& pip install --no-cache-dir "mbslave>=28"
+
+WORKDIR /data
+# Dump/replication packets are bind-mounted from /mnt/disk1/jedflix/musicbrainz.
+ENTRYPOINT ["mbslave"]
+CMD ["--help"]
