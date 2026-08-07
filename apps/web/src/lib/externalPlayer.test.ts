@@ -58,8 +58,8 @@ describe("externalPlayer", () => {
       value: { origin: "https://jedflix.example" },
     });
 
-    expect(toAbsolutePlaybackUrl("/stream-api/api/v1/proxy/token")).toBe(
-      "https://jedflix.example/stream-api/api/v1/proxy/token",
+    expect(toAbsolutePlaybackUrl("/backend/api/v1/proxy/token")).toBe(
+      "https://jedflix.example/backend/api/v1/proxy/token",
     );
 
     Object.defineProperty(globalThis, "location", {

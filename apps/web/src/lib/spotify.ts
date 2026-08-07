@@ -15,6 +15,7 @@ import {
   type MusicSearchResults,
   type MusicSearchTrack,
 } from "@/lib/musicSearch";
+import { getBackendApiBase } from "@/lib/backendEnv";
 
 export type AlbumItem = SpotifyAlbum;
 export type AlbumDetails = SpotifyAlbum;
@@ -26,9 +27,9 @@ export type { MusicSearchResults, MusicSearchTrack };
 export type TrackItem = SpotifyTrack;
 export type TopTrackItem = SpotifyTopTrack;
 
+
 const streamClient = createStreamClient({
-  apiBase: import.meta.env.VITE_STREAM_API_URL ?? "/stream-api",
-  apiKey: import.meta.env.VITE_STREAM_API_KEY,
+  apiBase: getBackendApiBase(),
 });
 
 const SPOTIFY_ID_PATTERN = /^[a-zA-Z0-9]{22}$/;

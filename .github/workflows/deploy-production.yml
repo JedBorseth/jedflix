@@ -85,7 +85,10 @@ jobs:
 
             git fetch origin main
             git reset --hard origin/main
-            docker compose up -d --build
+            # --remove-orphans drops renamed services (e.g. stream-server → backend).
+            docker compose up -d --build --remove-orphans
+            # Caddyfile is bind-mounted; force recreate so /backend routing reloads.
+            docker compose up -d --force-recreate --no-deps caddy
 
             # Reclaim layers left behind by the new images.
             docker image prune -af || true
@@ -94,3 +97,6 @@ jobs:
             echo "== Disk after deploy =="
             df -h / || true
             docker compose ps
+
+            echo "== Smoke: backend health via /backend =="
+            curl -fsS "http://127.0.0.1/backend/health" || curl -fsS "https://127.0.0.1/backend/health" -k || true

@@ -1,0 +1,99 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/jedborseth/jeds-movies/backend/internal/abb"
+	"github.com/jedborseth/jeds-movies/backend/internal/api"
+	"github.com/jedborseth/jeds-movies/backend/internal/config"
+	"github.com/jedborseth/jeds-movies/backend/internal/lastfm"
+	"github.com/jedborseth/jeds-movies/backend/internal/letterboxd"
+	"github.com/jedborseth/jeds-movies/backend/internal/openlibrary"
+	"github.com/jedborseth/jeds-movies/backend/internal/realdebrid"
+	"github.com/jedborseth/jeds-movies/backend/internal/resolver"
+	"github.com/jedborseth/jeds-movies/backend/internal/search"
+	"github.com/jedborseth/jeds-movies/backend/internal/spotify"
+	"github.com/jedborseth/jeds-movies/backend/internal/tmdb"
+	"github.com/jedborseth/jeds-movies/backend/internal/youtube"
+)
+
+func main() {
+	config.LoadEnvFiles()
+	cfg := config.Load()
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	searcher := search.NewTorrentioSearcher(cfg)
+	rd := realdebrid.NewClient(cfg)
+	abbClient := abb.NewClientWithOptions(abb.ClientOptions{
+		BaseURL:    cfg.AbbBaseURL,
+		Username:   cfg.AbbUsername,
+		Password:   cfg.AbbPassword,
+		HTTPClient: cfg.HTTPClient(),
+	})
+	if cfg.AbbUsername != "" {
+		log.Printf("AudiobookBay login configured for user %q", cfg.AbbUsername)
+	}
+	resolverService := resolver.NewService(cfg, searcher, rd, abbClient)
+	letterboxdClient := letterboxd.NewClient(cfg)
+	openLibraryClient := openlibrary.NewClient(cfg)
+	openLibraryClient.Start(ctx)
+	spotifyClient := spotify.NewClient(cfg)
+	if spotifyClient.Configured() {
+		log.Println("Spotify client credentials configured")
+	} else {
+		log.Println("warning: SPOTIFY_CLIENT_ID/SPOTIFY_CLIENT_SECRET not set; music catalog disabled")
+	}
+	spotifyClient.Start(ctx)
+
+	lastfmClient := lastfm.NewClient(cfg)
+	lastfmService := lastfm.NewService(lastfmClient, spotifyClient)
+	if lastfmService.Configured() {
+		log.Println("Last.fm API key configured")
+	} else {
+		log.Println("warning: LASTFM_API_KEY not set (or Spotify missing); related music recommendations disabled")
+	}
+
+	tmdbClient := tmdb.NewClient(cfg)
+	if tmdbClient.Configured() {
+		log.Println("TMDB API key configured (proxied via /api/v1/tmdb)")
+	} else {
+		log.Println("warning: TMDB_API_KEY not set; movie/TV catalog disabled")
+	}
+
+	youtubeResolver := youtube.NewResolver()
+	server := api.NewServer(cfg, resolverService, letterboxdClient, openLibraryClient, spotifyClient, lastfmService, youtubeResolver, tmdbClient)
+	httpServer := &http.Server{
+		Addr:              cfg.Addr,
+		Handler:           server.Router(),
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		// WriteTimeout left unset: YouTube audio and long resolve responses stream.
+	}
+
+	go func() {
+		log.Printf("backend listening on %s", cfg.Addr)
+		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Println(err)
+			os.Exit(1)
+		}
+	}()
+
+	<-ctx.Done()
+	log.Println("backend shutting down")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		log.Printf("backend shutdown error: %v", err)
+		os.Exit(1)
+	}
+}

@@ -1,0 +1,10 @@
+{
+  "name": "@jedflix/backend",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "dev": "go run ./cmd/backend",
+    "build": "go build -o bin/backend ./cmd/backend",
+    "test": "go test ./..."
+  }
+}

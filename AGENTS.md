@@ -18,7 +18,7 @@ Convex agent skills for common tasks can be installed by running
 - Commit and push completed work directly to `main`; do not open pull requests unless explicitly asked.
 - Do not store movie/show/book catalog data in Convex; use TMDB and Open Library for metadata and keep only user-specific data (my list, ratings, watch history).
 - When no streams pass device compatibility filters, offer an option to remove filters and show all streams.
-- Direct Real Debrid streams should not route through the Go stream-server proxy.
+- Direct Real Debrid streams should not route through the Go backend proxy.
 - Video player UI should mirror Stremio web player patterns with manual stream selection, not auto-pick.
 - When implementing attached plans, do not edit the plan file; use existing todos and mark them in progress.
 - Mobile UX: bottom nav, fade-only view transitions (no scroll preservation), search inputs sized to prevent iOS Safari zoom, skeleton loaders to reduce layout shift.
@@ -32,13 +32,13 @@ Convex agent skills for common tasks can be installed by running
 
 - JedFlix is a Netflix-style streaming app for movies, TV, audiobooks, and music: React + TypeScript + Vite frontend, Convex backend, Bun for package manager and tests.
 - Production URL is https://borseth.ddns.net; GitHub repo is https://github.com/JedBorseth/jedflix; server deploy path is ~/jedflix on borseth.ddns.net (Debian); production deploys via GitHub Actions on push to main.
-- Production Docker stack: Caddy (HTTPS, basic auth, reverse proxy) → frontend (nginx SPA) + Go stream-server at /stream-api.
+- Production Docker stack: Caddy (HTTPS, basic auth, reverse proxy) → frontend (nginx SPA) + Go backend at /backend.
 - Convex production deployment uses canny-bat-352.convex.cloud (distinct from local dev deployment).
-- Go stream-server discovers magnets via Torrentio, resolves Real Debrid streams server-side for the web client, proxies Open Library with a 12-hour in-memory cache, serves Spotify music metadata, resolves music audio via yt-dlp (prefer m4a/mp3/aac over webm/opus for browser/Safari), and applies configurable size/seeders limits.
+- Go backend discovers magnets via Torrentio, resolves Real Debrid streams server-side for the web client, proxies Open Library with a 12-hour in-memory cache, serves Spotify music metadata, resolves music audio via yt-dlp (prefer m4a/mp3/aac over webm/opus for browser/Safari), and applies configurable size/seeders limits.
 - Video playback uses @stremio/stremio-video; production builds require vite-plugin-vtt-js.ts to fix vtt.js bundling; WatchPage is lazy-loaded.
 - Auth is GitHub/Google OAuth via Convex Auth (email/password was replaced).
-- Movie/TV metadata, cast, and search use TMDB; audiobook metadata uses Open Library (subjects plus trending/weekly for browse rows); music catalog uses Spotify via the stream-server (public artist API has no bios, monthly listeners, or verified badge; Dev Mode apps get 403 on public/editorial playlist tracks, so home shelves use search with playlist fallback).
+- Movie/TV metadata, cast, and search use TMDB; audiobook metadata uses Open Library (subjects plus trending/weekly for browse rows); music catalog uses Spotify via the Go backend (public artist API has no bios, monthly listeners, or verified badge; Dev Mode apps get 403 on public/editorial playlist tracks, so home shelves use search with playlist fallback).
 - Navbar search on audiobook routes searches books and authors.
 - Multi-file torrent resolution matches by media title and Torrentio fileIdx; packs without a title match are rejected.
-- Party mode is Convex-synced multi-client music playback; Spotify OAuth needs `SPOTIFY_CLIENT_ID`/`SPOTIFY_CLIENT_SECRET` on the Convex deployment (same Spotify app as stream-server) plus redirect `https://<deployment>.convex.site/spotify/callback`.
-- Local web stack: `bun run dev` runs Vite, Go stream-server, and Convex (Expo is `dev:mobile`); Vite loads `VITE_*` env from the monorepo root; local music playback needs yt-dlp installed.
+- Party mode is Convex-synced multi-client music playback; Spotify OAuth needs `SPOTIFY_CLIENT_ID`/`SPOTIFY_CLIENT_SECRET` on the Convex deployment (same Spotify app as backend) plus redirect `https://<deployment>.convex.site/spotify/callback`.
+- Local web stack: `bun run dev` runs Vite, Go backend, and Convex (Expo is `dev:mobile`); Vite loads `VITE_*` env from the monorepo root; local music playback needs yt-dlp installed.

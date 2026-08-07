@@ -50,7 +50,7 @@ bunx convex run seed:seedMovies
 
 | Command | Description |
 |---------|-------------|
-| `bun run dev` | Start web app, Convex backend, and Go stream-server |
+| `bun run dev` | Start web app, Convex backend, and Go backend |
 | `bun run build` | Build all apps via Turborepo |
 | `bun run test` | Run tests across the monorepo |
 | `bun run lint` | Type-check and lint |
@@ -60,7 +60,7 @@ bunx convex run seed:seedMovies
 ```
 apps/
   web/              Vite React frontend
-  stream-server/    Go stream API (Torrentio + Real Debrid)
+  backend/    Go stream API (Torrentio + Real Debrid)
   mobile/           Expo React Native app (in progress)
 packages/
   shared/           Shared types, validators, and helpers
@@ -74,7 +74,7 @@ deploy/             Caddy and nginx configs
 
 - Netflix-style browse page with hero banner and genre rows
 - Movie detail pages with synopsis and metadata
-- Stremio-style full-screen player with Real Debrid streaming (via Go stream-server)
+- Stremio-style full-screen player with Real Debrid streaming (via Go backend)
 - Direct Real Debrid stream delivery (no proxy)
 - TV season/episode picker and playback routes
 - Audiobook and ebook streaming via AudiobookBay + Real Debrid (multi-file chapter/series packs)
@@ -91,7 +91,7 @@ The app supports two delivery modes:
 
 Playback is **direct-only**: the browser (or mobile app) calls the Real Debrid API with the API key saved in Settings and plays the RD CDN URL directly.
 
-The Go service in [`apps/stream-server/`](apps/stream-server/) still:
+The Go service in [`apps/backend/`](apps/backend/) still:
 
 1. Searches Torrentio for magnets by IMDb ID
 2. Filters by size (default 50GB max), seeders (default min 3), known Real Debrid infringing filename patterns, and browser-incompatible formats (MKV / Remux / Atmos / TrueHD / DTS) for in-app playback
@@ -101,14 +101,13 @@ Configure the frontend:
 
 ```bash
 # .env.local
-VITE_STREAM_API_URL=/stream-api
-VITE_STREAM_API_KEY=
+VITE_BACKEND_URL=/backend
 ```
 
-Configure the stream server (see [`apps/stream-server/.env.example`](apps/stream-server/.env.example)):
+Configure the Go backend (see [`apps/backend/.env.example`](apps/backend/.env.example)):
 
 ```bash
-REALDEBRID_TOKEN=your_token
+TMDB_API_KEY=your_tmdb_key
 CORS_ORIGINS=http://localhost:5173
 SPOTIFY_CLIENT_ID=
 SPOTIFY_CLIENT_SECRET=
@@ -124,11 +123,11 @@ Run locally:
 bun run dev
 ```
 
-This starts Vite, Convex, and the Go stream-server.
+This starts Vite, Convex, and the Go backend.
 
 ### Music playback (local dev)
 
-Spotify → YouTube audio uses **yt-dlp** on the stream-server (bundled in the production Docker image). Install it locally:
+Spotify → YouTube audio uses **yt-dlp** on the backend (bundled in the production Docker image). Install it locally:
 
 ```bash
 brew install yt-dlp
@@ -144,15 +143,15 @@ Production Docker builds use repo root context with `apps/web/Dockerfile`.
 
 ## Notes
 
-- Direct streaming requires a Real Debrid API key saved in Settings
-- Proxy streaming can use a saved user Real Debrid API key or `REALDEBRID_TOKEN` on the Go stream-server
+- Direct streaming requires a Real Debrid API key saved in Settings (bring-your-own; never stored as a shared server token)
+- Movie/TV metadata uses TMDB via the Go backend (`TMDB_API_KEY` server-side only)
 - Player components are GPL-2.0 derived from Stremio Web
 - Use `bunx convex deploy` (without `--bun`) for CI/production deploys
 - Convex functions run in Convex's runtime; Bun is used locally for tooling
 
 ## Production deployment
 
-Production runs on a single server with **Docker Compose**: Caddy (TLS + routing), a built frontend container, and the Go stream-server.
+Production runs on a single server with **Docker Compose**: Caddy (TLS + routing), a built frontend container, and the Go backend.
 
 Recommended CD: **GitHub Actions on every push to `main`**.
 
@@ -160,7 +159,7 @@ Recommended CD: **GitHub Actions on every push to `main`**.
 |-----------|---------------|----------------|
 | Convex backend | Convex Cloud | `bunx convex deploy` in CI |
 | React frontend | Docker `frontend` service | Rebuilt on the server from `apps/web/Dockerfile` |
-| Go stream-server | Docker `stream-server` service | Rebuilt on the server from `apps/stream-server/` |
+| Go backend | Docker `backend` service | Rebuilt on the server from `apps/backend/` |
 | TLS / routing | Docker `caddy` service | Uses `deploy/Caddyfile` |
 
 ### Server layout

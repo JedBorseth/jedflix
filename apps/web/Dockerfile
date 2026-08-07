@@ -5,7 +5,7 @@ WORKDIR /app
 COPY package.json bun.lock turbo.json ./
 COPY apps/web/package.json ./apps/web/
 COPY apps/mobile/package.json ./apps/mobile/
-COPY apps/stream-server/package.json ./apps/stream-server/
+COPY apps/backend/package.json ./apps/backend/
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/stream-client/package.json ./packages/stream-client/
 COPY packages/tmdb/package.json ./packages/tmdb/
@@ -20,15 +20,13 @@ WORKDIR /app/apps/web
 
 ARG VITE_CONVEX_URL
 ARG VITE_CONVEX_SITE_URL
-ARG VITE_TMDB_API_KEY
-ARG VITE_STREAM_API_URL=/stream-api
-ARG VITE_STREAM_API_KEY=
+ARG VITE_BACKEND_URL=/backend
 
 ENV VITE_CONVEX_URL=$VITE_CONVEX_URL
 ENV VITE_CONVEX_SITE_URL=$VITE_CONVEX_SITE_URL
-ENV VITE_TMDB_API_KEY=$VITE_TMDB_API_KEY
-ENV VITE_STREAM_API_URL=$VITE_STREAM_API_URL
-ENV VITE_STREAM_API_KEY=$VITE_STREAM_API_KEY
+ENV VITE_BACKEND_URL=$VITE_BACKEND_URL
+# Legacy alias so older builds still resolve if only old args are passed.
+ENV VITE_STREAM_API_URL=$VITE_BACKEND_URL
 
 RUN bunx vite build
 

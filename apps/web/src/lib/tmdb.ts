@@ -1,7 +1,8 @@
 import { createTmdbClient } from "@jedflix/tmdb";
+import { getBackendApiBase } from "@/lib/backendEnv";
 
 const client = createTmdbClient({
-  apiKey: import.meta.env.VITE_TMDB_API_KEY ?? "",
+  backendBaseUrl: getBackendApiBase(),
 });
 
 export const {

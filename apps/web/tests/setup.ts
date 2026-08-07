@@ -4,7 +4,7 @@ import * as matchers from "@testing-library/jest-dom/matchers";
 
 expect.extend(matchers);
 
-(import.meta.env as Record<string, string>).VITE_TMDB_API_KEY ??= "test-key";
+(import.meta.env as Record<string, string>).VITE_BACKEND_URL ??= "/backend";
 
 afterEach(() => {
   cleanup();

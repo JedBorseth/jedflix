@@ -573,15 +573,15 @@ describe("tmdb", () => {
     expect(String(globalThis.fetch.mock.calls[0]?.[0])).toContain("/movie/10/recommendations");
   });
 
-  test("tmdbFetch throws when the API key is missing", async () => {
+  test("tmdbFetch throws when the backend URL is missing", async () => {
     const { configureTmdb } = await import("@jedflix/tmdb");
-    configureTmdb({ apiKey: "" });
+    configureTmdb({ backendBaseUrl: "" });
 
     globalThis.fetch = mockFetch({ results: [] });
 
-    await expect(searchMedia("anything")).rejects.toThrow("Missing TMDB API key");
+    await expect(searchMedia("anything")).rejects.toThrow("Missing TMDB backend URL");
 
-    configureTmdb({ apiKey: "test-key" });
+    configureTmdb({ backendBaseUrl: "/backend" });
   });
 
   test("tmdbFetch throws on non-OK responses", async () => {

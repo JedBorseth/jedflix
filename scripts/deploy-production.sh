@@ -16,7 +16,7 @@ Environment:
 Requires:
   docker compose
   git checkout at the repo root
-  .env with DOMAIN, Convex URLs, TMDB, and stream-server secrets
+  .env with DOMAIN, Convex URLs, TMDB, and backend secrets
 EOF
 }
 
@@ -70,7 +70,8 @@ elif [[ -n "${CONVEX_DEPLOY_KEY:-}" ]] && command -v npx >/dev/null 2>&1; then
 fi
 
 echo "Building and restarting Docker stack..."
-docker compose up -d --build
+docker compose up -d --build --remove-orphans
+docker compose up -d --force-recreate --no-deps caddy
 docker compose ps
 
 echo "Production deploy finished."
