@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/jedborseth/jeds-movies/backend/internal/config"
-	"github.com/jedborseth/jeds-movies/backend/internal/spotify"
+	"github.com/jedborseth/jeds-movies/backend/internal/musiccatalog"
 )
 
 func TestClientSimilarArtistsAndTracks(t *testing.T) {
@@ -93,7 +93,7 @@ func TestClientSimilarArtistsAndTracks(t *testing.T) {
 	}
 }
 
-func TestServiceResolvesToSpotify(t *testing.T) {
+func TestServiceResolvesToCatalog(t *testing.T) {
 	lfmUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		method := strings.ToLower(r.URL.Query().Get("method"))
 		w.Header().Set("Content-Type", "application/json")
@@ -122,14 +122,14 @@ func TestServiceResolvesToSpotify(t *testing.T) {
 	}))
 	defer lfmUpstream.Close()
 
-	searcher := &fakeSpotify{
-		artists: map[string]spotify.Artist{
-			"exact match": {ID: "artist1111111111111111", Name: "Exact Match", ImageURL: "https://img", Genres: []string{"rock"}},
+	searcher := &fakeCatalog{
+		artists: map[string]musiccatalog.Artist{
+			"exact match": {ID: "a74b1b7f-71a5-4011-9441-d0b5e4122711", Name: "Exact Match", ImageURL: "https://img", Genres: []string{"rock"}},
 		},
-		tracks: map[string]spotify.TopTrack{
+		tracks: map[string]musiccatalog.TopTrack{
 			"exact match|hit song": {
-				ID: "track11111111111111111", Name: "Hit Song", Artists: []string{"Exact Match"},
-				ArtistIDs: []string{"artist1111111111111111"}, AlbumID: "album1111111111111111",
+				ID: "b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d", Name: "Hit Song", Artists: []string{"Exact Match"},
+				ArtistIDs: []string{"a74b1b7f-71a5-4011-9441-d0b5e4122711"}, AlbumID: "b1392450-e666-3926-a536-22c65f834433",
 				AlbumName: "Album", ImageURL: "https://img", DurationMs: 200000,
 			},
 		},
@@ -147,7 +147,7 @@ func TestServiceResolvesToSpotify(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SimilarArtists: %v", err)
 	}
-	if len(artists) != 1 || artists[0].ID != "artist1111111111111111" {
+	if len(artists) != 1 || artists[0].ID != "a74b1b7f-71a5-4011-9441-d0b5e4122711" {
 		t.Fatalf("resolved artists = %#v", artists)
 	}
 
@@ -155,36 +155,36 @@ func TestServiceResolvesToSpotify(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SimilarTracks: %v", err)
 	}
-	if len(tracks) != 1 || tracks[0].ID != "track11111111111111111" {
+	if len(tracks) != 1 || tracks[0].ID != "b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d" {
 		t.Fatalf("resolved tracks = %#v", tracks)
 	}
 }
 
 func TestPickBestArtistRequiresMatch(t *testing.T) {
-	result := &spotify.SearchResponse{
-		Artists: []spotify.Artist{
+	result := &musiccatalog.SearchResponse{
+		Artists: []musiccatalog.Artist{
 			{ID: "1", Name: "Totally Different"},
 		},
 	}
 	if pickBestArtist("Exact Match", result) != nil {
 		t.Fatal("expected nil for weak match")
 	}
-	result.Artists = []spotify.Artist{{ID: "2", Name: "Exact Match"}}
+	result.Artists = []musiccatalog.Artist{{ID: "2", Name: "Exact Match"}}
 	got := pickBestArtist("Exact Match", result)
 	if got == nil || got.ID != "2" {
 		t.Fatalf("got %#v", got)
 	}
 }
 
-type fakeSpotify struct {
-	artists map[string]spotify.Artist
-	tracks  map[string]spotify.TopTrack
+type fakeCatalog struct {
+	artists map[string]musiccatalog.Artist
+	tracks  map[string]musiccatalog.TopTrack
 }
 
-func (f *fakeSpotify) Configured() bool { return true }
+func (f *fakeCatalog) Configured() bool { return true }
 
-func (f *fakeSpotify) Search(_ context.Context, query string) (*spotify.SearchResponse, error) {
-	out := &spotify.SearchResponse{}
+func (f *fakeCatalog) Search(_ context.Context, query string) (*musiccatalog.SearchResponse, error) {
+	out := &musiccatalog.SearchResponse{}
 	norm := normalizeName(query)
 	for key, artist := range f.artists {
 		if strings.Contains(norm, key) || strings.Contains(key, strings.TrimPrefix(norm, "artist ")) {

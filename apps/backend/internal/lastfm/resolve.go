@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/jedborseth/jeds-movies/backend/internal/spotify"
+	"github.com/jedborseth/jeds-movies/backend/internal/musiccatalog"
 )
 
 var nonAlnumPattern = regexp.MustCompile(`[^a-z0-9]+`)
@@ -19,38 +19,41 @@ const (
 	maxSimilarTracks      = 6
 )
 
-// SpotifySearcher is the subset of the Spotify client needed to resolve Last.fm hits.
-type SpotifySearcher interface {
+// CatalogSearcher resolves Last.fm name hits into catalog objects (MusicBrainz).
+type CatalogSearcher interface {
 	Configured() bool
-	Search(ctx context.Context, query string) (*spotify.SearchResponse, error)
+	Search(ctx context.Context, query string) (*musiccatalog.SearchResponse, error)
 }
 
-// Service resolves Last.fm recommendations into Spotify catalog objects.
+// Service resolves Last.fm recommendations into catalog objects.
 type Service struct {
 	lastfm  *Client
-	spotify SpotifySearcher
+	catalog CatalogSearcher
 
 	resolveMu   sync.Mutex
-	artistCache map[string]*spotify.Artist
-	trackCache  map[string]*spotify.TopTrack
+	artistCache map[string]*musiccatalog.Artist
+	trackCache  map[string]*musiccatalog.TopTrack
 }
 
-func NewService(lastfmClient *Client, spotifyClient SpotifySearcher) *Service {
+func NewService(lastfmClient *Client, catalog CatalogSearcher) *Service {
 	return &Service{
 		lastfm:      lastfmClient,
-		spotify:     spotifyClient,
-		artistCache: make(map[string]*spotify.Artist),
-		trackCache:  make(map[string]*spotify.TopTrack),
+		catalog:     catalog,
+		artistCache: make(map[string]*musiccatalog.Artist),
+		trackCache:  make(map[string]*musiccatalog.TopTrack),
 	}
 }
 
 func (s *Service) Configured() bool {
-	return s != nil && s.lastfm != nil && s.lastfm.Configured() &&
-		s.spotify != nil && s.spotify.Configured()
+	return s != nil && s.lastfm != nil && s.lastfm.Configured()
 }
 
-func (s *Service) SimilarArtists(ctx context.Context, artist string, limit int) ([]spotify.Artist, error) {
-	if !s.Configured() {
+func (s *Service) canResolve() bool {
+	return s.Configured() && s.catalog != nil && s.catalog.Configured()
+}
+
+func (s *Service) SimilarArtists(ctx context.Context, artist string, limit int) ([]musiccatalog.Artist, error) {
+	if !s.canResolve() {
 		return nil, ErrNotConfigured
 	}
 	limit = clampResolveLimit(limit, defaultSimilarArtists, maxSimilarArtists)
@@ -61,7 +64,7 @@ func (s *Service) SimilarArtists(ctx context.Context, artist string, limit int) 
 
 	seen := make(map[string]struct{})
 	excludeName := normalizeName(artist)
-	out := make([]spotify.Artist, 0, len(raw))
+	out := make([]musiccatalog.Artist, 0, len(raw))
 	for _, item := range raw {
 		if ctx.Err() != nil {
 			break
@@ -71,7 +74,7 @@ func (s *Service) SimilarArtists(ctx context.Context, artist string, limit int) 
 		}
 		resolved, err := s.resolveArtist(ctx, item.Name)
 		if err != nil {
-			if errors.Is(err, spotify.ErrRateLimited) {
+			if errors.Is(err, musiccatalog.ErrRateLimited) {
 				break
 			}
 			continue
@@ -83,6 +86,11 @@ func (s *Service) SimilarArtists(ctx context.Context, artist string, limit int) 
 			continue
 		}
 		seen[resolved.ID] = struct{}{}
+		if resolved.ImageURL == "" || strings.Contains(resolved.ImageURL, "placehold.co") {
+			if item.ImageURL != "" {
+				resolved.ImageURL = item.ImageURL
+			}
+		}
 		out = append(out, *resolved)
 		if len(out) >= limit {
 			break
@@ -91,8 +99,8 @@ func (s *Service) SimilarArtists(ctx context.Context, artist string, limit int) 
 	return out, nil
 }
 
-func (s *Service) SimilarTracks(ctx context.Context, artist, track string, limit int) ([]spotify.TopTrack, error) {
-	if !s.Configured() {
+func (s *Service) SimilarTracks(ctx context.Context, artist, track string, limit int) ([]musiccatalog.TopTrack, error) {
+	if !s.canResolve() {
 		return nil, ErrNotConfigured
 	}
 	limit = clampResolveLimit(limit, defaultSimilarTracks, maxSimilarTracks)
@@ -103,7 +111,7 @@ func (s *Service) SimilarTracks(ctx context.Context, artist, track string, limit
 
 	seen := make(map[string]struct{})
 	excludeKey := trackKey(artist, track)
-	out := make([]spotify.TopTrack, 0, len(raw))
+	out := make([]musiccatalog.TopTrack, 0, len(raw))
 	for _, item := range raw {
 		if ctx.Err() != nil {
 			break
@@ -113,7 +121,7 @@ func (s *Service) SimilarTracks(ctx context.Context, artist, track string, limit
 		}
 		resolved, err := s.resolveTrack(ctx, item.Artist, item.Name)
 		if err != nil {
-			if errors.Is(err, spotify.ErrRateLimited) {
+			if errors.Is(err, musiccatalog.ErrRateLimited) {
 				break
 			}
 			continue
@@ -125,6 +133,9 @@ func (s *Service) SimilarTracks(ctx context.Context, artist, track string, limit
 			continue
 		}
 		seen[resolved.ID] = struct{}{}
+		if (resolved.ImageURL == "" || strings.Contains(resolved.ImageURL, "placehold.co")) && item.ImageURL != "" {
+			resolved.ImageURL = item.ImageURL
+		}
 		out = append(out, *resolved)
 		if len(out) >= limit {
 			break
@@ -141,14 +152,13 @@ func (s *Service) ArtistTags(ctx context.Context, artist string) ([]Tag, error) 
 }
 
 // RelatedForAlbum mixes similar tracks (from album tracks) and similar artists.
-// Runs sequentially and uses a single seed so we do not stampede Spotify Dev Mode.
 func (s *Service) RelatedForAlbum(
 	ctx context.Context,
 	artist string,
 	seedTracks []struct{ Artist, Track string },
 	limit int,
-) (artists []spotify.Artist, tracks []spotify.TopTrack, err error) {
-	if !s.Configured() {
+) (artists []musiccatalog.Artist, tracks []musiccatalog.TopTrack, err error) {
+	if !s.canResolve() {
 		return nil, nil, ErrNotConfigured
 	}
 	if limit <= 0 {
@@ -164,7 +174,7 @@ func (s *Service) RelatedForAlbum(
 	}
 
 	seen := make(map[string]struct{})
-	collected := make([]spotify.TopTrack, 0, trackLimit)
+	collected := make([]musiccatalog.TopTrack, 0, trackLimit)
 	seeds := seedTracks
 	if len(seeds) > 1 {
 		seeds = seeds[:1]
@@ -181,7 +191,7 @@ func (s *Service) RelatedForAlbum(
 		hits, err := s.SimilarTracks(ctx, a, t, trackLimit)
 		if err != nil {
 			trackErr = err
-			if errors.Is(err, spotify.ErrRateLimited) {
+			if errors.Is(err, musiccatalog.ErrRateLimited) {
 				break
 			}
 			continue
@@ -213,7 +223,7 @@ func (s *Service) RelatedForAlbum(
 	return artists, tracks, nil
 }
 
-func (s *Service) resolveArtist(ctx context.Context, name string) (*spotify.Artist, error) {
+func (s *Service) resolveArtist(ctx context.Context, name string) (*musiccatalog.Artist, error) {
 	key := normalizeName(name)
 	if key == "" {
 		return nil, nil
@@ -226,8 +236,7 @@ func (s *Service) resolveArtist(ctx context.Context, name string) (*spotify.Arti
 	}
 	s.resolveMu.Unlock()
 
-	// One search only — a quoted retry doubles Spotify traffic for every Last.fm hit.
-	result, err := s.spotify.Search(ctx, name)
+	result, err := s.catalog.Search(ctx, name)
 	if err != nil {
 		return nil, err
 	}
@@ -239,7 +248,7 @@ func (s *Service) resolveArtist(ctx context.Context, name string) (*spotify.Arti
 	return best, nil
 }
 
-func (s *Service) resolveTrack(ctx context.Context, artist, track string) (*spotify.TopTrack, error) {
+func (s *Service) resolveTrack(ctx context.Context, artist, track string) (*musiccatalog.TopTrack, error) {
 	key := trackKey(artist, track)
 	if key == "" {
 		return nil, nil
@@ -252,7 +261,7 @@ func (s *Service) resolveTrack(ctx context.Context, artist, track string) (*spot
 	}
 	s.resolveMu.Unlock()
 
-	result, err := s.spotify.Search(ctx, track+" "+artist)
+	result, err := s.catalog.Search(ctx, track+" "+artist)
 	if err != nil {
 		return nil, err
 	}
@@ -264,12 +273,12 @@ func (s *Service) resolveTrack(ctx context.Context, artist, track string) (*spot
 	return best, nil
 }
 
-func pickBestArtist(name string, result *spotify.SearchResponse) *spotify.Artist {
+func pickBestArtist(name string, result *musiccatalog.SearchResponse) *musiccatalog.Artist {
 	if result == nil || len(result.Artists) == 0 {
 		return nil
 	}
 	target := normalizeName(name)
-	var best *spotify.Artist
+	var best *musiccatalog.Artist
 	bestScore := -1
 	for i := range result.Artists {
 		artist := &result.Artists[i]
@@ -279,7 +288,6 @@ func pickBestArtist(name string, result *spotify.SearchResponse) *spotify.Artist
 			best = artist
 		}
 	}
-	// Require at least a token-level match so we don't return unrelated artists.
 	if best == nil || bestScore < 40 {
 		return nil
 	}
@@ -287,13 +295,13 @@ func pickBestArtist(name string, result *spotify.SearchResponse) *spotify.Artist
 	return &copy
 }
 
-func pickBestTrack(artist, track string, result *spotify.SearchResponse) *spotify.TopTrack {
+func pickBestTrack(artist, track string, result *musiccatalog.SearchResponse) *musiccatalog.TopTrack {
 	if result == nil || len(result.Tracks) == 0 {
 		return nil
 	}
 	targetTrack := normalizeName(track)
 	targetArtist := normalizeName(artist)
-	var best *spotify.TopTrack
+	var best *musiccatalog.TopTrack
 	bestScore := -1
 	for i := range result.Tracks {
 		item := &result.Tracks[i]

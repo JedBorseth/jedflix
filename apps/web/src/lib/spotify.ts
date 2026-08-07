@@ -32,7 +32,9 @@ const streamClient = createStreamClient({
   apiBase: getBackendApiBase(),
 });
 
-const SPOTIFY_ID_PATTERN = /^[a-zA-Z0-9]{22}$/;
+// Accept MusicBrainz MBIDs (UUID) and legacy Spotify 22-char ids.
+const CATALOG_ID_PATTERN =
+  /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[a-zA-Z0-9]{22})$/i;
 
 export function getAlbumDetailPath(album: Pick<AlbumItem, "id">) {
   return `/album/${album.id}`;
@@ -42,6 +44,7 @@ export function getArtistPath(artistId: string) {
   return `/music-artist/${artistId}`;
 }
 
+/** Normalize a catalog id (MusicBrainz MBID or legacy Spotify id). */
 export function normalizeSpotifyId(value: string | undefined | null): string | null {
   if (!value) {
     return null;
@@ -56,7 +59,7 @@ export function normalizeSpotifyId(value: string | undefined | null): string | n
     candidate = parts[parts.length - 1] ?? candidate;
   }
   candidate = candidate.split("?")[0] ?? candidate;
-  return SPOTIFY_ID_PATTERN.test(candidate) ? candidate : null;
+  return CATALOG_ID_PATTERN.test(candidate) ? candidate : null;
 }
 
 export async function getMusicBrowse(): Promise<MusicBrowseResponse> {

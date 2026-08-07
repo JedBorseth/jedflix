@@ -35,11 +35,16 @@ type Config struct {
 	SpotifyAPIBaseURL          string
 	SpotifyAuthURL             string
 	SpotifyCacheTTL            time.Duration
-	// SpotifyCatalogPath is where the browse catalog JSON is persisted across restarts.
+	// SpotifyCatalogPath is legacy; MusicCatalogPath is preferred for MusicBrainz browse cache.
 	SpotifyCatalogPath string
-	LastFMAPIKey       string
-	LastFMAPIBaseURL   string
-	LastFMCacheTTL     time.Duration
+	// Music catalog (MusicBrainz) — replaces Spotify for browse/search/artist/album metadata.
+	MusicBrainzAPIBaseURL   string
+	CoverArtArchiveBaseURL  string
+	MusicCatalogCacheTTL    time.Duration
+	MusicCatalogPath        string
+	LastFMAPIKey            string
+	LastFMAPIBaseURL        string
+	LastFMCacheTTL          time.Duration
 	// TMDBAPIKey is server-only; clients call /api/v1/tmdb/* and never see this.
 	TMDBAPIKey     string
 	TMDBAPIBaseURL string
@@ -76,6 +81,10 @@ func Load() Config {
 		SpotifyAuthURL:             strings.TrimRight(envOr("SPOTIFY_AUTH_URL", "https://accounts.spotify.com/api/token"), "/"),
 		SpotifyCacheTTL:            envDuration("SPOTIFY_CACHE_TTL", 6*time.Hour),
 		SpotifyCatalogPath:         strings.TrimSpace(os.Getenv("SPOTIFY_CATALOG_PATH")),
+		MusicBrainzAPIBaseURL:      strings.TrimRight(envOr("MUSICBRAINZ_API_BASE_URL", "https://musicbrainz.org/ws/2"), "/"),
+		CoverArtArchiveBaseURL:     strings.TrimRight(envOr("COVER_ART_ARCHIVE_BASE_URL", "https://coverartarchive.org"), "/"),
+		MusicCatalogCacheTTL:       envDuration("MUSIC_CATALOG_CACHE_TTL", envDuration("SPOTIFY_CACHE_TTL", 6*time.Hour)),
+		MusicCatalogPath:           strings.TrimSpace(envOr("MUSIC_CATALOG_PATH", os.Getenv("SPOTIFY_CATALOG_PATH"))),
 		LastFMAPIKey:               strings.TrimSpace(os.Getenv("LASTFM_API_KEY")),
 		LastFMAPIBaseURL:           strings.TrimRight(envOr("LASTFM_API_BASE_URL", "https://ws.audioscrobbler.com/2.0"), "/"),
 		LastFMCacheTTL:             envDuration("LASTFM_CACHE_TTL", 6*time.Hour),
