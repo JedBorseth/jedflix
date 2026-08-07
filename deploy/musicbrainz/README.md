@@ -46,9 +46,11 @@ sudo chown -R "$USER:$USER" /mnt/disk1/jedflix
 
 ## Keep the replica current
 
+Replication applies incremental MB changes — run it on a modest schedule (every **12 hours** is plenty):
+
 ```bash
-# Hourly cron example
-0 * * * * cd /home/jedborseth/jedflix && MBSLAVE_MUSICBRAINZ_TOKEN=... ./scripts/musicbrainz-sync.sh >>/var/log/mbslave-sync.log 2>&1
+# Cron: twice daily (00:00 and 12:00 server time)
+0 0,12 * * * cd /home/jedborseth/jedflix && MBSLAVE_MUSICBRAINZ_TOKEN=... ./scripts/musicbrainz-sync.sh >>/var/log/mbslave-sync.log 2>&1
 ```
 
 After large schema changes, re-run `./scripts/musicbrainz-reindex.sh`.
