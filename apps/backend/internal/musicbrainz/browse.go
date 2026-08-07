@@ -132,7 +132,7 @@ func (c *Client) fetchGenreRows(ctx context.Context, genre musiccatalog.GenreCon
 }
 
 func (c *Client) genreArtists(ctx context.Context, genre musiccatalog.GenreConfig, tag string) []musiccatalog.Artist {
-	// Prefer Last.fm charts — includes MBIDs/images and avoids MusicBrainz stampede.
+	// Prefer Last.fm charts — includes MBIDs/images and avoids catalog stampede.
 	if c.enricher != nil && c.enricher.Configured() {
 		if hints, err := c.enricher.TagTopArtists(ctx, tag, catalogShelfLimit); err == nil && len(hints) > 0 {
 			out := artistsFromHints(hints, catalogShelfLimit)
@@ -142,12 +142,11 @@ func (c *Client) genreArtists(ctx context.Context, genre musiccatalog.GenreConfi
 		}
 	}
 
-	// One MusicBrainz tag search (not N seed lookups).
-	if searched, err := c.searchArtists(ctx, `tag:`+luceneEscape(tag), catalogShelfLimit); err == nil && len(searched) > 0 {
+	if searched, err := c.searchArtistsLocalOrRemote(ctx, tag, catalogShelfLimit); err == nil && len(searched) > 0 {
 		return searched
 	}
 
-	// Last resort: seed names via a single broad search each (capped).
+	// Last resort: seed names via local/remote resolve (capped).
 	out := make([]musiccatalog.Artist, 0, catalogShelfLimit)
 	seen := map[string]struct{}{}
 	for _, seed := range genre.Seeds {
@@ -169,7 +168,13 @@ func (c *Client) genreArtists(ctx context.Context, genre musiccatalog.GenreConfi
 
 func (c *Client) genreAlbums(ctx context.Context, genre musiccatalog.GenreConfig, tag string, singles bool) []musiccatalog.Album {
 	if singles {
-		// Singles shelves are optional; one MB query is enough and cheap.
+		if c.useLocalSearch() {
+			albums, err := c.searchAlbumsLocalOrRemote(ctx, tag, catalogShelfLimit, "Single")
+			if err != nil {
+				return nil
+			}
+			return albums
+		}
 		query := fmt.Sprintf(`tag:%s AND primarytype:Single`, luceneEscape(tag))
 		albums, err := c.searchAlbums(ctx, query, catalogShelfLimit)
 		if err != nil {
@@ -187,6 +192,13 @@ func (c *Client) genreAlbums(ctx context.Context, genre musiccatalog.GenreConfig
 		}
 	}
 
+	if c.useLocalSearch() {
+		albums, err := c.searchAlbumsLocalOrRemote(ctx, tag, catalogShelfLimit, "Album")
+		if err != nil {
+			return nil
+		}
+		return albums
+	}
 	query := fmt.Sprintf(`tag:%s AND primarytype:Album`, luceneEscape(tag))
 	albums, err := c.searchAlbums(ctx, query, catalogShelfLimit)
 	if err != nil {
@@ -197,6 +209,14 @@ func (c *Client) genreAlbums(ctx context.Context, genre musiccatalog.GenreConfig
 
 func (c *Client) fetchNewReleases(ctx context.Context) ([]musiccatalog.Album, error) {
 	year := c.now().Year()
+	if c.useLocalSearch() {
+		// Meilisearch can't do date-range Lucene; approximate with year token + Album filter.
+		albums, err := c.searchAlbumsLocalOrRemote(ctx, fmt.Sprintf("%d", year), catalogShelfLimit, "Album")
+		if err != nil {
+			return nil, err
+		}
+		return albums, nil
+	}
 	query := fmt.Sprintf(`primarytype:Album AND firstreleasedate:[%d-01-01 TO %d-12-31]`, year, year)
 	albums, err := c.searchAlbums(ctx, query, catalogShelfLimit)
 	if err != nil {
@@ -275,9 +295,8 @@ func (c *Client) albumsFromHints(ctx context.Context, hints []TagAlbumHint, limi
 			continue
 		}
 		seen[id] = struct{}{}
-		if image == "" {
-			image = c.coverURL(id)
-		}
+		// Always use the local CAA proxy cache for album art (homepage shelves included).
+		image = c.coverURL(id)
 		out = append(out, musiccatalog.Album{
 			ID:        id,
 			Name:      hint.Name,

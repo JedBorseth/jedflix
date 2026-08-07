@@ -15,7 +15,9 @@ import (
 	"time"
 
 	"github.com/jedborseth/jeds-movies/backend/internal/config"
+	"github.com/jedborseth/jeds-movies/backend/internal/musicbrainz/local"
 	"github.com/jedborseth/jeds-movies/backend/internal/musiccatalog"
+	"github.com/jedborseth/jeds-movies/backend/internal/musicsearch"
 )
 
 const (
@@ -64,28 +66,35 @@ type TagAlbumHint struct {
 }
 
 type Client struct {
-	apiBaseURL  string
-	coverBase   string
-	http        *http.Client
-	refreshTTL  time.Duration
-	genres      []musiccatalog.GenreConfig
-	catalogPath string
-	enricher    Enricher
+	apiBaseURL      string
+	coverBase       string
+	coverPublicBase string
+	artworkPath     string
+	http            *http.Client
+	refreshTTL      time.Duration
+	genres          []musiccatalog.GenreConfig
+	catalogPath     string
+	enricher        Enricher
+	local           *local.Store
+	search          *musicsearch.Client
 
-	rateMu   sync.Mutex
-	lastReq  time.Time
-	now      func() time.Time
+	rateMu  sync.Mutex
+	lastReq time.Time
+	now     func() time.Time
 
 	catalogMu  sync.RWMutex
 	catalog    *musiccatalog.BrowseResponse
 	refreshing bool
 	refreshErr error
 
-	albumCache  sync.Map
-	artistCache sync.Map
-	searchCache sync.Map
+	albumCache      sync.Map
+	artistCache     sync.Map
+	searchCache     sync.Map
 	albumSummaries  sync.Map
 	artistSummaries sync.Map
+
+	artworkMem    sync.Map
+	artworkDiskMu sync.Mutex
 }
 
 type cachedSearch struct {
@@ -106,7 +115,7 @@ type cachedArtist struct {
 func NewClient(cfg config.Config) *Client {
 	httpClient := cfg.HTTPClient()
 	httpClient.Timeout = 45 * time.Second
-	// Follow Cover Art Archive redirects when we probe covers.
+	// Follow Cover Art Archive redirects when we fetch covers.
 	httpClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 5 {
 			return errors.New("too many redirects")
@@ -130,16 +139,38 @@ func NewClient(cfg config.Config) *Client {
 	if path == "" {
 		path = strings.TrimSpace(cfg.SpotifyCatalogPath)
 	}
+	coverPublic := strings.TrimRight(cfg.MusicCoverPublicBase, "/")
+	if coverPublic == "" {
+		coverPublic = "/backend/api/v1/music/covers"
+	}
+	artworkPath := strings.TrimSpace(cfg.MusicArtworkPath)
 
 	return &Client{
-		apiBaseURL:  apiBase,
-		coverBase:   coverBase,
-		http:        httpClient,
-		refreshTTL:  ttl,
-		genres:      musiccatalog.DefaultGenres,
-		catalogPath: path,
-		now:         time.Now,
+		apiBaseURL:      apiBase,
+		coverBase:       coverBase,
+		coverPublicBase: coverPublic,
+		artworkPath:     artworkPath,
+		http:            httpClient,
+		refreshTTL:      ttl,
+		genres:          musiccatalog.DefaultGenres,
+		catalogPath:     path,
+		now:             time.Now,
 	}
+}
+
+// SetLocalStore wires a MusicBrainz Postgres replica for detail lookups.
+func (c *Client) SetLocalStore(store *local.Store) {
+	c.local = store
+}
+
+// SetSearch wires Meilisearch for catalog search (replaces public MB search).
+func (c *Client) SetSearch(search *musicsearch.Client) {
+	c.search = search
+}
+
+// LocalEnabled reports whether normal traffic should avoid the public MusicBrainz API.
+func (c *Client) LocalEnabled() bool {
+	return c != nil && c.local != nil && c.local.Configured() && c.search != nil && c.search.Configured()
 }
 
 func (c *Client) SetEnricher(e Enricher) {
@@ -214,23 +245,49 @@ func (c *Client) Search(ctx context.Context, query string) (*musiccatalog.Search
 		}
 	}
 
-	artists, errArtists := c.searchArtists(ctx, query, defaultLimit)
-	albums, errAlbums := c.searchAlbums(ctx, query, defaultLimit)
-	tracks, errTracks := c.searchRecordings(ctx, query, defaultLimit)
+	var (
+		artists    []musiccatalog.Artist
+		albums     []musiccatalog.Album
+		tracks     []musiccatalog.TopTrack
+		errArtists error
+		errAlbums  error
+		errTracks  error
+	)
 
-	// Last.fm fallback when MusicBrainz is busy/empty.
-	if len(artists) == 0 && len(albums) == 0 && len(tracks) == 0 &&
-		c.enricher != nil && c.enricher.Configured() {
-		if hints, err := c.enricher.SearchArtists(ctx, query, defaultLimit); err == nil {
-			artists = artistsFromHints(hints, defaultLimit)
+	if c.search != nil && c.search.Configured() {
+		result, err := c.search.Search(ctx, query, defaultLimit)
+		if err != nil {
+			return nil, err
 		}
-		if hints, err := c.enricher.SearchAlbums(ctx, query, defaultLimit); err == nil {
-			albums = c.albumsFromHints(ctx, hints, defaultLimit)
+		artists = result.Artists
+		albums = c.withCoverURLs(result.Albums)
+		tracks = c.withTrackCoverURLs(result.Tracks)
+		for i := range artists {
+			if artists[i].ImageURL == "" {
+				artists[i].ImageURL = fallbackImage
+			}
 		}
-		if hits, err := c.enricher.SearchTracks(ctx, query, defaultLimit); err == nil {
-			tracks = hits
+	} else if c.LocalEnabled() {
+		return nil, fmt.Errorf("%w: local search is not available", musiccatalog.ErrFetchFailed)
+	} else {
+		artists, errArtists = c.searchArtists(ctx, query, defaultLimit)
+		albums, errAlbums = c.searchAlbums(ctx, query, defaultLimit)
+		tracks, errTracks = c.searchRecordings(ctx, query, defaultLimit)
+
+		// Last.fm fallback when MusicBrainz is busy/empty.
+		if len(artists) == 0 && len(albums) == 0 && len(tracks) == 0 &&
+			c.enricher != nil && c.enricher.Configured() {
+			if hints, err := c.enricher.SearchArtists(ctx, query, defaultLimit); err == nil {
+				artists = artistsFromHints(hints, defaultLimit)
+			}
+			if hints, err := c.enricher.SearchAlbums(ctx, query, defaultLimit); err == nil {
+				albums = c.albumsFromHints(ctx, hints, defaultLimit)
+			}
+			if hits, err := c.enricher.SearchTracks(ctx, query, defaultLimit); err == nil {
+				tracks = hits
+			}
+			errArtists, errAlbums, errTracks = nil, nil, nil
 		}
-		errArtists, errAlbums, errTracks = nil, nil, nil
 	}
 
 	if len(artists) == 0 && len(albums) == 0 && len(tracks) == 0 {
@@ -258,6 +315,7 @@ func (c *Client) Search(ctx context.Context, query string) (*musiccatalog.Search
 	for _, a := range albums {
 		c.rememberAlbumSummary(a)
 	}
+	c.WarmArtworkAsync(ctx, albums, tracks)
 	return &result, nil
 }
 
@@ -281,7 +339,18 @@ func (c *Client) GetAlbumWithHints(ctx context.Context, albumID string, hints mu
 		}
 	}
 
-	album, err := c.fetchReleaseGroupAlbum(ctx, albumID, true)
+	var (
+		album *musiccatalog.Album
+		err   error
+	)
+	if c.local != nil && c.local.Configured() {
+		album, err = c.local.GetReleaseGroupAlbum(ctx, albumID, true)
+		if album != nil {
+			album.ImageURL = c.coverURL(album.ID)
+		}
+	} else {
+		album, err = c.fetchReleaseGroupAlbum(ctx, albumID, true)
+	}
 	if err != nil {
 		if hints.Name != "" {
 			return c.resolveAlbumByName(ctx, hints.Name, firstNonEmpty(hints.Artists...))
@@ -291,6 +360,7 @@ func (c *Client) GetAlbumWithHints(ctx context.Context, albumID string, hints mu
 	c.trimAlbumCache()
 	c.albumCache.Store(albumID, cachedAlbum{album: *album, cachedAt: c.now()})
 	c.rememberAlbumSummary(*album)
+	c.WarmArtworkAsync(ctx, []musiccatalog.Album{*album}, nil)
 	return album, nil
 }
 
@@ -319,13 +389,22 @@ func (c *Client) GetArtistWithHints(ctx context.Context, artistID string, hints 
 		}
 	}
 
-	details, err := c.fetchArtistDetails(ctx, artistID)
+	var (
+		details *musiccatalog.ArtistDetails
+		err     error
+	)
+	if c.local != nil && c.local.Configured() {
+		details, err = c.fetchArtistDetailsLocal(ctx, artistID)
+	} else {
+		details, err = c.fetchArtistDetails(ctx, artistID)
+	}
 	if err != nil {
 		return nil, err
 	}
 	c.trimArtistCache()
 	c.artistCache.Store(artistID, cachedArtist{artist: *details, cachedAt: c.now()})
 	c.rememberArtistSummary(details.Artist)
+	c.WarmArtworkAsync(ctx, details.Albums, details.TopTracks)
 	return details, nil
 }
 
@@ -465,13 +544,6 @@ func sleepBackoff(ctx context.Context, attempt int) bool {
 	case <-timer.C:
 		return true
 	}
-}
-
-func (c *Client) coverURL(releaseGroupID string) string {
-	if releaseGroupID == "" {
-		return fallbackImage
-	}
-	return c.coverBase + "/release-group/" + releaseGroupID + "/front-500"
 }
 
 func (c *Client) rememberAlbumSummary(album musiccatalog.Album) {

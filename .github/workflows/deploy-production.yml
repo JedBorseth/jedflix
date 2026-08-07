@@ -68,8 +68,13 @@ jobs:
             set -euo pipefail
             cd "${PROD_APP_DIR}"
 
+            echo "== Ensure MusicBrainz / artwork dirs on disk1 =="
+            mkdir -p /mnt/disk1/jedflix/musicbrainz/{pgdata,meili,dumps,replication} \
+              /mnt/disk1/jedflix/music-artwork/{by-mbid,by-hash,missing} || true
+
             echo "== Disk before cleanup =="
             df -h / || true
+            df -h /mnt/disk1 || true
             docker system df || true
 
             # Free space before git fetch/build. Do NOT prune volumes —

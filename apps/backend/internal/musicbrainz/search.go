@@ -2,6 +2,7 @@ package musicbrainz
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"sort"
@@ -165,6 +166,38 @@ func (c *Client) searchRecordings(ctx context.Context, query string, limit int) 
 }
 
 func (c *Client) resolveArtistByName(ctx context.Context, name string) (*musiccatalog.Artist, error) {
+	if c.useLocalStore() {
+		artist, err := c.local.ResolveArtistByName(ctx, name)
+		if err == nil && artist != nil {
+			if artist.ImageURL == "" {
+				artist.ImageURL = fallbackImage
+			}
+			return artist, nil
+		}
+		if !errors.Is(err, musiccatalog.ErrNotFound) && err != nil && !c.useLocalSearch() {
+			return nil, err
+		}
+	}
+	if c.useLocalSearch() {
+		artists, err := c.search.SearchArtists(ctx, name, 5)
+		if err != nil {
+			return nil, err
+		}
+		if len(artists) == 0 {
+			return nil, musiccatalog.ErrNotFound
+		}
+		best := artists[0]
+		for _, a := range artists {
+			if strings.EqualFold(a.Name, name) {
+				best = a
+				break
+			}
+		}
+		if best.ImageURL == "" {
+			best.ImageURL = fallbackImage
+		}
+		return &best, nil
+	}
 	artists, err := c.searchArtists(ctx, `artist:"`+luceneEscape(name)+`"`, 5)
 	if err != nil {
 		return nil, err
@@ -189,6 +222,39 @@ func (c *Client) resolveArtistByName(ctx context.Context, name string) (*musicca
 }
 
 func (c *Client) resolveAlbumByName(ctx context.Context, name, artist string) (*musiccatalog.Album, error) {
+	if c.useLocalStore() {
+		album, err := c.local.ResolveReleaseGroupByName(ctx, name, artist)
+		if err == nil && album != nil {
+			album.ImageURL = c.coverURL(album.ID)
+			return album, nil
+		}
+		if err != nil && !errors.Is(err, musiccatalog.ErrNotFound) && !c.useLocalSearch() {
+			return nil, err
+		}
+	}
+	if c.useLocalSearch() {
+		q := name
+		if artist != "" {
+			q = name + " " + artist
+		}
+		albums, err := c.search.SearchReleaseGroups(ctx, q, "", 5)
+		if err != nil {
+			return nil, err
+		}
+		if len(albums) == 0 {
+			return nil, musiccatalog.ErrNotFound
+		}
+		album := albums[0]
+		if c.useLocalStore() {
+			detailed, err := c.local.GetReleaseGroupAlbum(ctx, album.ID, true)
+			if err == nil && detailed != nil {
+				detailed.ImageURL = c.coverURL(detailed.ID)
+				return detailed, nil
+			}
+		}
+		album.ImageURL = c.coverURL(album.ID)
+		return &album, nil
+	}
 	query := `releasegroup:"` + luceneEscape(name) + `"`
 	if artist != "" {
 		query += ` AND artist:"` + luceneEscape(artist) + `"`

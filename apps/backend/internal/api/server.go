@@ -101,6 +101,8 @@ func (s *Server) Router() http.Handler {
 	r.Get("/api/v1/openlibrary/covers/b/id/{id}.jpg", s.handleOpenLibraryCover)
 	r.Get("/api/v1/openlibrary/covers/a/id/{id}.jpg", s.handleOpenLibraryAuthorPhotoID)
 	r.Get("/api/v1/openlibrary/covers/a/olid/{id}.jpg", s.handleOpenLibraryAuthorPhotoOLID)
+	// Music Cover Art Archive proxy — lazy disk cache under MUSIC_ARTWORK_PATH.
+	r.Get("/api/v1/music/covers/release-group/{mbid}.jpg", s.handleMusicReleaseGroupCover)
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Post("/sources", s.handleSources)
@@ -417,6 +419,27 @@ func (s *Server) handleOpenLibraryAuthorPhotoOLID(w http.ResponseWriter, r *http
 	writeImage(w, contentType, data)
 }
 
+func (s *Server) handleMusicReleaseGroupCover(w http.ResponseWriter, r *http.Request) {
+	if s.music == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "music catalog is not configured"})
+		return
+	}
+	mbid := chi.URLParam(r, "mbid")
+	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	defer cancel()
+
+	data, contentType, err := s.music.GetReleaseGroupCover(ctx, mbid)
+	if err != nil {
+		writeMusicCatalogError(w, err)
+		return
+	}
+	// Permanent-ish browser cache; disk cache is permanent on the server.
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "public, max-age=2592000, immutable")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
+}
+
 func (s *Server) handleTmdbProxy(w http.ResponseWriter, r *http.Request) {
 	if s.tmdb == nil || !s.tmdb.Configured() {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "tmdb is not configured"})
@@ -456,6 +479,13 @@ func (s *Server) handleSpotifyBrowse(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeMusicCatalogError(w, err)
 		return
+	}
+	if result != nil {
+		albums := append([]musiccatalog.Album{}, result.NewReleases...)
+		for _, row := range result.Rows {
+			albums = append(albums, row.Albums...)
+		}
+		s.music.WarmArtworkAsync(ctx, albums, nil)
 	}
 	writeJSON(w, http.StatusOK, result)
 }

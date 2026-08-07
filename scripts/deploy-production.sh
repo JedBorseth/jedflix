@@ -51,6 +51,10 @@ fi
 
 cd "${ROOT}"
 
+DATA_ROOT="${JEDFLIX_DATA_ROOT:-/mnt/disk1/jedflix}"
+mkdir -p "${DATA_ROOT}/musicbrainz"/{pgdata,meili,dumps,replication} \
+  "${DATA_ROOT}/music-artwork"/{by-mbid,by-hash,missing} || true
+
 if [[ "${PULL}" == "true" ]]; then
   git fetch origin main
   git reset --hard origin/main
