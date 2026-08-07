@@ -14,6 +14,7 @@ func (c *Client) refreshCatalog(ctx context.Context) {
 	c.catalogMu.Lock()
 	if c.refreshing {
 		c.catalogMu.Unlock()
+		c.waitForRefresh(ctx)
 		return
 	}
 	c.refreshing = true
@@ -28,7 +29,7 @@ func (c *Client) refreshCatalog(ctx context.Context) {
 	start := c.now()
 	response, err := c.buildCatalog(ctx)
 	if err != nil {
-		log.Printf("musicbrainz catalog refresh failed: %v", err)
+		log.Printf("music catalog refresh failed: %v", err)
 		c.catalogMu.Lock()
 		c.refreshErr = err
 		c.catalogMu.Unlock()
@@ -37,8 +38,27 @@ func (c *Client) refreshCatalog(ctx context.Context) {
 	response.CachedAt = c.now().UnixMilli()
 	c.applyCatalog(response)
 	c.savePersistedCatalog(response)
-	log.Printf("musicbrainz catalog refreshed (%d rows, %d new releases) in %s",
+	log.Printf("music catalog refreshed (%d rows, %d new releases) in %s",
 		len(response.Rows), len(response.NewReleases), c.now().Sub(start).Round(time.Millisecond))
+}
+
+func (c *Client) waitForRefresh(ctx context.Context) {
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		c.catalogMu.RLock()
+		refreshing := c.refreshing
+		hasCatalog := c.catalog != nil
+		c.catalogMu.RUnlock()
+		if !refreshing || hasCatalog {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }
 
 func (c *Client) buildCatalog(ctx context.Context) (*musiccatalog.BrowseResponse, error) {
@@ -49,7 +69,7 @@ func (c *Client) buildCatalog(ctx context.Context) (*musiccatalog.BrowseResponse
 		}
 		genreRows, err := c.fetchGenreRows(ctx, genre)
 		if err != nil {
-			log.Printf("musicbrainz genre %s: %v", genre.Key, err)
+			log.Printf("music catalog genre %s: %v", genre.Key, err)
 			continue
 		}
 		rows = append(rows, genreRows...)
@@ -57,7 +77,7 @@ func (c *Client) buildCatalog(ctx context.Context) (*musiccatalog.BrowseResponse
 
 	newReleases, err := c.fetchNewReleases(ctx)
 	if err != nil {
-		log.Printf("musicbrainz new releases: %v", err)
+		log.Printf("music catalog new releases: %v", err)
 		newReleases = nil
 	}
 
@@ -112,28 +132,29 @@ func (c *Client) fetchGenreRows(ctx context.Context, genre musiccatalog.GenreCon
 }
 
 func (c *Client) genreArtists(ctx context.Context, genre musiccatalog.GenreConfig, tag string) []musiccatalog.Artist {
-	names := make([]string, 0, catalogShelfLimit)
+	// Prefer Last.fm charts — includes MBIDs/images and avoids MusicBrainz stampede.
 	if c.enricher != nil && c.enricher.Configured() {
-		if top, err := c.enricher.TagTopArtists(ctx, tag, catalogShelfLimit); err == nil {
-			names = append(names, top...)
-		}
-	}
-	if len(names) == 0 {
-		for _, seed := range genre.Seeds {
-			if len(names) >= catalogShelfLimit {
-				break
+		if hints, err := c.enricher.TagTopArtists(ctx, tag, catalogShelfLimit); err == nil && len(hints) > 0 {
+			out := artistsFromHints(hints, catalogShelfLimit)
+			if len(out) > 0 {
+				return out
 			}
-			names = append(names, seed)
 		}
 	}
 
-	out := make([]musiccatalog.Artist, 0, len(names))
+	// One MusicBrainz tag search (not N seed lookups).
+	if searched, err := c.searchArtists(ctx, `tag:`+luceneEscape(tag), catalogShelfLimit); err == nil && len(searched) > 0 {
+		return searched
+	}
+
+	// Last resort: seed names via a single broad search each (capped).
+	out := make([]musiccatalog.Artist, 0, catalogShelfLimit)
 	seen := map[string]struct{}{}
-	for _, name := range names {
-		if ctx.Err() != nil {
+	for _, seed := range genre.Seeds {
+		if ctx.Err() != nil || len(out) >= catalogShelfLimit {
 			break
 		}
-		artist, err := c.resolveArtistByName(ctx, name)
+		artist, err := c.resolveArtistByName(ctx, seed)
 		if err != nil || artist == nil || artist.ID == "" {
 			continue
 		}
@@ -142,54 +163,31 @@ func (c *Client) genreArtists(ctx context.Context, genre musiccatalog.GenreConfi
 		}
 		seen[artist.ID] = struct{}{}
 		out = append(out, *artist)
-		if len(out) >= catalogShelfLimit {
-			break
-		}
-	}
-
-	// Tag search fallback when seeds fail.
-	if len(out) == 0 {
-		searched, err := c.searchArtists(ctx, `tag:`+luceneEscape(tag), catalogShelfLimit)
-		if err == nil {
-			return searched
-		}
 	}
 	return out
 }
 
 func (c *Client) genreAlbums(ctx context.Context, genre musiccatalog.GenreConfig, tag string, singles bool) []musiccatalog.Album {
-	if c.enricher != nil && c.enricher.Configured() && !singles {
+	if singles {
+		// Singles shelves are optional; one MB query is enough and cheap.
+		query := fmt.Sprintf(`tag:%s AND primarytype:Single`, luceneEscape(tag))
+		albums, err := c.searchAlbums(ctx, query, catalogShelfLimit)
+		if err != nil {
+			return nil
+		}
+		return albums
+	}
+
+	if c.enricher != nil && c.enricher.Configured() {
 		if hints, err := c.enricher.TagTopAlbums(ctx, tag, catalogShelfLimit); err == nil && len(hints) > 0 {
-			out := make([]musiccatalog.Album, 0, len(hints))
-			seen := map[string]struct{}{}
-			for _, hint := range hints {
-				if ctx.Err() != nil {
-					break
-				}
-				album, err := c.resolveAlbumByName(ctx, hint.Name, hint.Artist)
-				if err != nil || album == nil || album.ID == "" {
-					continue
-				}
-				if _, ok := seen[album.ID]; ok {
-					continue
-				}
-				seen[album.ID] = struct{}{}
-				out = append(out, *album)
-				if len(out) >= catalogShelfLimit {
-					break
-				}
-			}
+			out := c.albumsFromHints(ctx, hints, catalogShelfLimit)
 			if len(out) > 0 {
 				return out
 			}
 		}
 	}
 
-	primary := "Album"
-	if singles {
-		primary = "Single"
-	}
-	query := fmt.Sprintf(`tag:%s AND primarytype:%s`, luceneEscape(tag), primary)
+	query := fmt.Sprintf(`tag:%s AND primarytype:Album`, luceneEscape(tag))
 	albums, err := c.searchAlbums(ctx, query, catalogShelfLimit)
 	if err != nil {
 		return nil
@@ -198,8 +196,100 @@ func (c *Client) genreAlbums(ctx context.Context, genre musiccatalog.GenreConfig
 }
 
 func (c *Client) fetchNewReleases(ctx context.Context) ([]musiccatalog.Album, error) {
-	// Approximate "new" via recent first-release-date window.
 	year := c.now().Year()
 	query := fmt.Sprintf(`primarytype:Album AND firstreleasedate:[%d-01-01 TO %d-12-31]`, year, year)
-	return c.searchAlbums(ctx, query, catalogShelfLimit)
+	albums, err := c.searchAlbums(ctx, query, catalogShelfLimit)
+	if err != nil {
+		return nil, err
+	}
+	return albums, nil
+}
+
+func artistsFromHints(hints []TagArtistHint, limit int) []musiccatalog.Artist {
+	out := make([]musiccatalog.Artist, 0, limit)
+	seen := map[string]struct{}{}
+	for _, hint := range hints {
+		id := NormalizeMBID(hint.MBID)
+		if id == "" {
+			// Skip entries without a stable MBID — detail pages need it.
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		image := strings.TrimSpace(hint.ImageURL)
+		if image == "" {
+			image = fallbackImage
+		}
+		out = append(out, musiccatalog.Artist{
+			ID:       id,
+			Name:     hint.Name,
+			ImageURL: image,
+			Genres:   []string{},
+		})
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+func (c *Client) albumsFromHints(ctx context.Context, hints []TagAlbumHint, limit int) []musiccatalog.Album {
+	out := make([]musiccatalog.Album, 0, limit)
+	seen := map[string]struct{}{}
+	for _, hint := range hints {
+		if ctx.Err() != nil {
+			break
+		}
+		id := NormalizeMBID(hint.MBID)
+		image := strings.TrimSpace(hint.ImageURL)
+		artistID := NormalizeMBID(hint.ArtistMBID)
+		artists := []string{}
+		artistIDs := []string{}
+		if hint.Artist != "" {
+			artists = []string{hint.Artist}
+		}
+		if artistID != "" {
+			artistIDs = []string{artistID}
+		}
+
+		if id == "" {
+			// No album MBID — try a single MusicBrainz resolve (best effort).
+			resolved, err := c.resolveAlbumByName(ctx, hint.Name, hint.Artist)
+			if err != nil || resolved == nil || resolved.ID == "" {
+				continue
+			}
+			id = resolved.ID
+			if image == "" || strings.Contains(image, "placehold.co") {
+				image = resolved.ImageURL
+			}
+			if len(artists) == 0 {
+				artists = resolved.Artists
+			}
+			if len(artistIDs) == 0 {
+				artistIDs = resolved.ArtistIDs
+			}
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		if image == "" {
+			image = c.coverURL(id)
+		}
+		out = append(out, musiccatalog.Album{
+			ID:        id,
+			Name:      hint.Name,
+			Artists:   artists,
+			ArtistIDs: artistIDs,
+			ImageURL:  image,
+			AlbumType: "album",
+			Genres:    []string{},
+		})
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
 }

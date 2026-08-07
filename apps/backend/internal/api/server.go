@@ -767,13 +767,18 @@ func writeMusicCatalogError(w http.ResponseWriter, err error) {
 		message = "music catalog is not configured"
 	case errors.Is(err, musiccatalog.ErrRateLimited):
 		status = http.StatusTooManyRequests
-		message = "music catalog rate limited"
+		message = "music catalog rate limited — retrying usually helps"
 		w.Header().Set("Retry-After", "2")
+	case errors.Is(err, context.DeadlineExceeded):
+		status = http.StatusGatewayTimeout
+		message = "music catalog timed out"
 	default:
 		if err != nil {
 			detail := err.Error()
 			if idx := strings.LastIndex(detail, "status "); idx >= 0 {
 				message = "music catalog request failed (" + detail[idx:] + ")"
+			} else if strings.Contains(detail, "empty catalog") {
+				message = "music catalog temporarily unavailable"
 			}
 		}
 	}

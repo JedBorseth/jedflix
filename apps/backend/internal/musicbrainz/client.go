@@ -31,22 +31,36 @@ const (
 	maxSearchCacheSize = 500
 	searchCacheTTL     = 30 * time.Minute
 	minRequestInterval = 1100 * time.Millisecond // MusicBrainz asks for ≤1 req/s
+	maxHTTPRetries     = 4
 )
 
 var mbidPattern = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 // Enricher optionally supplies Last.fm charts, top tracks, and artist images.
+// Browse prefers these hints (with MBIDs) so MusicBrainz outages don't empty the home page.
 type Enricher interface {
 	Configured() bool
 	ArtistImage(ctx context.Context, name string) (string, error)
 	ArtistTopTracks(ctx context.Context, name string, limit int) ([]musiccatalog.TopTrack, error)
-	TagTopArtists(ctx context.Context, tag string, limit int) ([]string, error)
+	TagTopArtists(ctx context.Context, tag string, limit int) ([]TagArtistHint, error)
 	TagTopAlbums(ctx context.Context, tag string, limit int) ([]TagAlbumHint, error)
+	SearchArtists(ctx context.Context, query string, limit int) ([]TagArtistHint, error)
+	SearchAlbums(ctx context.Context, query string, limit int) ([]TagAlbumHint, error)
+	SearchTracks(ctx context.Context, query string, limit int) ([]musiccatalog.TopTrack, error)
+}
+
+type TagArtistHint struct {
+	Name     string
+	MBID     string
+	ImageURL string
 }
 
 type TagAlbumHint struct {
-	Name   string
-	Artist string
+	Name       string
+	Artist     string
+	MBID       string
+	ArtistMBID string
+	ImageURL   string
 }
 
 type Client struct {
@@ -204,6 +218,21 @@ func (c *Client) Search(ctx context.Context, query string) (*musiccatalog.Search
 	albums, errAlbums := c.searchAlbums(ctx, query, defaultLimit)
 	tracks, errTracks := c.searchRecordings(ctx, query, defaultLimit)
 
+	// Last.fm fallback when MusicBrainz is busy/empty.
+	if len(artists) == 0 && len(albums) == 0 && len(tracks) == 0 &&
+		c.enricher != nil && c.enricher.Configured() {
+		if hints, err := c.enricher.SearchArtists(ctx, query, defaultLimit); err == nil {
+			artists = artistsFromHints(hints, defaultLimit)
+		}
+		if hints, err := c.enricher.SearchAlbums(ctx, query, defaultLimit); err == nil {
+			albums = c.albumsFromHints(ctx, hints, defaultLimit)
+		}
+		if hits, err := c.enricher.SearchTracks(ctx, query, defaultLimit); err == nil {
+			tracks = hits
+		}
+		errArtists, errAlbums, errTracks = nil, nil, nil
+	}
+
 	if len(artists) == 0 && len(albums) == 0 && len(tracks) == 0 {
 		if errArtists != nil {
 			return nil, errArtists
@@ -356,44 +385,85 @@ func (c *Client) waitRate(ctx context.Context) error {
 }
 
 func (c *Client) getJSON(ctx context.Context, path string, query url.Values, dest any) error {
-	if err := c.waitRate(ctx); err != nil {
-		return err
-	}
 	if query == nil {
 		query = url.Values{}
 	}
 	query.Set("fmt", "json")
 	endpoint := c.apiBaseURL + path + "?" + query.Encode()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("User-Agent", userAgent)
-	req.Header.Set("Accept", "application/json")
 
-	res, err := c.http.Do(req)
-	if err != nil {
-		return fmt.Errorf("%w: %v", musiccatalog.ErrFetchFailed, err)
-	}
-	defer res.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(res.Body, 8<<20))
-	if err != nil {
-		return fmt.Errorf("%w: read body", musiccatalog.ErrFetchFailed)
-	}
-	switch res.StatusCode {
-	case http.StatusOK:
-		if err := json.Unmarshal(body, dest); err != nil {
-			return fmt.Errorf("%w: decode json", musiccatalog.ErrFetchFailed)
+	var lastErr error
+	for attempt := 0; attempt < maxHTTPRetries; attempt++ {
+		if err := c.waitRate(ctx); err != nil {
+			return err
 		}
-		return nil
-	case http.StatusNotFound:
-		return musiccatalog.ErrNotFound
-	case http.StatusBadRequest:
-		return musiccatalog.ErrBadRequest
-	case http.StatusServiceUnavailable, http.StatusTooManyRequests:
-		return musiccatalog.ErrRateLimited
-	default:
-		return fmt.Errorf("%w: status %d", musiccatalog.ErrFetchFailed, res.StatusCode)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("User-Agent", userAgent)
+		req.Header.Set("Accept", "application/json")
+
+		res, err := c.http.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("%w: %v", musiccatalog.ErrFetchFailed, err)
+			if !sleepBackoff(ctx, attempt) {
+				return lastErr
+			}
+			continue
+		}
+		body, readErr := io.ReadAll(io.LimitReader(res.Body, 8<<20))
+		res.Body.Close()
+		if readErr != nil {
+			lastErr = fmt.Errorf("%w: read body", musiccatalog.ErrFetchFailed)
+			if !sleepBackoff(ctx, attempt) {
+				return lastErr
+			}
+			continue
+		}
+		switch res.StatusCode {
+		case http.StatusOK:
+			if err := json.Unmarshal(body, dest); err != nil {
+				return fmt.Errorf("%w: decode json", musiccatalog.ErrFetchFailed)
+			}
+			return nil
+		case http.StatusNotFound:
+			return musiccatalog.ErrNotFound
+		case http.StatusBadRequest:
+			return musiccatalog.ErrBadRequest
+		case http.StatusServiceUnavailable, http.StatusTooManyRequests:
+			lastErr = musiccatalog.ErrRateLimited
+			if !sleepBackoff(ctx, attempt) {
+				return lastErr
+			}
+			continue
+		default:
+			// MusicBrainz sometimes returns 200-shaped "busy" JSON with non-200 elsewhere.
+			if strings.Contains(strings.ToLower(string(body)), "currently busy") {
+				lastErr = musiccatalog.ErrRateLimited
+				if !sleepBackoff(ctx, attempt) {
+					return lastErr
+				}
+				continue
+			}
+			return fmt.Errorf("%w: status %d", musiccatalog.ErrFetchFailed, res.StatusCode)
+		}
+	}
+	if lastErr != nil {
+		return lastErr
+	}
+	return musiccatalog.ErrFetchFailed
+}
+
+func sleepBackoff(ctx context.Context, attempt int) bool {
+	// 1s, 2s, 4s, 8s — MusicBrainz "busy" is usually brief.
+	wait := time.Duration(1<<attempt) * time.Second
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
 	}
 }
 
