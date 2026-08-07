@@ -3,7 +3,6 @@ package lastfm
 import (
 	"context"
 	"errors"
-	"fmt"
 	"regexp"
 	"strings"
 	"sync"
@@ -12,6 +11,13 @@ import (
 )
 
 var nonAlnumPattern = regexp.MustCompile(`[^a-z0-9]+`)
+
+const (
+	defaultSimilarArtists = 6
+	defaultSimilarTracks  = 8
+	maxSimilarArtists     = 8
+	maxSimilarTracks      = 8
+)
 
 // SpotifySearcher is the subset of the Spotify client needed to resolve Last.fm hits.
 type SpotifySearcher interface {
@@ -47,6 +53,7 @@ func (s *Service) SimilarArtists(ctx context.Context, artist string, limit int) 
 	if !s.Configured() {
 		return nil, ErrNotConfigured
 	}
+	limit = clampResolveLimit(limit, defaultSimilarArtists, maxSimilarArtists)
 	raw, err := s.lastfm.GetSimilarArtists(ctx, artist, limit)
 	if err != nil {
 		return nil, err
@@ -56,6 +63,9 @@ func (s *Service) SimilarArtists(ctx context.Context, artist string, limit int) 
 	excludeName := normalizeName(artist)
 	out := make([]spotify.Artist, 0, len(raw))
 	for _, item := range raw {
+		if ctx.Err() != nil {
+			break
+		}
 		if normalizeName(item.Name) == excludeName {
 			continue
 		}
@@ -74,7 +84,7 @@ func (s *Service) SimilarArtists(ctx context.Context, artist string, limit int) 
 		}
 		seen[resolved.ID] = struct{}{}
 		out = append(out, *resolved)
-		if limit > 0 && len(out) >= limit {
+		if len(out) >= limit {
 			break
 		}
 	}
@@ -85,6 +95,7 @@ func (s *Service) SimilarTracks(ctx context.Context, artist, track string, limit
 	if !s.Configured() {
 		return nil, ErrNotConfigured
 	}
+	limit = clampResolveLimit(limit, defaultSimilarTracks, maxSimilarTracks)
 	raw, err := s.lastfm.GetSimilarTracks(ctx, artist, track, limit)
 	if err != nil {
 		return nil, err
@@ -94,6 +105,9 @@ func (s *Service) SimilarTracks(ctx context.Context, artist, track string, limit
 	excludeKey := trackKey(artist, track)
 	out := make([]spotify.TopTrack, 0, len(raw))
 	for _, item := range raw {
+		if ctx.Err() != nil {
+			break
+		}
 		if trackKey(item.Artist, item.Name) == excludeKey {
 			continue
 		}
@@ -112,7 +126,7 @@ func (s *Service) SimilarTracks(ctx context.Context, artist, track string, limit
 		}
 		seen[resolved.ID] = struct{}{}
 		out = append(out, *resolved)
-		if limit > 0 && len(out) >= limit {
+		if len(out) >= limit {
 			break
 		}
 	}
@@ -127,6 +141,7 @@ func (s *Service) ArtistTags(ctx context.Context, artist string) ([]Tag, error) 
 }
 
 // RelatedForAlbum mixes similar tracks (from album tracks) and similar artists.
+// Runs sequentially and uses a single seed so we do not stampede Spotify Dev Mode.
 func (s *Service) RelatedForAlbum(
 	ctx context.Context,
 	artist string,
@@ -137,65 +152,56 @@ func (s *Service) RelatedForAlbum(
 		return nil, nil, ErrNotConfigured
 	}
 	if limit <= 0 {
-		limit = 12
+		limit = 6
 	}
-
-	artistLimit := min(limit, 12)
-	trackLimit := min(limit, 16)
+	artistLimit := min(limit, maxSimilarArtists)
+	trackLimit := min(limit, maxSimilarTracks)
 
 	var artistErr, trackErr error
-	var wg sync.WaitGroup
-	wg.Add(2)
 
-	go func() {
-		defer wg.Done()
-		if strings.TrimSpace(artist) == "" {
-			return
-		}
+	if strings.TrimSpace(artist) != "" {
 		artists, artistErr = s.SimilarArtists(ctx, artist, artistLimit)
-	}()
+	}
 
-	go func() {
-		defer wg.Done()
-		seen := make(map[string]struct{})
-		collected := make([]spotify.TopTrack, 0, trackLimit)
-		seeds := seedTracks
-		if len(seeds) > 2 {
-			seeds = seeds[:2]
+	seen := make(map[string]struct{})
+	collected := make([]spotify.TopTrack, 0, trackLimit)
+	seeds := seedTracks
+	if len(seeds) > 1 {
+		seeds = seeds[:1]
+	}
+	for _, seed := range seeds {
+		if ctx.Err() != nil {
+			break
 		}
-		perSeed := max(3, (trackLimit/max(1, len(seeds)))+1)
-		for _, seed := range seeds {
-			if ctx.Err() != nil {
+		a := strings.TrimSpace(seed.Artist)
+		t := strings.TrimSpace(seed.Track)
+		if a == "" || t == "" {
+			continue
+		}
+		hits, err := s.SimilarTracks(ctx, a, t, trackLimit)
+		if err != nil {
+			trackErr = err
+			if errors.Is(err, spotify.ErrRateLimited) {
 				break
 			}
-			a := strings.TrimSpace(seed.Artist)
-			t := strings.TrimSpace(seed.Track)
-			if a == "" || t == "" {
+			continue
+		}
+		for _, hit := range hits {
+			if _, ok := seen[hit.ID]; ok {
 				continue
 			}
-			hits, err := s.SimilarTracks(ctx, a, t, perSeed)
-			if err != nil {
-				trackErr = err
-				continue
-			}
-			for _, hit := range hits {
-				if _, ok := seen[hit.ID]; ok {
-					continue
-				}
-				seen[hit.ID] = struct{}{}
-				collected = append(collected, hit)
-				if len(collected) >= trackLimit {
-					break
-				}
-			}
+			seen[hit.ID] = struct{}{}
+			collected = append(collected, hit)
 			if len(collected) >= trackLimit {
 				break
 			}
 		}
-		tracks = collected
-	}()
+		if len(collected) >= trackLimit {
+			break
+		}
+	}
+	tracks = collected
 
-	wg.Wait()
 	if len(artists) == 0 && len(tracks) == 0 {
 		if artistErr != nil {
 			return nil, nil, artistErr
@@ -220,17 +226,10 @@ func (s *Service) resolveArtist(ctx context.Context, name string) (*spotify.Arti
 	}
 	s.resolveMu.Unlock()
 
-	query := fmt.Sprintf(`artist:"%s"`, escapeSearchQuotes(name))
-	result, err := s.spotify.Search(ctx, query)
+	// One search only — a quoted retry doubles Spotify traffic for every Last.fm hit.
+	result, err := s.spotify.Search(ctx, name)
 	if err != nil {
-		if errors.Is(err, spotify.ErrRateLimited) {
-			return nil, err
-		}
-		// Fall back to plain name search.
-		result, err = s.spotify.Search(ctx, name)
-		if err != nil {
-			return nil, err
-		}
+		return nil, err
 	}
 
 	best := pickBestArtist(name, result)
@@ -253,16 +252,9 @@ func (s *Service) resolveTrack(ctx context.Context, artist, track string) (*spot
 	}
 	s.resolveMu.Unlock()
 
-	query := fmt.Sprintf(`track:"%s" artist:"%s"`, escapeSearchQuotes(track), escapeSearchQuotes(artist))
-	result, err := s.spotify.Search(ctx, query)
+	result, err := s.spotify.Search(ctx, track+" "+artist)
 	if err != nil {
-		if errors.Is(err, spotify.ErrRateLimited) {
-			return nil, err
-		}
-		result, err = s.spotify.Search(ctx, track+" "+artist)
-		if err != nil {
-			return nil, err
-		}
+		return nil, err
 	}
 
 	best := pickBestTrack(artist, track, result)
@@ -369,8 +361,14 @@ func trackKey(artist, track string) string {
 	return normalizeName(artist) + "|" + normalizeName(track)
 }
 
-func escapeSearchQuotes(value string) string {
-	return strings.ReplaceAll(value, `"`, ``)
+func clampResolveLimit(limit, def, maxVal int) int {
+	if limit <= 0 {
+		return def
+	}
+	if limit > maxVal {
+		return maxVal
+	}
+	return limit
 }
 
 func min(a, b int) int {

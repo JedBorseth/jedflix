@@ -2,6 +2,7 @@ package spotify
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"sort"
@@ -74,13 +75,22 @@ func (c *Client) expandGenreArtists(ctx context.Context, genre GenreConfig) ([]A
 			continue
 		}
 		seed, err := c.resolveArtistByName(ctx, seedName)
-		if err != nil || seed.ID == "" {
+		if err != nil {
+			if errors.Is(err, ErrRateLimited) {
+				break
+			}
+			continue
+		}
+		if seed.ID == "" {
 			continue
 		}
 		byID[seed.ID] = seed
 
 		related, relErr := c.fetchRelatedArtists(ctx, seed.ID)
 		if relErr != nil {
+			if errors.Is(relErr, ErrRateLimited) {
+				break
+			}
 			// Related Artists is unavailable for many Dev Mode apps (403).
 			// Seeds alone still produce a curated shelf.
 			continue
@@ -212,6 +222,9 @@ func (c *Client) collectArtistReleases(ctx context.Context, artists []Artist, in
 		}
 		items, err := c.fetchArtistAlbums(ctx, artist.ID, releasesPerArtist, includeGroup)
 		if err != nil {
+			if errors.Is(err, ErrRateLimited) {
+				break
+			}
 			continue
 		}
 		for _, album := range items {

@@ -524,8 +524,8 @@ func (s *Server) handleLastFMSimilarArtists(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	artist := strings.TrimSpace(r.URL.Query().Get("artist"))
-	limit := parsePositiveInt(r.URL.Query().Get("limit"), 12)
-	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
+	limit := parsePositiveInt(r.URL.Query().Get("limit"), 6)
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
 
 	artists, err := s.lastfm.SimilarArtists(ctx, artist, limit)
@@ -543,8 +543,8 @@ func (s *Server) handleLastFMSimilarTracks(w http.ResponseWriter, r *http.Reques
 	}
 	artist := strings.TrimSpace(r.URL.Query().Get("artist"))
 	track := strings.TrimSpace(r.URL.Query().Get("track"))
-	limit := parsePositiveInt(r.URL.Query().Get("limit"), 16)
-	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
+	limit := parsePositiveInt(r.URL.Query().Get("limit"), 8)
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
 
 	tracks, err := s.lastfm.SimilarTracks(ctx, artist, track, limit)
@@ -578,7 +578,7 @@ func (s *Server) handleLastFMRelated(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	artist := strings.TrimSpace(r.URL.Query().Get("artist"))
-	limit := parsePositiveInt(r.URL.Query().Get("limit"), 12)
+	limit := parsePositiveInt(r.URL.Query().Get("limit"), 6)
 	seeds := make([]struct{ Artist, Track string }, 0)
 	for _, raw := range r.URL.Query()["seed"] {
 		artistName, trackName, ok := splitSeed(raw)
@@ -592,7 +592,7 @@ func (s *Server) handleLastFMRelated(w http.ResponseWriter, r *http.Request) {
 		seeds = append([]struct{ Artist, Track string }{{Artist: artist, Track: track}}, seeds...)
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
 
 	artists, tracks, err := s.lastfm.RelatedForAlbum(ctx, artist, seeds, limit)

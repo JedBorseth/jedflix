@@ -16,7 +16,7 @@ export type RelatedMusic = LastFmRelatedResponse;
 
 export async function getSimilarArtists(
   artist: string,
-  limit = 12,
+  limit = 6,
 ): Promise<SpotifyArtist[]> {
   const name = artist.trim();
   if (!name) {
@@ -35,7 +35,7 @@ export async function getSimilarArtists(
 export async function getSimilarTracks(
   artist: string,
   track: string,
-  limit = 16,
+  limit = 8,
 ): Promise<SpotifyTopTrack[]> {
   const artistName = artist.trim();
   const trackName = track.trim();

@@ -73,12 +73,13 @@ export function AlbumDetailPage() {
       getArtistDetails(relatedArtistId!, {
         name: primaryArtistName || undefined,
       }),
-    enabled: Boolean(relatedArtistId),
+    // Wait for album details so we don't race GetAlbum + GetArtist + Last.fm.
+    enabled: Boolean(relatedArtistId) && albumQuery.isSuccess,
   });
   const relatedAlbums =
     relatedQuery.data?.albums.filter((item) => item.id !== normalizedId).slice(0, 12) ?? [];
 
-  const seedTracks = tracks.slice(0, 4).map((track) => ({
+  const seedTracks = tracks.slice(0, 1).map((track) => ({
     artist: (track.artists[0] || primaryArtistName).trim(),
     track: track.name,
   }));
@@ -93,9 +94,14 @@ export function AlbumDetailPage() {
       getRelatedMusic({
         artist: primaryArtistName,
         seeds: seedTracks,
-        limit: 12,
+        limit: 6,
       }),
-    enabled: Boolean(primaryArtistName) && tracks.length > 0,
+    enabled:
+      Boolean(primaryArtistName) &&
+      tracks.length > 0 &&
+      albumQuery.isSuccess &&
+      (!relatedArtistId || relatedQuery.isFetched),
+    staleTime: 30 * 60 * 1000,
   });
   const recommendedTracks = (lastfmRelatedQuery.data?.tracks ?? []).filter(
     (track) => track.id && !tracks.some((albumTrack) => albumTrack.id === track.id),

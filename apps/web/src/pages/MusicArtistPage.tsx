@@ -57,8 +57,9 @@ export function MusicArtistPage() {
 
   const similarQuery = useQuery({
     queryKey: catalogQueryKeys.lastfm.similarArtists(artist?.name ?? ""),
-    queryFn: () => getSimilarArtists(artist!.name, 12),
-    enabled: Boolean(artist?.name),
+    queryFn: () => getSimilarArtists(artist!.name, 6),
+    enabled: Boolean(artist?.name) && artistQuery.isSuccess,
+    staleTime: 30 * 60 * 1000,
   });
   const similarArtists = (similarQuery.data ?? []).filter(
     (item) => item.id && item.id !== normalizedId,

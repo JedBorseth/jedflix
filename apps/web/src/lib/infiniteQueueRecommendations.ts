@@ -1,12 +1,12 @@
 import type { SpotifyTopTrack } from "@jedflix/stream-client";
-import { getRelatedMusic, getSimilarTracks, topTrackToQueueFields } from "@/lib/lastfm";
+import { getSimilarTracks, topTrackToQueueFields } from "@/lib/lastfm";
 import type { MusicQueueTrack } from "@/components/player/music/MusicPlayerContext";
 
 /** Keep upcoming queue topped up when it falls below this many tracks. */
 export const INFINITE_QUEUE_THRESHOLD = 5;
 
 /** How many auto-recommended tracks to append per refill. */
-export const INFINITE_QUEUE_BATCH_SIZE = 8;
+export const INFINITE_QUEUE_BATCH_SIZE = 6;
 
 /** Avoid repeating the same primary artist within this many recent plays. */
 export const ARTIST_COOLDOWN_WINDOW = 4;
@@ -18,7 +18,8 @@ export type RecommendationSeed = {
 
 /**
  * Modular recommendation picker for Infinite Queue.
- * Mixes highly-similar tracks with related-artist exploration and light shuffling.
+ * Uses a single Last.fm similar-tracks call (resolved via Spotify search) to
+ * avoid stampeding Spotify Dev Mode quota.
  */
 export async function generateInfiniteQueueTracks(options: {
   current: MusicQueueTrack | null;
@@ -36,25 +37,13 @@ export async function generateInfiniteQueueTracks(options: {
   const primary = seeds[0]!;
   const primaryArtist = primary.artists[0] ?? "";
 
-  const [similarFromCurrent, related] = await Promise.all([
-    getSimilarTracks(primaryArtist, primary.title, Math.max(limit * 2, 12)),
-    getRelatedMusic({
-      artist: primaryArtist,
-      track: primary.title,
-      seeds: seeds.slice(1).map((seed) => ({
-        artist: seed.artists[0] ?? "",
-        track: seed.title,
-      })),
-      limit: Math.max(limit, 10),
-    }),
-  ]);
-
-  // Weight: ~60% similar tracks, ~40% related/exploration (from other seeds / artists).
-  const similarPool = similarFromCurrent;
-  const explorePool = related.tracks ?? [];
-
-  const mixed = interleavePools(similarPool, explorePool);
-  const shuffled = softShuffle(mixed, 0.35);
+  // One Spotify-backed resolve path only — do not also call /lastfm/related.
+  const similarPool = await getSimilarTracks(
+    primaryArtist,
+    primary.title,
+    Math.min(Math.max(limit + 2, 6), 8),
+  );
+  const shuffled = softShuffle(similarPool, 0.35);
 
   const cooldownArtists = new Set(
     options.recentArtistNames
@@ -128,7 +117,7 @@ function buildSeeds(
   push(current);
   for (const track of recent) {
     push(track);
-    if (seeds.length >= 5) {
+    if (seeds.length >= 3) {
       break;
     }
   }

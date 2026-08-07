@@ -26,10 +26,17 @@ const (
 	catalogPageCount    = 2 // 2 × 10 ≈ 20 items per shelf
 	featuredAlbumLimit  = 10
 	discographyMaxPages = 5 // 5 × 10 = up to 50 releases
-	maxDetailCacheSize  = 400
-	maxArtistCacheSize  = 200
-	tokenRefreshSkew    = 60 * time.Second
-	defaultMarket       = "US"
+	// Dev Mode artist pages rebuild via search — keep this small to protect quota.
+	artistSearchMaxPages     = 2 // 2 × 10 ≈ 20 releases
+	albumTrackSearchPages    = 1 // one page is enough for most albums under Dev Mode
+	maxDetailCacheSize       = 400
+	maxArtistCacheSize       = 200
+	maxSearchCacheSize       = 500
+	searchCacheTTL           = 30 * time.Minute
+	defaultRateLimitCooldown = 45 * time.Second
+	maxRateLimitCooldown     = 2 * time.Minute
+	tokenRefreshSkew         = 60 * time.Second
+	defaultMarket            = "US"
 )
 
 var spotifyIDPattern = regexp.MustCompile(`^[a-zA-Z0-9]{22}$`)
@@ -54,11 +61,21 @@ type Client struct {
 
 	albumCache  sync.Map // id -> cachedAlbum
 	artistCache sync.Map // id -> cachedArtist
+	searchCache sync.Map // query key -> cachedSearch
 	// Lightweight summaries remembered from search/browse for Dev Mode fallbacks.
 	albumSummaries  sync.Map // id -> Album (may omit tracks)
 	artistSummaries sync.Map // id -> Artist
 	requestSem      chan struct{}
-	now             func() time.Time
+
+	rateLimitMu    sync.Mutex
+	rateLimitUntil time.Time
+
+	now func() time.Time
+}
+
+type cachedSearch struct {
+	result   SearchResponse
+	cachedAt time.Time
 }
 
 type cachedAlbum struct {
@@ -174,7 +191,7 @@ func NewClient(cfg config.Config) *Client {
 		http:         httpClient,
 		refreshTTL:   ttl,
 		genres:       DefaultGenres,
-		requestSem:   make(chan struct{}, 3), // keep Spotify under Dev Mode rate limits
+		requestSem:   make(chan struct{}, 2), // Dev Mode quota is tiny — stay conservative
 		now:          time.Now,
 	}
 }
@@ -334,6 +351,15 @@ func (c *Client) Search(ctx context.Context, query string) (*SearchResponse, err
 		return nil, fmt.Errorf("%w: empty query", ErrBadRequest)
 	}
 
+	cacheKey := "album,artist,track|" + strings.ToLower(query)
+	if cached, ok := c.searchCache.Load(cacheKey); ok {
+		entry := cached.(cachedSearch)
+		if c.now().Sub(entry.cachedAt) < searchCacheTTL {
+			copy := entry.result
+			return &copy, nil
+		}
+	}
+
 	params := url.Values{}
 	params.Set("q", query)
 	params.Set("type", "album,artist,track")
@@ -390,6 +416,9 @@ func (c *Client) Search(ctx context.Context, query string) (*SearchResponse, err
 	}
 
 	sortSearchByRelevance(query, result)
+
+	c.searchCache.Store(cacheKey, cachedSearch{result: *result, cachedAt: c.now()})
+	c.pruneCache(&c.searchCache, maxSearchCacheSize)
 
 	return result, nil
 }
@@ -506,7 +535,8 @@ func (c *Client) GetArtistWithHints(ctx context.Context, artistID string, hints 
 
 	discography, err := c.fetchArtistAlbums(ctx, artistID, discographyMaxPages*defaultLimit, "album,single,compilation")
 	if err != nil || len(discography) == 0 {
-		if searched, searchErr := c.searchArtistAlbums(ctx, artistID, artist.Name, discographyMaxPages*defaultLimit); searchErr == nil {
+		// Cap search rebuild — each page is a Spotify request under Dev Mode.
+		if searched, searchErr := c.searchArtistAlbums(ctx, artistID, artist.Name, artistSearchMaxPages*defaultLimit); searchErr == nil {
 			discography = searched
 		} else if len(discography) == 0 {
 			discography = []Album{}
@@ -516,10 +546,9 @@ func (c *Client) GetArtistWithHints(ctx context.Context, artistID string, hints 
 		discography = []Album{}
 	}
 
-	// If API top-tracks / search failed, build Popular from album track lists.
-	if len(topTracks) == 0 && len(discography) > 0 {
-		topTracks = c.topTracksFromAlbums(ctx, artistID, discography, featuredAlbumLimit)
-	}
+	// Intentionally do NOT call topTracksFromAlbums here. That fans out into
+	// per-album lookups/searches and is what exhausted Dev Mode quota after
+	// Last.fm + detail fallbacks landed.
 
 	albums := discography
 	if len(albums) > featuredAlbumLimit {
@@ -1089,6 +1118,9 @@ func (c *Client) fetchArtistAlbums(ctx context.Context, artistID string, maxItem
 }
 
 func (c *Client) getJSON(ctx context.Context, path string, dest any) error {
+	if err := c.checkRateLimit(); err != nil {
+		return err
+	}
 	if c.requestSem != nil {
 		select {
 		case c.requestSem <- struct{}{}:
@@ -1097,70 +1129,121 @@ func (c *Client) getJSON(ctx context.Context, path string, dest any) error {
 			return ctx.Err()
 		}
 	}
-	var lastErr error
-	for attempt := 0; attempt < 3; attempt++ {
+	// Re-check after waiting for a slot — another request may have tripped the breaker.
+	if err := c.checkRateLimit(); err != nil {
+		return err
+	}
+
+	token, err := c.getAccessToken(ctx)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.apiBaseURL+path, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrFetchFailed, err)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	resp.Body.Close()
+	if err != nil {
+		return fmt.Errorf("%w: read body: %v", ErrFetchFailed, err)
+	}
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		if err := json.Unmarshal(body, dest); err != nil {
+			return fmt.Errorf("%w: decode: %v", ErrFetchFailed, err)
+		}
+		return nil
+	case http.StatusNotFound:
+		return ErrNotFound
+	case http.StatusBadRequest:
+		return fmt.Errorf("%w: %s", ErrBadRequest, strings.TrimSpace(string(body)))
+	case http.StatusUnauthorized:
+		c.mu.Lock()
+		c.accessToken = ""
+		c.tokenExpiry = time.Time{}
+		c.mu.Unlock()
+		// One immediate retry with a fresh token (does not loop on 429).
 		token, err := c.getAccessToken(ctx)
 		if err != nil {
 			return err
 		}
-
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.apiBaseURL+path, nil)
+		req2, err := http.NewRequestWithContext(ctx, http.MethodGet, c.apiBaseURL+path, nil)
 		if err != nil {
 			return err
 		}
-		req.Header.Set("Authorization", "Bearer "+token)
-		req.Header.Set("Accept", "application/json")
-
-		resp, err := c.http.Do(req)
+		req2.Header.Set("Authorization", "Bearer "+token)
+		req2.Header.Set("Accept", "application/json")
+		resp2, err := c.http.Do(req2)
 		if err != nil {
 			return fmt.Errorf("%w: %v", ErrFetchFailed, err)
 		}
-		body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
-		resp.Body.Close()
+		body2, err := io.ReadAll(io.LimitReader(resp2.Body, 4<<20))
+		resp2.Body.Close()
 		if err != nil {
 			return fmt.Errorf("%w: read body: %v", ErrFetchFailed, err)
 		}
-
-		switch resp.StatusCode {
-		case http.StatusOK:
-			if err := json.Unmarshal(body, dest); err != nil {
+		if resp2.StatusCode == http.StatusOK {
+			if err := json.Unmarshal(body2, dest); err != nil {
 				return fmt.Errorf("%w: decode: %v", ErrFetchFailed, err)
 			}
 			return nil
-		case http.StatusNotFound:
-			return ErrNotFound
-		case http.StatusBadRequest:
-			return fmt.Errorf("%w: %s", ErrBadRequest, strings.TrimSpace(string(body)))
-		case http.StatusUnauthorized:
-			c.mu.Lock()
-			c.accessToken = ""
-			c.tokenExpiry = time.Time{}
-			c.mu.Unlock()
-			lastErr = fmt.Errorf("%w: unauthorized", ErrFetchFailed)
-			// Retry once with a fresh token.
-			continue
-		case http.StatusTooManyRequests:
-			lastErr = fmt.Errorf("%w: %s", ErrRateLimited, strings.TrimSpace(string(body)))
-			sleep := time.Duration(attempt+1) * time.Second
-			if ra := strings.TrimSpace(resp.Header.Get("Retry-After")); ra != "" {
-				if secs, parseErr := strconv.Atoi(ra); parseErr == nil && secs > 0 && secs < 30 {
-					sleep = time.Duration(secs) * time.Second
-				}
-			}
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(sleep):
-			}
-			continue
-		default:
-			return fmt.Errorf("%w: status %d: %s", ErrFetchFailed, resp.StatusCode, strings.TrimSpace(string(body)))
 		}
+		if resp2.StatusCode == http.StatusTooManyRequests {
+			c.tripRateLimit(parseRetryAfter(resp2.Header.Get("Retry-After")))
+			return fmt.Errorf("%w: %s", ErrRateLimited, strings.TrimSpace(string(body2)))
+		}
+		return fmt.Errorf("%w: status %d: %s", ErrFetchFailed, resp2.StatusCode, strings.TrimSpace(string(body2)))
+	case http.StatusTooManyRequests:
+		// Fail fast and open the circuit — retrying 429s only burns more quota.
+		c.tripRateLimit(parseRetryAfter(resp.Header.Get("Retry-After")))
+		return fmt.Errorf("%w: %s", ErrRateLimited, strings.TrimSpace(string(body)))
+	default:
+		return fmt.Errorf("%w: status %d: %s", ErrFetchFailed, resp.StatusCode, strings.TrimSpace(string(body)))
 	}
-	if lastErr != nil {
-		return lastErr
+}
+
+func (c *Client) checkRateLimit() error {
+	c.rateLimitMu.Lock()
+	defer c.rateLimitMu.Unlock()
+	if c.now().Before(c.rateLimitUntil) {
+		return ErrRateLimited
 	}
-	return fmt.Errorf("%w: retries exhausted", ErrFetchFailed)
+	return nil
+}
+
+func (c *Client) tripRateLimit(cooldown time.Duration) {
+	if cooldown <= 0 {
+		cooldown = defaultRateLimitCooldown
+	}
+	if cooldown > maxRateLimitCooldown {
+		cooldown = maxRateLimitCooldown
+	}
+	c.rateLimitMu.Lock()
+	until := c.now().Add(cooldown)
+	if until.After(c.rateLimitUntil) {
+		c.rateLimitUntil = until
+	}
+	c.rateLimitMu.Unlock()
+}
+
+func parseRetryAfter(value string) time.Duration {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return defaultRateLimitCooldown
+	}
+	if secs, err := strconv.Atoi(value); err == nil && secs > 0 {
+		return time.Duration(secs) * time.Second
+	}
+	return defaultRateLimitCooldown
 }
 
 func (c *Client) getAccessToken(ctx context.Context) (string, error) {
@@ -1347,8 +1430,8 @@ func (c *Client) searchAlbumTracks(ctx context.Context, albumID, albumName strin
 	params.Set("market", defaultMarket)
 
 	seen := make(map[string]struct{})
-	tracks := make([]Track, 0, defaultLimit*catalogPageCount)
-	for page := 0; page < catalogPageCount && len(tracks) < 50; page++ {
+	tracks := make([]Track, 0, defaultLimit*albumTrackSearchPages)
+	for page := 0; page < albumTrackSearchPages && len(tracks) < 50; page++ {
 		params.Set("offset", strconv.Itoa(page*defaultLimit))
 		var payload searchResponsePayload
 		if err := c.getJSON(ctx, "/search?"+params.Encode(), &payload); err != nil {
@@ -1410,7 +1493,14 @@ func (c *Client) searchArtistAlbums(ctx context.Context, artistID, artistName st
 
 	seen := make(map[string]struct{})
 	albums := make([]Album, 0, maxItems)
-	for page := 0; page < discographyMaxPages && len(albums) < maxItems; page++ {
+	maxPages := artistSearchMaxPages
+	if maxItems > artistSearchMaxPages*defaultLimit {
+		maxPages = (maxItems + defaultLimit - 1) / defaultLimit
+		if maxPages > discographyMaxPages {
+			maxPages = discographyMaxPages
+		}
+	}
+	for page := 0; page < maxPages && len(albums) < maxItems; page++ {
 		params.Set("offset", strconv.Itoa(page*defaultLimit))
 		var payload searchResponsePayload
 		if err := c.getJSON(ctx, "/search?"+params.Encode(), &payload); err != nil {
