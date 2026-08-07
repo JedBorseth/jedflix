@@ -2,7 +2,7 @@
 # Rebuild Meilisearch indexes from the local MusicBrainz Postgres replica.
 set -euo pipefail
 
-COMPOSE_FILE="${COMPOSE_FILE:-$(cd "$(dirname "$0")/../.." && pwd)/docker-compose.yml}"
+COMPOSE_FILE="${COMPOSE_FILE:-$(cd "$(dirname "$0")/.." && pwd)/docker-compose.yml}"
 ONLY="${1:-}"
 
 docker compose -f "${COMPOSE_FILE}" up -d musicbrainz-db meilisearch

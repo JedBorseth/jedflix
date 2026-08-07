@@ -3,7 +3,7 @@
 # Recommended schedule: every 12 hours (see deploy/musicbrainz/README.md).
 set -euo pipefail
 
-COMPOSE_FILE="${COMPOSE_FILE:-$(cd "$(dirname "$0")/../.." && pwd)/docker-compose.yml}"
+COMPOSE_FILE="${COMPOSE_FILE:-$(cd "$(dirname "$0")/.." && pwd)/docker-compose.yml}"
 
 if [[ -z "${MBSLAVE_MUSICBRAINZ_TOKEN:-}" ]]; then
   echo "MBSLAVE_MUSICBRAINZ_TOKEN is required (MetaBrainz live data feed token)." >&2
