@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Apply MusicBrainz replication packets to the local Postgres replica.
+# Recommended schedule: every 12 hours (see deploy/musicbrainz/README.md).
 set -euo pipefail
 
 COMPOSE_FILE="${COMPOSE_FILE:-$(cd "$(dirname "$0")/../.." && pwd)/docker-compose.yml}"
