@@ -47,7 +47,7 @@ describe("openlibrary helpers", () => {
         id: "OL2W",
         title: "Covered",
         description: "",
-        coverUrl: "/stream-api/api/v1/openlibrary/covers/b/id/1.jpg",
+        coverUrl: "/backend/api/v1/openlibrary/covers/b/id/1.jpg",
         coverFullUrl: "https://covers.openlibrary.org/b/id/1-L.jpg",
         authors: [],
         authorKeys: [],

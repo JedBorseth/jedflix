@@ -1,8 +1,9 @@
 import { createStreamClient } from "@jedflix/stream-client";
+import { getBackendApiBase, getBackendApiKey } from "@/lib/backendEnv";
 
 const streamClient = createStreamClient({
-  apiBase: import.meta.env.VITE_STREAM_API_URL ?? "/stream-api",
-  apiKey: import.meta.env.VITE_STREAM_API_KEY,
+  apiBase: getBackendApiBase(),
+  apiKey: getBackendApiKey(),
 });
 
 export type {

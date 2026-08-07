@@ -57,6 +57,13 @@ export default defineConfig({
   },
   server: {
     proxy: {
+      "/backend": {
+        target: "http://localhost:8080",
+        changeOrigin: true,
+        timeout: 15 * 60 * 1000,
+        rewrite: (requestPath) => requestPath.replace(/^\/backend/, ""),
+      },
+      // Legacy alias while clients migrate from /stream-api.
       "/stream-api": {
         target: "http://localhost:8080",
         changeOrigin: true,

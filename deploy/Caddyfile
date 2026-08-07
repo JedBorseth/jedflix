@@ -5,10 +5,22 @@
 {$DOMAIN} {
 	encode gzip zstd
 
+	# Canonical backend prefix.
+	handle /backend/* {
+		uri strip_prefix /backend
+		reverse_proxy backend:8080 {
+			# Real Debrid resolve can poll for several minutes on uncached torrents.
+			transport http {
+				read_timeout 15m
+				write_timeout 15m
+			}
+		}
+	}
+
+	# Legacy /stream-api path (covers + older clients).
 	handle /stream-api/* {
 		uri strip_prefix /stream-api
-		reverse_proxy stream-server:8080 {
-			# Real Debrid resolve can poll for several minutes on uncached torrents.
+		reverse_proxy backend:8080 {
 			transport http {
 				read_timeout 15m
 				write_timeout 15m

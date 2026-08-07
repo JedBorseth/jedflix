@@ -52,12 +52,12 @@ describe("artworkFromImageUrl", () => {
 
   test("uses cover URL for books", () => {
     const artwork = artworkFromImageUrl(
-      "/stream-api/api/v1/openlibrary/covers/b/id/1.jpg",
+      "/backend/api/v1/openlibrary/covers/b/id/1.jpg",
       "https://jedflix.example",
     );
     expect(artwork).toEqual([
       {
-        src: "https://jedflix.example/stream-api/api/v1/openlibrary/covers/b/id/1.jpg",
+        src: "https://jedflix.example/backend/api/v1/openlibrary/covers/b/id/1.jpg",
         sizes: "512x512",
         type: "image/jpeg",
       },

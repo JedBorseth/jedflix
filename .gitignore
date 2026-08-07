@@ -13,6 +13,8 @@ dist-ssr
 *.local
 .env
 deploy/.env.production
+apps/backend/.env
+apps/backend/bin/
 apps/stream-server/.env
 apps/stream-server/bin/
 stream-server/.env

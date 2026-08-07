@@ -6,12 +6,12 @@ describe("ProgressiveCoverImage", () => {
   test("renders low-res src immediately", () => {
     const html = renderToStaticMarkup(
       <ProgressiveCoverImage
-        src="/stream-api/api/v1/openlibrary/covers/b/id/1.jpg"
+        src="/backend/api/v1/openlibrary/covers/b/id/1.jpg"
         fullSrc="https://covers.openlibrary.org/b/id/1-L.jpg"
         alt="Cover"
       />,
     );
-    expect(html).toContain('src="/stream-api/api/v1/openlibrary/covers/b/id/1.jpg"');
+    expect(html).toContain('src="/backend/api/v1/openlibrary/covers/b/id/1.jpg"');
     expect(html).toContain('data-cover-upgraded="false"');
     expect(html).not.toContain("covers.openlibrary.org");
   });

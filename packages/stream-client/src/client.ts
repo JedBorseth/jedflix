@@ -264,7 +264,7 @@ export type StreamClient = {
   }) => string;
 };
 
-/** JSON contract mirrors apps/stream-server/internal/resolver/resolver.go */
+/** JSON contract mirrors apps/backend/internal/resolver/resolver.go */
 export function createStreamClient(config: StreamClientConfig): StreamClient {
   const apiBase = config.apiBase.replace(/\/$/, "");
   const apiKey = config.apiKey;

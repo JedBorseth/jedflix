@@ -16,7 +16,7 @@ Environment:
 Requires:
   docker compose
   git checkout at the repo root
-  .env with DOMAIN, Convex URLs, TMDB, and stream-server secrets
+  .env with DOMAIN, Convex URLs, TMDB, and backend secrets
 EOF
 }
 

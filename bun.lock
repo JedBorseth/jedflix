@@ -15,6 +15,10 @@
         "turbo": "^2.5.4",
       },
     },
+    "apps/backend": {
+      "name": "@jedflix/backend",
+      "version": "0.0.0",
+    },
     "apps/mobile": {
       "name": "@jedflix/mobile",
       "version": "0.0.0",
@@ -49,10 +53,6 @@
         "@types/react": "~19.1.0",
         "typescript": "~5.9.2",
       },
-    },
-    "apps/stream-server": {
-      "name": "@jedflix/stream-server",
-      "version": "0.0.0",
     },
     "apps/web": {
       "name": "@jedflix/web",
@@ -573,6 +573,8 @@
 
     "@istanbuljs/schema": ["@istanbuljs/schema@0.1.6", "", {}, "sha512-+Sg6GCR/wy1oSmQDFq4LQDAhm3ETKnorxN+y5nbLULOR3P0c14f2Wurzj3/xqPXtasLFfHd5iRFQ7AJt4KH2cw=="],
 
+    "@jedflix/backend": ["@jedflix/backend@workspace:apps/backend"],
+
     "@jedflix/convex-api": ["@jedflix/convex-api@workspace:packages/convex-api"],
 
     "@jedflix/mobile": ["@jedflix/mobile@workspace:apps/mobile"],
@@ -580,8 +582,6 @@
     "@jedflix/shared": ["@jedflix/shared@workspace:packages/shared"],
 
     "@jedflix/stream-client": ["@jedflix/stream-client@workspace:packages/stream-client"],
-
-    "@jedflix/stream-server": ["@jedflix/stream-server@workspace:apps/stream-server"],
 
     "@jedflix/tmdb": ["@jedflix/tmdb@workspace:packages/tmdb"],
 
