@@ -4,13 +4,14 @@
 set -euo pipefail
 
 COMPOSE_FILE="${COMPOSE_FILE:-$(cd "$(dirname "$0")/.." && pwd)/docker-compose.yml}"
+COMPOSE=(docker compose -f "${COMPOSE_FILE}" --profile music-tools)
 
 if [[ -z "${MBSLAVE_MUSICBRAINZ_TOKEN:-}" ]]; then
   echo "MBSLAVE_MUSICBRAINZ_TOKEN is required (MetaBrainz live data feed token)." >&2
   exit 1
 fi
 
-docker compose -f "${COMPOSE_FILE}" run --rm \
+"${COMPOSE[@]}" run --rm \
   -e MBSLAVE_DB_HOST=musicbrainz-db \
   -e MBSLAVE_DB_PORT=5432 \
   -e MBSLAVE_DB_NAME=musicbrainz \
@@ -18,6 +19,6 @@ docker compose -f "${COMPOSE_FILE}" run --rm \
   -e MBSLAVE_DB_PASSWORD="${MUSICBRAINZ_DB_PASSWORD:-musicbrainz}" \
   -e MBSLAVE_MUSICBRAINZ_TOKEN="${MBSLAVE_MUSICBRAINZ_TOKEN}" \
   mbslave \
-  mbslave sync
+  sync
 
 echo "MusicBrainz replication sync finished."
