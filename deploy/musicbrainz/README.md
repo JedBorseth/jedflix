@@ -29,7 +29,8 @@ sudo chown -R "$USER:$USER" /mnt/disk1/jedflix
 - `MEILI_MASTER_KEY`
 - `MBSLAVE_MUSICBRAINZ_TOKEN` (MetaBrainz live data feed token)
 
-3. Import the official database (long-running):
+3. Import the official database (long-running). The `mbslave` image installs
+   schema v31 from GitHub (`acoustid/mbslave`); PyPI releases may lag the dump.
 
 ```bash
 ./scripts/musicbrainz-import.sh

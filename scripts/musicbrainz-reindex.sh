@@ -3,10 +3,7 @@
 set -euo pipefail
 
 COMPOSE_FILE="${COMPOSE_FILE:-$(cd "$(dirname "$0")/.." && pwd)/docker-compose.yml}"
-<<<<<<< Updated upstream
-=======
 COMPOSE=(docker compose -f "${COMPOSE_FILE}" --profile music-tools)
->>>>>>> Stashed changes
 ONLY="${1:-}"
 
 "${COMPOSE[@]}" up -d musicbrainz-db meilisearch
