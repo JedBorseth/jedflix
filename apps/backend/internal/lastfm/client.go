@@ -325,7 +325,7 @@ func pickImage(images []lfmImage) string {
 	bestRank := -1
 	for _, img := range images {
 		url := strings.TrimSpace(img.URL)
-		if url == "" {
+		if url == "" || isPlaceholderImage(url) {
 			continue
 		}
 		rank := imageSizeRank(img.Size)
@@ -335,6 +335,17 @@ func pickImage(images []lfmImage) string {
 		}
 	}
 	return best
+}
+
+// Last.fm retired real artist/track images; this hash is the default gray star.
+const lastFMPlaceholderHash = "2a96cbd8b46e442fc41c2b86b821562f"
+
+func isPlaceholderImage(raw string) bool {
+	url := strings.ToLower(strings.TrimSpace(raw))
+	if url == "" {
+		return true
+	}
+	return strings.Contains(url, lastFMPlaceholderHash)
 }
 
 func imageSizeRank(size string) int {

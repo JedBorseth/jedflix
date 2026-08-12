@@ -17,17 +17,61 @@ func (c *Client) withCoverURLs(albums []musiccatalog.Album) []musiccatalog.Album
 	return out
 }
 
-func (c *Client) withTrackCoverURLs(tracks []musiccatalog.TopTrack) []musiccatalog.TopTrack {
-	out := make([]musiccatalog.TopTrack, len(tracks))
-	for i, track := range tracks {
-		if track.AlbumID != "" {
-			track.ImageURL = c.coverURL(track.AlbumID)
-		} else if track.ImageURL == "" {
-			track.ImageURL = fallbackImage
+func (c *Client) withArtistImageURLs(artists []musiccatalog.Artist) []musiccatalog.Artist {
+	out := make([]musiccatalog.Artist, len(artists))
+	for i, artist := range artists {
+		if artist.ID != "" {
+			artist.ImageURL = c.artistCoverURL(artist.ID)
+		} else if !usableImageURL(artist.ImageURL) {
+			artist.ImageURL = fallbackImage
 		}
-		out[i] = track
+		out[i] = artist
 	}
 	return out
+}
+
+func (c *Client) withTrackCoverURLs(ctx context.Context, tracks []musiccatalog.TopTrack) []musiccatalog.TopTrack {
+	out := make([]musiccatalog.TopTrack, len(tracks))
+	for i, track := range tracks {
+		out[i] = c.enrichTrackArtwork(ctx, track)
+	}
+	return out
+}
+
+func (c *Client) enrichTrackArtwork(ctx context.Context, track musiccatalog.TopTrack) musiccatalog.TopTrack {
+	if c.useLocalStore() {
+		if id := NormalizeMBID(track.ID); id != "" {
+			if detailed, err := c.local.GetRecording(ctx, id); err == nil && detailed != nil {
+				track = mergeRecordingAlbum(track, detailed)
+			}
+		} else if track.AlbumID == "" && len(track.Artists) > 0 && track.Name != "" {
+			if detailed, err := c.local.ResolveRecordingByName(ctx, track.Name, track.Artists[0]); err == nil && detailed != nil {
+				track = mergeRecordingAlbum(track, detailed)
+			}
+		}
+	}
+	if track.AlbumID != "" {
+		track.ImageURL = c.coverURL(track.AlbumID)
+	} else if !usableImageURL(track.ImageURL) {
+		track.ImageURL = fallbackImage
+	}
+	return track
+}
+
+func mergeRecordingAlbum(track musiccatalog.TopTrack, detailed *musiccatalog.TopTrack) musiccatalog.TopTrack {
+	if detailed.AlbumID != "" {
+		track.AlbumID = detailed.AlbumID
+	}
+	if detailed.AlbumName != "" {
+		track.AlbumName = detailed.AlbumName
+	}
+	if track.ID == "" || strings.HasPrefix(track.ID, "lfm:") {
+		track.ID = detailed.ID
+	}
+	if track.DurationMs <= 0 && detailed.DurationMs > 0 {
+		track.DurationMs = detailed.DurationMs
+	}
+	return track
 }
 
 func (c *Client) fetchArtistDetailsLocal(ctx context.Context, artistID string) (*musiccatalog.ArtistDetails, error) {
@@ -35,11 +79,11 @@ func (c *Client) fetchArtistDetailsLocal(ctx context.Context, artistID string) (
 	if err != nil {
 		return nil, err
 	}
-	details.Artist.ImageURL = c.artistImage(ctx, details.Artist.Name)
+	details.Artist.ImageURL = c.artistCoverURL(details.Artist.ID)
 	details.Albums = c.withCoverURLs(details.Albums)
 	details.Discography = c.withCoverURLs(details.Discography)
 	details.TopTracks = c.fetchTopTracks(ctx, details.Artist)
-	details.TopTracks = c.withTrackCoverURLs(details.TopTracks)
+	details.TopTracks = c.withTrackCoverURLs(ctx, details.TopTracks)
 	return details, nil
 }
 
@@ -58,12 +102,7 @@ func (c *Client) searchArtistsLocalOrRemote(ctx context.Context, query string, l
 		if err != nil {
 			return nil, err
 		}
-		for i := range artists {
-			if artists[i].ImageURL == "" {
-				artists[i].ImageURL = fallbackImage
-			}
-		}
-		return artists, nil
+		return c.withArtistImageURLs(artists), nil
 	}
 	return c.searchArtists(ctx, query, limit)
 }
@@ -91,7 +130,7 @@ func (c *Client) searchRecordingsLocalOrRemote(ctx context.Context, query string
 		if err != nil {
 			return nil, err
 		}
-		return c.withTrackCoverURLs(tracks), nil
+		return c.withTrackCoverURLs(ctx, tracks), nil
 	}
 	return c.searchRecordings(ctx, query, limit)
 }

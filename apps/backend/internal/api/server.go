@@ -103,6 +103,7 @@ func (s *Server) Router() http.Handler {
 	r.Get("/api/v1/openlibrary/covers/a/olid/{id}.jpg", s.handleOpenLibraryAuthorPhotoOLID)
 	// Music Cover Art Archive proxy — lazy disk cache under MUSIC_ARTWORK_PATH.
 	r.Get("/api/v1/music/covers/release-group/{mbid}.jpg", s.handleMusicReleaseGroupCover)
+	r.Get("/api/v1/music/covers/artist/{mbid}.jpg", s.handleMusicArtistCover)
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Post("/sources", s.handleSources)
@@ -434,6 +435,26 @@ func (s *Server) handleMusicReleaseGroupCover(w http.ResponseWriter, r *http.Req
 		return
 	}
 	// Permanent-ish browser cache; disk cache is permanent on the server.
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "public, max-age=2592000, immutable")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
+}
+
+func (s *Server) handleMusicArtistCover(w http.ResponseWriter, r *http.Request) {
+	if s.music == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "music catalog is not configured"})
+		return
+	}
+	mbid := chi.URLParam(r, "mbid")
+	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	defer cancel()
+
+	data, contentType, err := s.music.GetArtistCover(ctx, mbid)
+	if err != nil {
+		writeMusicCatalogError(w, err)
+		return
+	}
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Cache-Control", "public, max-age=2592000, immutable")
 	w.WriteHeader(http.StatusOK)

@@ -259,14 +259,9 @@ func (c *Client) Search(ctx context.Context, query string) (*musiccatalog.Search
 		if err != nil {
 			return nil, err
 		}
-		artists = result.Artists
+		artists = c.withArtistImageURLs(result.Artists)
 		albums = c.withCoverURLs(result.Albums)
-		tracks = c.withTrackCoverURLs(result.Tracks)
-		for i := range artists {
-			if artists[i].ImageURL == "" {
-				artists[i].ImageURL = fallbackImage
-			}
-		}
+		tracks = c.withTrackCoverURLs(ctx, result.Tracks)
 	} else if c.LocalEnabled() {
 		return nil, fmt.Errorf("%w: local search is not available", musiccatalog.ErrFetchFailed)
 	} else {
@@ -278,13 +273,13 @@ func (c *Client) Search(ctx context.Context, query string) (*musiccatalog.Search
 		if len(artists) == 0 && len(albums) == 0 && len(tracks) == 0 &&
 			c.enricher != nil && c.enricher.Configured() {
 			if hints, err := c.enricher.SearchArtists(ctx, query, defaultLimit); err == nil {
-				artists = artistsFromHints(hints, defaultLimit)
+				artists = c.artistsFromHints(hints, defaultLimit)
 			}
 			if hints, err := c.enricher.SearchAlbums(ctx, query, defaultLimit); err == nil {
 				albums = c.albumsFromHints(ctx, hints, defaultLimit)
 			}
 			if hits, err := c.enricher.SearchTracks(ctx, query, defaultLimit); err == nil {
-				tracks = hits
+				tracks = c.withTrackCoverURLs(ctx, hits)
 			}
 			errArtists, errAlbums, errTracks = nil, nil, nil
 		}

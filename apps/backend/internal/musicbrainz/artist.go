@@ -19,7 +19,7 @@ func (c *Client) fetchArtistDetails(ctx context.Context, artistID string) (*musi
 		return nil, err
 	}
 	artist := mapArtist(payload)
-	artist.ImageURL = c.artistImage(ctx, artist.Name)
+	artist.ImageURL = c.artistCoverURL(artist.ID)
 
 	groups, err := c.browseArtistReleaseGroups(ctx, artistID, discographyLimit)
 	if err != nil {
@@ -102,6 +102,17 @@ func (c *Client) fetchTopTracks(ctx context.Context, artist musiccatalog.Artist)
 }
 
 func (c *Client) resolveTopTrack(ctx context.Context, artist musiccatalog.Artist, hint musiccatalog.TopTrack) *musiccatalog.TopTrack {
+	if c.useLocalStore() {
+		if id := NormalizeMBID(hint.ID); id != "" {
+			if rec, err := c.local.GetRecording(ctx, id); err == nil && rec != nil {
+				return c.finalizeTopTrack(artist, rec)
+			}
+		}
+		if rec, err := c.local.ResolveRecordingByName(ctx, hint.Name, artist.Name); err == nil && rec != nil {
+			return c.finalizeTopTrack(artist, rec)
+		}
+	}
+
 	var tracks []musiccatalog.TopTrack
 	var err error
 	if c.useLocalSearch() {
@@ -121,22 +132,37 @@ func (c *Client) resolveTopTrack(ctx context.Context, artist musiccatalog.Artist
 		if len(hint.ArtistIDs) == 0 {
 			hint.ArtistIDs = []string{artist.ID}
 		}
-		if hint.ImageURL == "" {
-			hint.ImageURL = artist.ImageURL
+		enriched := c.enrichTrackArtwork(ctx, hint)
+		if !usableImageURL(enriched.ImageURL) {
+			enriched.ImageURL = artist.ImageURL
 		}
-		return &hint
+		return &enriched
 	}
 	best := tracks[0]
-	if (best.ImageURL == "" || best.ImageURL == fallbackImage) && hint.ImageURL != "" {
-		best.ImageURL = hint.ImageURL
-	}
-	if best.AlbumID != "" {
-		best.ImageURL = c.coverURL(best.AlbumID)
-	}
+	best = c.enrichTrackArtwork(ctx, best)
 	if best.AlbumName == "" {
 		best.AlbumName = hint.AlbumName
 	}
-	return &best
+	return c.finalizeTopTrack(artist, &best)
+}
+
+func (c *Client) finalizeTopTrack(artist musiccatalog.Artist, track *musiccatalog.TopTrack) *musiccatalog.TopTrack {
+	if track == nil {
+		return nil
+	}
+	out := *track
+	if len(out.ArtistIDs) == 0 {
+		out.ArtistIDs = []string{artist.ID}
+	}
+	if len(out.Artists) == 0 {
+		out.Artists = []string{artist.Name}
+	}
+	if out.AlbumID != "" {
+		out.ImageURL = c.coverURL(out.AlbumID)
+	} else if !usableImageURL(out.ImageURL) {
+		out.ImageURL = artist.ImageURL
+	}
+	return &out
 }
 
 func albumSortKey(album musiccatalog.Album) string {

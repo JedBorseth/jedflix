@@ -66,7 +66,7 @@ func (c *Client) EnsureIndexes(ctx context.Context) error {
 		{
 			uid: indexReleaseGroups, primaryKey: "id",
 			searchable: []string{"title", "aliases", "artistCredit", "artists"},
-			filterable: []string{"primaryType"},
+			filterable: []string{"primaryType", "artistIds"},
 			sortable:   []string{"firstReleaseDate", "title"},
 		},
 		{
@@ -349,6 +349,30 @@ func (c *Client) SearchReleaseGroups(ctx context.Context, query, filter string, 
 		})
 	}
 	return out, nil
+}
+
+// PreferredAlbumsForArtist returns studio-album release-group IDs credited to artistID.
+func (c *Client) PreferredAlbumsForArtist(ctx context.Context, artistID string, limit int) ([]string, error) {
+	artistID = strings.ToLower(strings.TrimSpace(artistID))
+	if artistID == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 5
+	}
+	filter := fmt.Sprintf(`artistIds = "%s" AND primaryType = "Album"`, artistID)
+	albums, err := c.SearchReleaseGroups(ctx, "", filter, limit)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(albums))
+	for _, album := range albums {
+		if album.ID == "" {
+			continue
+		}
+		ids = append(ids, album.ID)
+	}
+	return ids, nil
 }
 
 func (c *Client) SearchRecordings(ctx context.Context, query string, limit int) ([]musiccatalog.TopTrack, error) {

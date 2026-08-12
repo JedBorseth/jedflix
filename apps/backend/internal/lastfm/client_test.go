@@ -212,3 +212,18 @@ func countMethod(methods []string, want string) int {
 	}
 	return n
 }
+
+func TestPickImageSkipsLastFMPlaceholder(t *testing.T) {
+	got := pickImage([]lfmImage{
+		{URL: "https://lastfm.freetls.fastly.net/i/u/300x300/2a96cbd8b46e442fc41c2b86b821562f.png", Size: "extralarge"},
+		{URL: "https://img.example/real.jpg", Size: "large"},
+	})
+	if got != "https://img.example/real.jpg" {
+		t.Fatalf("pickImage=%q", got)
+	}
+	if pickImage([]lfmImage{
+		{URL: "https://lastfm.freetls.fastly.net/i/u/300x300/2a96cbd8b46e442fc41c2b86b821562f.png", Size: "mega"},
+	}) != "" {
+		t.Fatal("expected empty when only placeholder images exist")
+	}
+}

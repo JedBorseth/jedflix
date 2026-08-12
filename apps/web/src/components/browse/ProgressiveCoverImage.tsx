@@ -20,6 +20,7 @@ export function ProgressiveCoverImage({
   alt,
   className,
   onLoad,
+  onError,
   ...rest
 }: ProgressiveCoverImageProps) {
   const upgradeSrc =
@@ -65,6 +66,12 @@ export function ProgressiveCoverImage({
       className={className}
       data-cover-upgraded={upgraded ? "true" : "false"}
       onLoad={onLoad}
+      onError={(event) => {
+        if (!displaySrc.includes("placehold.co")) {
+          setDisplaySrc("https://placehold.co/640x640/18181b/a1a1aa?text=No+Cover");
+        }
+        onError?.(event);
+      }}
     />
   );
 }

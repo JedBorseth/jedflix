@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jedborseth/jeds-movies/backend/internal/config"
+	"github.com/jedborseth/jeds-movies/backend/internal/musiccatalog"
 )
 
 func TestArtworkDiskCacheDedupAndMissing(t *testing.T) {
@@ -93,6 +94,79 @@ func TestCoverURLUsesPublicProxy(t *testing.T) {
 	want := "/backend/api/v1/music/covers/release-group/b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d.jpg"
 	if got != want {
 		t.Fatalf("coverURL=%q want %q", got, want)
+	}
+}
+
+func TestArtistCoverURLUsesPublicProxy(t *testing.T) {
+	client := NewClient(config.Config{
+		MusicCoverPublicBase: "/backend/api/v1/music/covers",
+	})
+	got := client.artistCoverURL("a74b1b7f-71a5-4011-9441-d0b5e4122711")
+	want := "/backend/api/v1/music/covers/artist/a74b1b7f-71a5-4011-9441-d0b5e4122711.jpg"
+	if got != want {
+		t.Fatalf("artistCoverURL=%q want %q", got, want)
+	}
+}
+
+func TestWikimediaFilePath(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{
+			"https://commons.wikimedia.org/wiki/File:Radiohead.jpg",
+			"https://commons.wikimedia.org/wiki/Special:FilePath/Radiohead.jpg?width=500",
+		},
+		{
+			"https://commons.wikimedia.org/wiki/Special:FilePath/Radiohead.jpg",
+			"https://commons.wikimedia.org/wiki/Special:FilePath/Radiohead.jpg?width=500",
+		},
+		{
+			"https://upload.wikimedia.org/wikipedia/commons/a/ab/Radiohead.jpg",
+			"https://upload.wikimedia.org/wikipedia/commons/a/ab/Radiohead.jpg",
+		},
+		{
+			"https://example.com/photo.jpg",
+			"https://example.com/photo.jpg",
+		},
+	}
+	for _, tc := range cases {
+		got := wikimediaFilePath(tc.in)
+		if got != tc.want {
+			t.Fatalf("wikimediaFilePath(%q)=%q want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestWithArtistImageURLsUsesProxy(t *testing.T) {
+	client := NewClient(config.Config{
+		MusicCoverPublicBase: "/backend/api/v1/music/covers",
+	})
+	artists := client.withArtistImageURLs([]musiccatalog.Artist{
+		{ID: "a74b1b7f-71a5-4011-9441-d0b5e4122711", Name: "Radiohead"},
+	})
+	if len(artists) != 1 {
+		t.Fatalf("len=%d", len(artists))
+	}
+	want := "/backend/api/v1/music/covers/artist/a74b1b7f-71a5-4011-9441-d0b5e4122711.jpg"
+	if artists[0].ImageURL != want {
+		t.Fatalf("imageUrl=%q want %q", artists[0].ImageURL, want)
+	}
+}
+
+func TestWithTrackCoverURLsUsesAlbumProxy(t *testing.T) {
+	client := NewClient(config.Config{
+		MusicCoverPublicBase: "/backend/api/v1/music/covers",
+	})
+	tracks := client.withTrackCoverURLs(context.Background(), []musiccatalog.TopTrack{
+		{ID: "rec-1", Name: "Karma Police", AlbumID: "b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d"},
+		{ID: "rec-2", Name: "No Album"},
+	})
+	if tracks[0].ImageURL != "/backend/api/v1/music/covers/release-group/b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d.jpg" {
+		t.Fatalf("track 0 image=%q", tracks[0].ImageURL)
+	}
+	if tracks[1].ImageURL != fallbackImage {
+		t.Fatalf("track 1 image=%q", tracks[1].ImageURL)
 	}
 }
 

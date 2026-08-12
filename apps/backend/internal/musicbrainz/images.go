@@ -13,6 +13,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,12 +25,12 @@ import (
 )
 
 const (
-	artworkPixelScale     = 0.316227766 // ~10% pixels (matches Open Library)
-	artworkJPEGQuality    = 80
-	maxUpstreamArtworkMB  = 8
-	artworkMissingTTL     = 30 * 24 * time.Hour
-	maxArtworkMemCache    = 400
-	artworkWarmTimeout    = 10 * time.Minute
+	artworkPixelScale    = 0.316227766 // ~10% pixels (matches Open Library)
+	artworkJPEGQuality   = 80
+	maxUpstreamArtworkMB = 8
+	artworkMissingTTL    = 30 * 24 * time.Hour
+	maxArtworkMemCache   = 400
+	artworkWarmTimeout   = 10 * time.Minute
 )
 
 type cachedArtwork struct {
@@ -373,4 +374,151 @@ func (c *Client) coverURL(releaseGroupID string) string {
 		base = "/backend/api/v1/music/covers"
 	}
 	return base + "/release-group/" + releaseGroupID + ".jpg"
+}
+
+func artistCacheKey(artistID string) string {
+	return "artist-" + artistID
+}
+
+// artistCoverURL returns the public proxy URL for an artist image.
+// The handler lazy-loads Wikimedia (MusicBrainz URL rel) or a studio-album cover.
+func (c *Client) artistCoverURL(artistID string) string {
+	if artistID == "" {
+		return fallbackImage
+	}
+	base := strings.TrimRight(c.coverPublicBase, "/")
+	if base == "" {
+		base = "/backend/api/v1/music/covers"
+	}
+	return base + "/artist/" + artistID + ".jpg"
+}
+
+func usableImageURL(raw string) bool {
+	url := strings.TrimSpace(raw)
+	if url == "" {
+		return false
+	}
+	lower := strings.ToLower(url)
+	if strings.Contains(lower, "placehold.co") {
+		return false
+	}
+	// Last.fm retired artist images; this hash is the default gray star.
+	if strings.Contains(lower, "2a96cbd8b46e442fc41c2b86b821562f") {
+		return false
+	}
+	return true
+}
+
+// GetArtistCover returns optimized JPEG bytes for an artist MBID.
+func (c *Client) GetArtistCover(ctx context.Context, artistID string) ([]byte, string, error) {
+	artistID = NormalizeMBID(artistID)
+	if artistID == "" {
+		return nil, "", musiccatalog.ErrBadRequest
+	}
+	key := artistCacheKey(artistID)
+	if cached, ok := c.artworkMem.Load(key); ok {
+		entry := cached.(cachedArtwork)
+		return entry.data, entry.contentType, nil
+	}
+	if data, contentType, ok := c.readArtworkFromDisk(key); ok {
+		c.storeArtworkMem(key, data, contentType)
+		return data, contentType, nil
+	}
+	if c.isArtworkMissing(key) {
+		return nil, "", musiccatalog.ErrNotFound
+	}
+
+	data, contentType, err := c.resolveArtistArtwork(ctx, artistID)
+	if err != nil {
+		if errors.Is(err, musiccatalog.ErrNotFound) {
+			c.markArtworkMissing(key)
+		}
+		return nil, "", err
+	}
+	if err := c.writeArtworkToDisk(key, data); err != nil {
+		fmt.Printf("music artist artwork disk write failed for %s: %v\n", artistID, err)
+	}
+	c.storeArtworkMem(key, data, contentType)
+	return data, contentType, nil
+}
+
+func (c *Client) resolveArtistArtwork(ctx context.Context, artistID string) ([]byte, string, error) {
+	if c.useLocalStore() {
+		if raw, err := c.local.ArtistImageURL(ctx, artistID); err == nil && strings.TrimSpace(raw) != "" {
+			data, contentType, fetchErr := c.fetchAndShrinkArtwork(ctx, wikimediaFilePath(raw))
+			if fetchErr == nil {
+				return data, contentType, nil
+			}
+		}
+		if albums, err := c.local.PreferredArtistAlbums(ctx, artistID, 5); err == nil {
+			if data, contentType, ok := c.firstAlbumArtwork(ctx, albums); ok {
+				return data, contentType, nil
+			}
+		}
+	}
+
+	if c.useLocalSearch() {
+		albums, err := c.search.PreferredAlbumsForArtist(ctx, artistID, 5)
+		if err == nil {
+			if data, contentType, ok := c.firstAlbumArtwork(ctx, albums); ok {
+				return data, contentType, nil
+			}
+		}
+	}
+
+	return nil, "", musiccatalog.ErrNotFound
+}
+
+func (c *Client) firstAlbumArtwork(ctx context.Context, albumIDs []string) ([]byte, string, bool) {
+	for _, id := range albumIDs {
+		if ctx.Err() != nil {
+			return nil, "", false
+		}
+		id = NormalizeMBID(id)
+		if id == "" {
+			continue
+		}
+		data, contentType, err := c.getOrFetchArtwork(ctx, id)
+		if err == nil && len(data) > 0 {
+			return data, contentType, true
+		}
+	}
+	return nil, "", false
+}
+
+// wikimediaFilePath turns a Commons File: page into a direct image URL.
+func wikimediaFilePath(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return raw
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host == "" {
+		return raw
+	}
+	host := strings.ToLower(parsed.Host)
+	path := parsed.EscapedPath()
+	lowerPath := strings.ToLower(path)
+	isWiki := strings.Contains(host, "wikimedia.org") || strings.Contains(host, "wikipedia.org")
+	if !isWiki {
+		return raw
+	}
+	if strings.Contains(lowerPath, "special:filepath") {
+		query := parsed.Query()
+		if query.Get("width") == "" {
+			query.Set("width", "500")
+			parsed.RawQuery = query.Encode()
+		}
+		return parsed.String()
+	}
+	fileIdx := strings.Index(lowerPath, "file:")
+	if fileIdx < 0 {
+		return raw
+	}
+	name := path[fileIdx+len("file:"):]
+	name = strings.ReplaceAll(name, " ", "_")
+	if name == "" {
+		return raw
+	}
+	return "https://commons.wikimedia.org/wiki/Special:FilePath/" + name + "?width=500"
 }

@@ -135,7 +135,7 @@ func (c *Client) genreArtists(ctx context.Context, genre musiccatalog.GenreConfi
 	// Prefer Last.fm charts — includes MBIDs/images and avoids catalog stampede.
 	if c.enricher != nil && c.enricher.Configured() {
 		if hints, err := c.enricher.TagTopArtists(ctx, tag, catalogShelfLimit); err == nil && len(hints) > 0 {
-			out := artistsFromHints(hints, catalogShelfLimit)
+			out := c.artistsFromHints(hints, catalogShelfLimit)
 			if len(out) > 0 {
 				return out
 			}
@@ -225,7 +225,7 @@ func (c *Client) fetchNewReleases(ctx context.Context) ([]musiccatalog.Album, er
 	return albums, nil
 }
 
-func artistsFromHints(hints []TagArtistHint, limit int) []musiccatalog.Artist {
+func (c *Client) artistsFromHints(hints []TagArtistHint, limit int) []musiccatalog.Artist {
 	out := make([]musiccatalog.Artist, 0, limit)
 	seen := map[string]struct{}{}
 	for _, hint := range hints {
@@ -238,14 +238,10 @@ func artistsFromHints(hints []TagArtistHint, limit int) []musiccatalog.Artist {
 			continue
 		}
 		seen[id] = struct{}{}
-		image := strings.TrimSpace(hint.ImageURL)
-		if image == "" {
-			image = fallbackImage
-		}
 		out = append(out, musiccatalog.Artist{
 			ID:       id,
 			Name:     hint.Name,
-			ImageURL: image,
+			ImageURL: c.artistCoverURL(id),
 			Genres:   []string{},
 		})
 		if len(out) >= limit {

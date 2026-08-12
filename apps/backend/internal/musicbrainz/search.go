@@ -25,22 +25,22 @@ type mbTag struct {
 }
 
 type mbArtist struct {
-	ID    string   `json:"id"`
-	Name  string   `json:"name"`
-	Score int      `json:"score"`
-	Tags  []mbTag  `json:"tags"`
-	Type  string   `json:"type"`
+	ID    string  `json:"id"`
+	Name  string  `json:"name"`
+	Score int     `json:"score"`
+	Tags  []mbTag `json:"tags"`
+	Type  string  `json:"type"`
 }
 
 type mbReleaseGroup struct {
-	ID           string           `json:"id"`
-	Title        string           `json:"title"`
-	Score        int              `json:"score"`
-	PrimaryType  string           `json:"primary-type"`
-	FirstRelease string           `json:"first-release-date"`
-	ArtistCredit []mbArtistCredit `json:"artist-credit"`
-	SecondaryTypes []string       `json:"secondary-types"`
-	Tags         []mbTag          `json:"tags"`
+	ID             string           `json:"id"`
+	Title          string           `json:"title"`
+	Score          int              `json:"score"`
+	PrimaryType    string           `json:"primary-type"`
+	FirstRelease   string           `json:"first-release-date"`
+	ArtistCredit   []mbArtistCredit `json:"artist-credit"`
+	SecondaryTypes []string         `json:"secondary-types"`
+	Tags           []mbTag          `json:"tags"`
 }
 
 type mbRecording struct {
@@ -74,10 +74,10 @@ type mbRelease struct {
 	Media []struct {
 		Position int `json:"position"`
 		Tracks   []struct {
-			ID     string `json:"id"`
-			Number string `json:"number"`
-			Title  string `json:"title"`
-			Length int    `json:"length"`
+			ID        string `json:"id"`
+			Number    string `json:"number"`
+			Title     string `json:"title"`
+			Length    int    `json:"length"`
 			Recording struct {
 				ID     string `json:"id"`
 				Title  string `json:"title"`
@@ -121,7 +121,7 @@ func (c *Client) searchArtists(ctx context.Context, query string, limit int) ([]
 	out := make([]musiccatalog.Artist, 0, len(payload.Artists))
 	for _, item := range payload.Artists {
 		artist := mapArtist(item)
-		// Don't fan out to Last.fm during search — keeps latency predictable.
+		artist.ImageURL = c.artistCoverURL(artist.ID)
 		out = append(out, artist)
 	}
 	return out, nil
@@ -169,9 +169,7 @@ func (c *Client) resolveArtistByName(ctx context.Context, name string) (*musicca
 	if c.useLocalStore() {
 		artist, err := c.local.ResolveArtistByName(ctx, name)
 		if err == nil && artist != nil {
-			if artist.ImageURL == "" {
-				artist.ImageURL = fallbackImage
-			}
+			artist.ImageURL = c.artistCoverURL(artist.ID)
 			return artist, nil
 		}
 		if !errors.Is(err, musiccatalog.ErrNotFound) && err != nil && !c.useLocalSearch() {
@@ -193,9 +191,7 @@ func (c *Client) resolveArtistByName(ctx context.Context, name string) (*musicca
 				break
 			}
 		}
-		if best.ImageURL == "" {
-			best.ImageURL = fallbackImage
-		}
+		best.ImageURL = c.artistCoverURL(best.ID)
 		return &best, nil
 	}
 	artists, err := c.searchArtists(ctx, `artist:"`+luceneEscape(name)+`"`, 5)
@@ -218,6 +214,7 @@ func (c *Client) resolveArtistByName(ctx context.Context, name string) (*musicca
 			break
 		}
 	}
+	best.ImageURL = c.artistCoverURL(best.ID)
 	return &best, nil
 }
 
@@ -417,15 +414,4 @@ func clamp(n, min, max int) int {
 		return max
 	}
 	return n
-}
-
-func (c *Client) artistImage(ctx context.Context, name string) string {
-	if c.enricher == nil || !c.enricher.Configured() {
-		return fallbackImage
-	}
-	url, err := c.enricher.ArtistImage(ctx, name)
-	if err != nil || strings.TrimSpace(url) == "" {
-		return fallbackImage
-	}
-	return url
 }

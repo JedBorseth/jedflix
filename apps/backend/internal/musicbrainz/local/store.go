@@ -9,13 +9,40 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jedborseth/jeds-movies/backend/internal/musiccatalog"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/jedborseth/jeds-movies/backend/internal/musiccatalog"
 )
 
 var (
 	ErrNotConfigured = errors.New("local musicbrainz database is not configured")
 )
+
+// preferredRecordingAlbumSQL picks a studio album over singles/bootlegs so
+// tracks like Karma Police get OK Computer cover art instead of a cover-less single.
+const preferredRecordingAlbumSQL = `
+	SELECT rg.gid::text AS album_id, rg.name AS album_name
+	FROM musicbrainz.track t
+	JOIN musicbrainz.medium m ON m.id = t.medium
+	JOIN musicbrainz.release r ON r.id = m.release
+	JOIN musicbrainz.release_group rg ON rg.id = r.release_group
+	LEFT JOIN musicbrainz.release_group_primary_type rpt ON rpt.id = rg.type
+	LEFT JOIN musicbrainz.release_status rs ON rs.id = r.status
+	WHERE t.recording = rec.id
+	ORDER BY
+		CASE lower(COALESCE(rpt.name, ''))
+			WHEN 'album' THEN 0
+			WHEN 'ep' THEN 1
+			WHEN 'single' THEN 2
+			ELSE 3
+		END,
+		CASE WHEN lower(COALESCE(rs.name, '')) = 'official' THEN 0 ELSE 1 END,
+		CASE WHEN r.country = 222 THEN 0
+		     WHEN r.country = 221 THEN 1
+		     ELSE 2 END,
+		r.date_year NULLS LAST,
+		r.id
+	LIMIT 1
+`
 
 // Store reads entity details from a local MusicBrainz PostgreSQL replica.
 type Store struct {
@@ -124,7 +151,7 @@ func (s *Store) GetArtist(ctx context.Context, artistGID string) (*musiccatalog.
 		Artist: musiccatalog.Artist{
 			ID:       artistGID,
 			Name:     name,
-			ImageURL: "", // filled by caller (Last.fm / placeholder)
+			ImageURL: "", // filled by caller (Wikimedia / album-cover proxy)
 			Genres:   []string(genres),
 		},
 		Albums:      albums,
@@ -394,9 +421,9 @@ func (s *Store) fetchReleaseTracks(ctx context.Context, releaseGID string) ([]mu
 	tracks := make([]musiccatalog.Track, 0)
 	for rows.Next() {
 		var (
-			id, name, number           string
-			length, disc               int
-			artistNames, artistIDs     pqStringArray
+			id, name, number       string
+			length, disc           int
+			artistNames, artistIDs pqStringArray
 		)
 		if err := rows.Scan(&id, &name, &length, &disc, &number, &artistNames, &artistIDs); err != nil {
 			return nil, "", "", fmt.Errorf("%w: scan track: %v", musiccatalog.ErrFetchFailed, err)
@@ -494,10 +521,10 @@ func (s *Store) GetRecording(ctx context.Context, recordingGID string) (*musicca
 		return nil, musiccatalog.ErrBadRequest
 	}
 	var (
-		title                      string
-		length                     int
-		artistNames, artistIDs     pqStringArray
-		albumID, albumName         sql.NullString
+		title                  string
+		length                 int
+		artistNames, artistIDs pqStringArray
+		albumID, albumName     sql.NullString
 	)
 	err := s.db.QueryRowContext(ctx, `
 		SELECT rec.name,
@@ -513,27 +540,10 @@ func (s *Store) GetRecording(ctx context.Context, recordingGID string) (*musicca
 				JOIN musicbrainz.artist a ON a.id = acn.artist
 				WHERE acn.artist_credit = rec.artist_credit
 			), '{}'),
-			(
-				SELECT rg.gid::text
-				FROM musicbrainz.track t
-				JOIN musicbrainz.medium m ON m.id = t.medium
-				JOIN musicbrainz.release r ON r.id = m.release
-				JOIN musicbrainz.release_group rg ON rg.id = r.release_group
-				WHERE t.recording = rec.id
-				ORDER BY r.id
-				LIMIT 1
-			),
-			(
-				SELECT rg.name
-				FROM musicbrainz.track t
-				JOIN musicbrainz.medium m ON m.id = t.medium
-				JOIN musicbrainz.release r ON r.id = m.release
-				JOIN musicbrainz.release_group rg ON rg.id = r.release_group
-				WHERE t.recording = rec.id
-				ORDER BY r.id
-				LIMIT 1
-			)
+			album.album_id,
+			album.album_name
 		FROM musicbrainz.recording rec
+		LEFT JOIN LATERAL (`+preferredRecordingAlbumSQL+`) album ON true
 		WHERE rec.gid = $1::uuid
 	`, recordingGID).Scan(&title, &length, &artistNames, &artistIDs, &albumID, &albumName)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -556,4 +566,137 @@ func (s *Store) GetRecording(ctx context.Context, recordingGID string) (*musicca
 		track.AlbumName = albumName.String
 	}
 	return track, nil
+}
+
+// ResolveRecordingByName finds a recording by exact title + primary artist, preferring
+// versions that appear on a studio album.
+func (s *Store) ResolveRecordingByName(ctx context.Context, name, artist string) (*musiccatalog.TopTrack, error) {
+	if !s.Configured() {
+		return nil, ErrNotConfigured
+	}
+	name = strings.TrimSpace(name)
+	artist = strings.TrimSpace(artist)
+	if name == "" || artist == "" {
+		return nil, musiccatalog.ErrBadRequest
+	}
+	var gid string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT rec.gid::text
+		FROM musicbrainz.recording rec
+		JOIN musicbrainz.artist_credit_name acn
+			ON acn.artist_credit = rec.artist_credit AND acn.position = 0
+		JOIN musicbrainz.artist a ON a.id = acn.artist
+		WHERE lower(rec.name) = lower($1) AND lower(a.name) = lower($2)
+		ORDER BY (
+			SELECT CASE lower(COALESCE(rpt.name, ''))
+				WHEN 'album' THEN 0
+				WHEN 'ep' THEN 1
+				WHEN 'single' THEN 2
+				ELSE 3
+			END
+			FROM musicbrainz.track t
+			JOIN musicbrainz.medium m ON m.id = t.medium
+			JOIN musicbrainz.release r ON r.id = m.release
+			JOIN musicbrainz.release_group rg ON rg.id = r.release_group
+			LEFT JOIN musicbrainz.release_group_primary_type rpt ON rpt.id = rg.type
+			WHERE t.recording = rec.id
+			ORDER BY CASE lower(COALESCE(rpt.name, ''))
+				WHEN 'album' THEN 0
+				WHEN 'ep' THEN 1
+				WHEN 'single' THEN 2
+				ELSE 3
+			END
+			LIMIT 1
+		) NULLS LAST,
+		rec.length DESC NULLS LAST,
+		rec.id
+		LIMIT 1
+	`, name, artist).Scan(&gid)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, musiccatalog.ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("%w: resolve recording: %v", musiccatalog.ErrFetchFailed, err)
+	}
+	return s.GetRecording(ctx, gid)
+}
+
+// ArtistImageURL returns a MusicBrainz "image" URL relationship (usually Wikimedia).
+func (s *Store) ArtistImageURL(ctx context.Context, artistGID string) (string, error) {
+	if !s.Configured() {
+		return "", ErrNotConfigured
+	}
+	artistGID = strings.ToLower(strings.TrimSpace(artistGID))
+	if artistGID == "" {
+		return "", musiccatalog.ErrBadRequest
+	}
+	var raw sql.NullString
+	err := s.db.QueryRowContext(ctx, `
+		SELECT url.url
+		FROM musicbrainz.artist a
+		JOIN musicbrainz.l_artist_url lau ON lau.entity0 = a.id
+		JOIN musicbrainz.link l ON l.id = lau.link
+		JOIN musicbrainz.link_type lt ON lt.id = l.link_type
+		JOIN musicbrainz.url url ON url.id = lau.entity1
+		WHERE a.gid = $1::uuid AND lt.name = 'image'
+		ORDER BY lau.id DESC, url.id
+		LIMIT 1
+	`, artistGID).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("%w: artist image url: %v", musiccatalog.ErrFetchFailed, err)
+	}
+	if !raw.Valid {
+		return "", nil
+	}
+	return strings.TrimSpace(raw.String), nil
+}
+
+// PreferredArtistAlbums returns studio-album release-group IDs for an artist,
+// newest first — used as artist-image fallback when Wikimedia is missing.
+func (s *Store) PreferredArtistAlbums(ctx context.Context, artistGID string, limit int) ([]string, error) {
+	if !s.Configured() {
+		return nil, ErrNotConfigured
+	}
+	artistGID = strings.ToLower(strings.TrimSpace(artistGID))
+	if artistGID == "" {
+		return nil, musiccatalog.ErrBadRequest
+	}
+	if limit <= 0 {
+		limit = 5
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT rg.gid::text
+		FROM musicbrainz.release_group rg
+		JOIN musicbrainz.artist_credit_name acn
+			ON acn.artist_credit = rg.artist_credit AND acn.position = 0
+		JOIN musicbrainz.artist a ON a.id = acn.artist
+		LEFT JOIN musicbrainz.release_group_primary_type rpt ON rpt.id = rg.type
+		LEFT JOIN musicbrainz.release_group_meta rgm ON rgm.id = rg.id
+		WHERE a.gid = $1::uuid
+			AND lower(COALESCE(rpt.name, 'Album')) = 'album'
+		ORDER BY rgm.first_release_date_year DESC NULLS LAST,
+			rgm.first_release_date_month DESC NULLS LAST,
+			rgm.first_release_date_day DESC NULLS LAST,
+			rg.id
+		LIMIT $2
+	`, artistGID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("%w: preferred artist albums: %v", musiccatalog.ErrFetchFailed, err)
+	}
+	defer rows.Close()
+
+	out := make([]string, 0, limit)
+	for rows.Next() {
+		var gid string
+		if err := rows.Scan(&gid); err != nil {
+			return nil, fmt.Errorf("%w: scan preferred album: %v", musiccatalog.ErrFetchFailed, err)
+		}
+		if gid != "" {
+			out = append(out, gid)
+		}
+	}
+	return out, rows.Err()
 }
