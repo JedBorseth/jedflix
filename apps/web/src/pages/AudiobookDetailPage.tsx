@@ -1,5 +1,8 @@
+import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { useConvexAuth, useMutation, useQuery as useConvexQuery } from "convex/react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation, useParams } from "react-router-dom";
+import { api } from "@convex/_generated/api";
 import { BookCard } from "@/components/browse/BookCard";
 import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
 import { AppLink } from "@/components/layout/AppLink";
@@ -17,6 +20,13 @@ import {
   searchBooks,
 } from "@/lib/openlibrary";
 import { catalogQueryKeys } from "@/lib/queryClient";
+import {
+  getRecentAudiobook,
+  getRecentAudiobooksSnapshot,
+  hasContinueProgress,
+  recordRecentAudiobook,
+  subscribeRecentAudiobooks,
+} from "@/lib/recentAudiobooks";
 
 type LocationState = {
   preview?: BookItem;
@@ -25,12 +35,21 @@ type LocationState = {
 export function AudiobookDetailPage() {
   const { workId } = useParams<{ workId: string }>();
   const location = useLocation();
+  const { isAuthenticated } = useConvexAuth();
+  const touchRecent = useMutation(api.watchHistory.touchAudiobookRecent);
+  const history = useConvexQuery(api.watchHistory.getForUser, isAuthenticated ? {} : "skip");
   const normalizedId = normalizeWorkId(workId ?? null);
   const preview =
     (location.state as LocationState | null)?.preview &&
     (location.state as LocationState).preview?.id === normalizedId
       ? (location.state as LocationState).preview
       : undefined;
+
+  useSyncExternalStore(
+    subscribeRecentAudiobooks,
+    getRecentAudiobooksSnapshot,
+    getRecentAudiobooksSnapshot,
+  );
 
   const bookQuery = useQuery({
     queryKey: catalogQueryKeys.openLibrary.work(normalizedId ?? ""),
@@ -51,6 +70,41 @@ export function AudiobookDetailPage() {
       ? "Book not found."
       : null;
   const displayBook = book ?? preview ?? null;
+
+  useEffect(() => {
+    if (!displayBook || !normalizedId || displayBook.id !== normalizedId) {
+      return;
+    }
+    recordRecentAudiobook({
+      id: displayBook.id,
+      title: displayBook.title,
+      coverUrl: displayBook.coverUrl,
+      coverFullUrl: displayBook.coverFullUrl,
+      authors: displayBook.authors,
+    });
+    if (isAuthenticated) {
+      void touchRecent({ workId: normalizedId }).catch(() => {});
+    }
+  }, [displayBook, isAuthenticated, normalizedId, touchRecent]);
+
+  const localRecent = normalizedId ? getRecentAudiobook(normalizedId) : null;
+  const convexProgress = useMemo(() => {
+    if (!normalizedId || !history) {
+      return null;
+    }
+    return (
+      history.find(
+        (entry) => entry.mediaType === "audiobook" && entry.workId === normalizedId,
+      ) ?? null
+    );
+  }, [history, normalizedId]);
+
+  const progressEntry = {
+    progressSeconds:
+      convexProgress?.progressSeconds ?? localRecent?.progressSeconds ?? 0,
+    fileIndex: convexProgress?.fileIndex ?? localRecent?.fileIndex ?? 0,
+  };
+  const canContinue = hasContinueProgress(progressEntry);
 
   const author = book?.authors[0];
   const relatedQuery = useQuery({
@@ -88,12 +142,21 @@ export function AudiobookDetailPage() {
     );
   }
 
-  const authors = displayBook.authors;
-  const authorKeys = displayBook.authorKeys;
+  const authors = displayBook.authors ?? [];
+  const authorKeys = "authorKeys" in displayBook && Array.isArray(displayBook.authorKeys)
+    ? displayBook.authorKeys
+    : [];
   const description =
-    book?.description && book.description !== displayBook.description
+    book?.description && book.description !== (displayBook as BookItem).description
       ? book.description
-      : displayBook.description || "No description available.";
+      : ("description" in displayBook && displayBook.description) || "No description available.";
+  const subjects =
+    book?.subjects ??
+    ("subjects" in displayBook && Array.isArray(displayBook.subjects)
+      ? displayBook.subjects
+      : []);
+  const year = "year" in displayBook ? displayBook.year : null;
+  const pageCount = "pageCount" in displayBook ? displayBook.pageCount : null;
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
@@ -116,9 +179,9 @@ export function AudiobookDetailPage() {
           <div className="flex min-w-0 flex-col justify-end">
             <h1 className="mb-4 text-4xl font-bold md:text-5xl">{displayBook.title}</h1>
             <div className="mb-4 flex flex-wrap gap-3 text-sm text-zinc-300">
-              {displayBook.year ? <span>{displayBook.year}</span> : null}
-              {displayBook.pageCount ? <span>{displayBook.pageCount} pages</span> : null}
-              {displayBook.subjects[0] ? <span>{displayBook.subjects[0]}</span> : null}
+              {year ? <span>{year}</span> : null}
+              {pageCount ? <span>{pageCount} pages</span> : null}
+              {subjects[0] ? <span>{subjects[0]}</span> : null}
             </div>
             {authors.length > 0 ? (
               <p className="mb-4 text-zinc-300">
@@ -152,7 +215,9 @@ export function AudiobookDetailPage() {
             {normalizedId ? (
               <div className="mb-6 flex flex-wrap gap-3">
                 <Button asChild size="lg" className="bg-red-600 hover:bg-red-700">
-                  <AppLink to={getListenPath(normalizedId)}>Listen</AppLink>
+                  <AppLink to={getListenPath(normalizedId)}>
+                    {canContinue ? "Continue" : "Listen"}
+                  </AppLink>
                 </Button>
                 <Button asChild size="lg" variant="outline" className="border-zinc-600">
                   <AppLink to={getReadPath(normalizedId)}>Read</AppLink>
@@ -160,9 +225,9 @@ export function AudiobookDetailPage() {
                 <AddToMyListButton mediaType="audiobook" workId={normalizedId} />
               </div>
             ) : null}
-            {(book?.subjects ?? displayBook.subjects).length > 0 ? (
+            {subjects.length > 0 ? (
               <div className="flex flex-wrap gap-2">
-                {(book?.subjects ?? displayBook.subjects).slice(0, 8).map((subject) => (
+                {subjects.slice(0, 8).map((subject) => (
                   <span
                     key={subject}
                     className="rounded-full border border-zinc-700 px-3 py-1 text-xs text-zinc-300"

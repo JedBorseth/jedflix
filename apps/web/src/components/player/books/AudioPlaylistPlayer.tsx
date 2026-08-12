@@ -1,3 +1,4 @@
+import { PauseIcon, PlayIcon, TrackNextIcon, TrackPreviousIcon } from "@radix-ui/react-icons";
 import { useEffect, useRef, useState } from "react";
 import { useMediaSession } from "@/hooks/useMediaSession";
 import { mapMediaElementError } from "@/components/player/shared/playbackErrors";
@@ -27,19 +28,6 @@ function formatTime(sec: number) {
     return `${hours}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
   }
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
-}
-
-function packLabel(packKind: PackKind | undefined, count: number) {
-  if (count <= 1) {
-    return "Single file";
-  }
-  if (packKind === "series") {
-    return `${count} books in series`;
-  }
-  if (packKind === "chapters") {
-    return `${count} chapters`;
-  }
-  return `${count} files`;
 }
 
 function applyInitialSeek(
@@ -77,6 +65,7 @@ export function AudioPlaylistPlayer({
     Math.min(Math.max(initialFileIndex, 0), Math.max(files.length - 1, 0)),
   );
   const [playing, setPlaying] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [current, setCurrent] = useState(initialPositionSec);
   const [duration, setDuration] = useState(0);
   const [rate, setRate] = useState(1);
@@ -88,12 +77,13 @@ export function AudioPlaylistPlayer({
   const chapterLabel =
     files.length > 1
       ? `${fileIndex + 1}. ${currentFile?.filename ?? "Chapter"}`
-      : currentFile?.filename;
+      : undefined;
 
   useEffect(() => {
     seekAppliedRef.current = false;
     setCurrent(fileIndex === initialFileIndex ? initialPositionSec : 0);
     setPlaybackError(undefined);
+    setLoading(true);
   }, [fileIndex, initialFileIndex, initialPositionSec, currentFile?.url]);
 
   useEffect(() => {
@@ -151,7 +141,7 @@ export function AudioPlaylistPlayer({
 
   function toggle() {
     const audio = audioRef.current;
-    if (!audio) {
+    if (!audio || loading) {
       return;
     }
     if (audio.paused) {
@@ -224,28 +214,31 @@ export function AudioPlaylistPlayer({
   }
 
   return (
-    <div className="mx-auto grid w-full max-w-5xl gap-6 md:grid-cols-[minmax(0,1fr)_280px]">
-      <div className="space-y-5 rounded-lg border border-zinc-800 bg-zinc-900/70 p-4 md:p-6">
-        <div>
-          <p className="text-xs uppercase tracking-wide text-zinc-500">
-            {packLabel(packKind, files.length)}
-          </p>
-          <h1 className="mt-1 text-2xl font-semibold text-white">{title}</h1>
-          {artist ? <p className="mt-1 text-sm text-zinc-300">{artist}</p> : null}
-          <p className="mt-1 text-sm text-zinc-400">{currentFile.filename}</p>
-          {currentFile.mimeType ? (
-            <p className="mt-1 text-xs text-zinc-600">{currentFile.mimeType}</p>
+    <div className="mx-auto grid w-full max-w-5xl gap-8 md:grid-cols-[minmax(0,1fr)_260px]">
+      <div className="space-y-6">
+        <div className="flex items-start gap-5">
+          {artworkUrl ? (
+            <img
+              src={artworkUrl}
+              alt=""
+              className="h-28 w-28 shrink-0 rounded-md object-cover shadow-lg shadow-black/40 md:h-36 md:w-36"
+            />
           ) : null}
+          <div className="min-w-0 pt-1">
+            <h1 className="text-2xl font-semibold tracking-tight text-white md:text-3xl">
+              {title}
+            </h1>
+            {artist ? <p className="mt-1 text-sm text-zinc-300 md:text-base">{artist}</p> : null}
+            {chapterLabel ? (
+              <p className="mt-2 truncate text-sm text-zinc-500">{chapterLabel}</p>
+            ) : null}
+          </div>
         </div>
 
         {playbackError ? (
           <div className="rounded-md border border-red-900/50 bg-red-950/40 p-3 text-sm text-red-200">
             <p className="font-medium">Playback error</p>
             <p className="mt-1 break-words text-red-100/90">{playbackError}</p>
-            <p className="mt-2 text-xs text-red-200/70">
-              File: {currentFile.filename}
-              {currentFile.url ? ` · ${currentFile.url.slice(0, 64)}…` : null}
-            </p>
           </div>
         ) : null}
 
@@ -260,11 +253,16 @@ export function AudioPlaylistPlayer({
             setPlaybackError(undefined);
           }}
           onPause={() => setPlaying(false)}
+          onWaiting={() => setLoading(true)}
+          onLoadStart={() => setLoading(true)}
+          onCanPlay={() => setLoading(false)}
+          onPlaying={() => setLoading(false)}
           onTimeUpdate={(event) => setCurrent(event.currentTarget.currentTime)}
           onLoadedMetadata={(event) => {
             const audio = event.currentTarget;
             setDuration(audio.duration);
             setPlaybackError(undefined);
+            setLoading(false);
             // Seek before any follow-up play() so we don't abort an in-flight play
             // from the user's Play click (that race surfaced as "operation was aborted").
             applyInitialSeek(audio, {
@@ -292,6 +290,7 @@ export function AudioPlaylistPlayer({
           onError={(event) => {
             playIntentRef.current = false;
             setPlaying(false);
+            setLoading(false);
             setPlaybackError(mapMediaElementError(event.currentTarget));
           }}
           onEnded={() => {
@@ -306,46 +305,6 @@ export function AudioPlaylistPlayer({
         >
           <source src={currentFile.url} type={currentFile.mimeType || undefined} />
         </audio>
-
-        <div className="flex items-center justify-center gap-3">
-          <button
-            type="button"
-            className="rounded-md border border-zinc-700 px-3 py-2 text-sm text-white disabled:opacity-40"
-            disabled={fileIndex <= 0}
-            onClick={() => playFile(fileIndex - 1, true)}
-          >
-            Prev
-          </button>
-          <button
-            type="button"
-            className="rounded-md border border-zinc-700 px-3 py-2 text-sm text-white"
-            onClick={() => skip(-30)}
-          >
-            -30s
-          </button>
-          <button
-            type="button"
-            className="rounded-full bg-white px-5 py-3 text-sm font-semibold text-black"
-            onClick={toggle}
-          >
-            {playing ? "Pause" : "Play"}
-          </button>
-          <button
-            type="button"
-            className="rounded-md border border-zinc-700 px-3 py-2 text-sm text-white"
-            onClick={() => skip(30)}
-          >
-            +30s
-          </button>
-          <button
-            type="button"
-            className="rounded-md border border-zinc-700 px-3 py-2 text-sm text-white disabled:opacity-40"
-            disabled={fileIndex >= files.length - 1}
-            onClick={() => playFile(fileIndex + 1, true)}
-          >
-            Next
-          </button>
-        </div>
 
         <div>
           <input
@@ -362,6 +321,7 @@ export function AudioPlaylistPlayer({
               }
             }}
             className="w-full accent-red-600"
+            aria-label="Seek"
           />
           <div className="mt-1 flex justify-between text-xs text-zinc-500">
             <span>{formatTime(current)}</span>
@@ -369,8 +329,62 @@ export function AudioPlaylistPlayer({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm text-zinc-400">Speed</span>
+        <div className="flex items-center justify-center gap-4">
+          <button
+            type="button"
+            className="rounded-full p-2 text-zinc-300 transition hover:bg-zinc-800 hover:text-white disabled:opacity-40"
+            disabled={fileIndex <= 0}
+            onClick={() => playFile(fileIndex - 1, true)}
+            aria-label="Previous file"
+          >
+            <TrackPreviousIcon className="h-5 w-5" />
+          </button>
+          <button
+            type="button"
+            className="rounded-full border border-zinc-700 px-3 py-2 text-xs font-medium text-zinc-300 hover:border-zinc-500 hover:text-white"
+            onClick={() => skip(-30)}
+          >
+            −30s
+          </button>
+          <button
+            type="button"
+            className="relative flex h-14 w-14 items-center justify-center rounded-full bg-white text-black transition hover:bg-zinc-200 disabled:opacity-60"
+            onClick={toggle}
+            disabled={loading && !playing}
+            aria-label={loading ? "Loading" : playing ? "Pause" : "Play"}
+          >
+            {loading && !playing ? (
+              <span className="h-6 w-6 animate-spin rounded-full border-2 border-zinc-400 border-t-black" />
+            ) : playing ? (
+              <PauseIcon className="h-7 w-7" />
+            ) : (
+              <PlayIcon className="h-7 w-7 translate-x-0.5" />
+            )}
+          </button>
+          <button
+            type="button"
+            className="rounded-full border border-zinc-700 px-3 py-2 text-xs font-medium text-zinc-300 hover:border-zinc-500 hover:text-white"
+            onClick={() => skip(30)}
+          >
+            +30s
+          </button>
+          <button
+            type="button"
+            className="rounded-full p-2 text-zinc-300 transition hover:bg-zinc-800 hover:text-white disabled:opacity-40"
+            disabled={fileIndex >= files.length - 1}
+            onClick={() => playFile(fileIndex + 1, true)}
+            aria-label="Next file"
+          >
+            <TrackNextIcon className="h-5 w-5" />
+          </button>
+        </div>
+
+        {loading && playing ? (
+          <p className="text-center text-xs text-zinc-500">Buffering…</p>
+        ) : null}
+
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <span className="text-sm text-zinc-500">Speed</span>
           {[0.75, 1, 1.25, 1.5, 1.75, 2].map((value) => (
             <button
               key={value}
@@ -378,7 +392,7 @@ export function AudioPlaylistPlayer({
               className={`rounded-md px-2.5 py-1 text-xs ${
                 rate === value
                   ? "bg-red-600 text-white"
-                  : "border border-zinc-700 text-zinc-300"
+                  : "border border-zinc-700 text-zinc-300 hover:border-zinc-500"
               }`}
               onClick={() => setRate(value)}
             >
@@ -389,8 +403,8 @@ export function AudioPlaylistPlayer({
       </div>
 
       {files.length > 1 ? (
-        <aside className="rounded-lg border border-zinc-800 bg-zinc-900/70 p-3">
-          <h2 className="mb-2 text-sm font-semibold text-white">
+        <aside>
+          <h2 className="mb-3 text-sm font-semibold text-zinc-300">
             {packKind === "series" ? "Books" : "Chapters"}
           </h2>
           <ul className="max-h-[60vh] space-y-1 overflow-y-auto">
@@ -401,8 +415,8 @@ export function AudioPlaylistPlayer({
                   onClick={() => playFile(file.index, true)}
                   className={`w-full rounded-md px-2 py-2 text-left text-xs ${
                     file.index === fileIndex
-                      ? "bg-red-950/50 text-white"
-                      : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+                      ? "bg-white/10 text-white"
+                      : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"
                   }`}
                 >
                   <span className="mr-2 text-zinc-600">{file.index + 1}.</span>

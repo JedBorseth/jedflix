@@ -55,6 +55,8 @@ type TorrentInfo struct {
 	Progress float64       `json:"progress"`
 	Files    []TorrentFile `json:"files"`
 	Links    []string      `json:"links"`
+	// Present while status is downloading or magnet_conversion.
+	Seeders *int `json:"seeders,omitempty"`
 }
 
 type TorrentListItem struct {

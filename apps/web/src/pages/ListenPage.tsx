@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery as useConvexQuery } from "convex/react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useConvexAuth, useMutation, useQuery as useConvexQuery } from "convex/react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import { api } from "@convex/_generated/api";
@@ -15,11 +15,19 @@ import {
   normalizeWorkId,
 } from "@/lib/openlibrary";
 import { catalogQueryKeys } from "@/lib/queryClient";
+import {
+  getRecentAudiobook,
+  recordRecentAudiobook,
+  saveRecentAudiobookProgress,
+  saveRecentAudiobookStream,
+  toStreamSource,
+} from "@/lib/recentAudiobooks";
 import { fetchSources, type ResolveRequest, type StreamSource } from "@/lib/streamApi";
 
 export function ListenPage() {
   const { workId: rawWorkId } = useParams<{ workId: string }>();
   const workId = normalizeWorkId(rawWorkId ?? null);
+  const { isAuthenticated } = useConvexAuth();
   const { settings } = useUserSettings();
   const rdToken = settings.realDebridApiKey?.trim() ?? "";
 
@@ -29,28 +37,63 @@ export function ListenPage() {
     enabled: Boolean(workId),
   });
 
-  const history = useConvexQuery(api.watchHistory.getForUser);
+  const history = useConvexQuery(api.watchHistory.getForUser, isAuthenticated ? {} : "skip");
   const upsertProgress = useMutation(api.watchHistory.upsertProgress);
+  const saveStream = useMutation(api.watchHistory.saveAudiobookStream);
+  const touchRecent = useMutation(api.watchHistory.touchAudiobookRecent);
+
+  const localRecent = workId ? getRecentAudiobook(workId) : null;
 
   const savedProgress = useMemo(() => {
-    if (!workId || !history) {
+    if (!workId) {
       return null;
     }
-    return (
-      history.find(
+    const fromConvex =
+      history?.find(
         (entry) => entry.mediaType === "audiobook" && entry.workId === workId,
-      ) ?? null
-    );
-  }, [history, workId]);
+      ) ?? null;
+    if (fromConvex) {
+      return fromConvex;
+    }
+    if (!localRecent) {
+      return null;
+    }
+    return {
+      progressSeconds: localRecent.progressSeconds ?? 0,
+      fileIndex: localRecent.fileIndex ?? 0,
+      selectedStreamId: localRecent.selectedStream?.id,
+      selectedStreamTitle: localRecent.selectedStream?.title,
+      selectedStreamMagnet: localRecent.selectedStream?.magnet,
+      selectedStreamAbbPostUrl: localRecent.selectedStream?.abbPostUrl,
+      selectedStreamInfoHash: localRecent.selectedStream?.infoHash,
+    };
+  }, [history, localRecent, workId]);
 
   const [sources, setSources] = useState<StreamSource[]>([]);
   const [sourcesLoading, setSourcesLoading] = useState(false);
   const [sourcesError, setSourcesError] = useState<string>();
   const [selected, setSelected] = useState<StreamSource | null>(null);
   const [searchKey, setSearchKey] = useState(0);
+  const autoSelectedRef = useRef(false);
 
   const book = bookQuery.data;
   const author = book?.authors[0] ?? "";
+
+  useEffect(() => {
+    if (!book || !workId) {
+      return;
+    }
+    recordRecentAudiobook({
+      id: book.id,
+      title: book.title,
+      coverUrl: book.coverUrl,
+      coverFullUrl: book.coverFullUrl,
+      authors: book.authors,
+    });
+    if (isAuthenticated) {
+      void touchRecent({ workId }).catch(() => {});
+    }
+  }, [book, isAuthenticated, touchRecent, workId]);
 
   useEffect(() => {
     if (!book || !workId) {
@@ -60,13 +103,17 @@ export function ListenPage() {
     setSourcesLoading(true);
     setSourcesError(undefined);
     setSelected(null);
+    autoSelectedRef.current = false;
 
-    void fetchSources({
-      type: "audiobook",
-      title: book.title,
-      author,
-      query: `${book.title} ${author}`.trim(),
-    })
+    void fetchSources(
+      {
+        type: "audiobook",
+        title: book.title,
+        author,
+        query: `${book.title} ${author}`.trim(),
+      },
+      rdToken || undefined,
+    )
       .then((found) => {
         if (!cancelled) {
           setSources(found);
@@ -87,7 +134,63 @@ export function ListenPage() {
     return () => {
       cancelled = true;
     };
-  }, [author, book, searchKey, workId]);
+  }, [author, book, rdToken, searchKey, workId]);
+
+  useEffect(() => {
+    if (autoSelectedRef.current || selected || sourcesLoading || sources.length === 0) {
+      return;
+    }
+
+    const savedLocal = workId ? getRecentAudiobook(workId)?.selectedStream : undefined;
+    const preferredId =
+      savedLocal?.id ??
+      savedProgress?.selectedStreamId ??
+      undefined;
+    const preferredAbb =
+      savedLocal?.abbPostUrl ??
+      savedProgress?.selectedStreamAbbPostUrl ??
+      undefined;
+    const preferredHash =
+      savedLocal?.infoHash ??
+      savedProgress?.selectedStreamInfoHash ??
+      undefined;
+
+    const match =
+      sources.find((source) => preferredId && source.id === preferredId) ??
+      sources.find((source) => preferredAbb && source.abbPostUrl === preferredAbb) ??
+      sources.find(
+        (source) =>
+          preferredHash &&
+          source.infoHash &&
+          source.infoHash.toLowerCase() === preferredHash.toLowerCase(),
+      );
+
+    if (match) {
+      autoSelectedRef.current = true;
+      setSelected(match);
+      return;
+    }
+
+    if (savedLocal && (savedLocal.magnet || savedLocal.abbPostUrl)) {
+      autoSelectedRef.current = true;
+      setSelected(toStreamSource(savedLocal));
+      return;
+    }
+
+    if (
+      savedProgress?.selectedStreamId &&
+      (savedProgress.selectedStreamMagnet || savedProgress.selectedStreamAbbPostUrl)
+    ) {
+      autoSelectedRef.current = true;
+      setSelected({
+        id: savedProgress.selectedStreamId,
+        title: savedProgress.selectedStreamTitle ?? "Saved stream",
+        magnet: savedProgress.selectedStreamMagnet ?? "",
+        abbPostUrl: savedProgress.selectedStreamAbbPostUrl,
+        infoHash: savedProgress.selectedStreamInfoHash,
+      });
+    }
+  }, [savedProgress, selected, sources, sourcesLoading, workId]);
 
   const resolveRequest: ResolveRequest | null = useMemo(() => {
     if (!selected || !rdToken) {
@@ -99,24 +202,56 @@ export function ListenPage() {
       realDebridToken: rdToken,
       abbPostUrl: selected.abbPostUrl,
       magnet: selected.magnet,
+      infoHash: selected.infoHash,
     };
   }, [book?.title, rdToken, selected]);
 
   const resolveState = useStreamResolve(resolveRequest, selected);
+
+  const persistStreamChoice = useCallback(
+    (source: StreamSource) => {
+      if (!workId) {
+        return;
+      }
+      saveRecentAudiobookStream(workId, source);
+      if (isAuthenticated) {
+        void saveStream({
+          workId,
+          selectedStreamId: source.id,
+          selectedStreamTitle: source.title,
+          selectedStreamMagnet: source.magnet || undefined,
+          selectedStreamAbbPostUrl: source.abbPostUrl,
+          selectedStreamInfoHash: source.infoHash,
+        }).catch(() => {});
+      }
+    },
+    [isAuthenticated, saveStream, workId],
+  );
+
+  const onSelectSource = useCallback(
+    (source: StreamSource) => {
+      setSelected(source);
+      persistStreamChoice(source);
+    },
+    [persistStreamChoice],
+  );
 
   const onProgress = useCallback(
     (progress: { fileIndex: number; positionSec: number }) => {
       if (!workId) {
         return;
       }
-      void upsertProgress({
-        mediaType: "audiobook",
-        workId,
-        progressSeconds: progress.positionSec,
-        fileIndex: progress.fileIndex,
-      }).catch(() => {});
+      saveRecentAudiobookProgress(workId, progress);
+      if (isAuthenticated) {
+        void upsertProgress({
+          mediaType: "audiobook",
+          workId,
+          progressSeconds: progress.positionSec,
+          fileIndex: progress.fileIndex,
+        }).catch(() => {});
+      }
     },
-    [upsertProgress, workId],
+    [isAuthenticated, upsertProgress, workId],
   );
 
   if (!workId) {
@@ -147,6 +282,9 @@ export function ListenPage() {
   }
 
   const files = resolveState.stream?.files ?? [];
+  const initialFileIndex = savedProgress?.fileIndex ?? localRecent?.fileIndex ?? 0;
+  const initialPositionSec =
+    savedProgress?.progressSeconds ?? localRecent?.progressSeconds ?? 0;
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
@@ -182,8 +320,8 @@ export function ListenPage() {
             artworkUrl={book.coverFullUrl ?? book.coverUrl}
             files={files}
             packKind={resolveState.stream?.packKind}
-            initialFileIndex={savedProgress?.fileIndex ?? 0}
-            initialPositionSec={savedProgress?.progressSeconds ?? 0}
+            initialFileIndex={initialFileIndex}
+            initialPositionSec={initialPositionSec}
             onProgress={onProgress}
           />
         ) : (
@@ -231,7 +369,7 @@ export function ListenPage() {
                 mediaLabel="audiobook"
                 selectedId={selected?.id}
                 disabled={!rdToken || resolveState.status === "downloading"}
-                onSelect={setSelected}
+                onSelect={onSelectSource}
                 onRetry={() => setSearchKey((value) => value + 1)}
               />
             ) : null}

@@ -200,6 +200,10 @@ func (s *Service) listBookSources(req Request) ([]Source, error) {
 
 	// Prefetch magnets for the top hits so resolve can hit Real Debrid immediately.
 	s.enrichBookMagnets(sources, 5)
+	// Audiobook picker shows RD seeder counts (red when < 3 on the web client).
+	if req.Type == "audiobook" && strings.TrimSpace(req.RealDebridToken) != "" {
+		s.enrichBookSeedersFromRD(sources, 3, req.RealDebridToken)
+	}
 	return sources, nil
 }
 
@@ -231,6 +235,83 @@ func (s *Service) enrichBookMagnets(sources []Source, limit int) {
 		}(i)
 	}
 	wg.Wait()
+}
+
+// enrichBookSeedersFromRD briefly adds magnets to Real Debrid to read swarm
+// seeders for the audiobook stream picker, then deletes the torrents.
+func (s *Service) enrichBookSeedersFromRD(sources []Source, limit int, token string) {
+	token = strings.TrimSpace(token)
+	if token == "" || limit <= 0 {
+		return
+	}
+	if limit > len(sources) {
+		limit = len(sources)
+	}
+
+	rd := realdebrid.NewClientWithToken(s.cfg, token)
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 2)
+	for i := 0; i < limit; i++ {
+		magnet := strings.TrimSpace(sources[i].Magnet)
+		if magnet == "" {
+			continue
+		}
+		wg.Add(1)
+		go func(index int, magnetURL string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			seeders, ok := probeRDSeeders(rd, magnetURL)
+			if !ok {
+				return
+			}
+			sources[index].Seeders = &seeders
+		}(i, magnet)
+	}
+	wg.Wait()
+}
+
+func probeRDSeeders(rd *realdebrid.Client, magnet string) (int, bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	torrentID, err := rd.AddMagnet(ctx, magnet)
+	if err != nil || torrentID == "" {
+		return 0, false
+	}
+	defer func() {
+		deleteCtx, deleteCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer deleteCancel()
+		_ = rd.DeleteTorrent(deleteCtx, torrentID)
+	}()
+
+	deadline := time.Now().Add(4 * time.Second)
+	for time.Now().Before(deadline) {
+		if ctx.Err() != nil {
+			return 0, false
+		}
+		info, infoErr := rd.GetTorrentInfo(ctx, torrentID)
+		if infoErr != nil || info == nil {
+			return 0, false
+		}
+		if info.Seeders != nil {
+			return *info.Seeders, true
+		}
+		switch info.Status {
+		case "error", "magnet_error", "virus", "dead":
+			return 0, false
+		case "waiting_files_selection", "downloaded", "queued":
+			// Seeders are only exposed during magnet_conversion / downloading.
+			return 0, false
+		}
+		select {
+		case <-ctx.Done():
+			return 0, false
+		case <-time.After(350 * time.Millisecond):
+		}
+	}
+	return 0, false
 }
 
 func infoHashFromMagnet(magnet string) string {

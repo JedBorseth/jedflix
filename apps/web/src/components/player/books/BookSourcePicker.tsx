@@ -18,6 +18,15 @@ function matchPercent(score?: number): string | null {
   return `${Math.max(0, Math.round((1 - score) * 100))}% match`;
 }
 
+function SeederCount({ seeders }: { seeders: number }) {
+  const low = seeders < 3;
+  return (
+    <span className={low ? "text-red-400" : "text-zinc-400"}>
+      RD {seeders}
+    </span>
+  );
+}
+
 export function BookSourcePicker({
   sources,
   loading,
@@ -28,6 +37,8 @@ export function BookSourcePicker({
   onSelect,
   onRetry,
 }: BookSourcePickerProps) {
+  const showSeeders = mediaLabel === "audiobook";
+
   return (
     <div className="mx-auto w-full max-w-2xl rounded-lg border border-zinc-800 bg-zinc-900/80 p-4 md:p-6">
       <div className="mb-4">
@@ -90,9 +101,12 @@ export function BookSourcePicker({
               >
                 <div className="flex items-start justify-between gap-3">
                   <p className="text-sm font-medium text-white">{source.title}</p>
-                  {match ? (
-                    <span className="shrink-0 text-xs text-zinc-400">{match}</span>
-                  ) : null}
+                  <div className="flex shrink-0 items-center gap-2 text-xs">
+                    {showSeeders && source.seeders !== undefined ? (
+                      <SeederCount seeders={source.seeders} />
+                    ) : null}
+                    {match ? <span className="text-zinc-400">{match}</span> : null}
+                  </div>
                 </div>
                 {source.info ? (
                   <p className="mt-1 line-clamp-2 text-xs text-zinc-500">{source.info}</p>
