@@ -277,19 +277,12 @@ func indexReleases(ctx context.Context, db *sql.DB, search *musicsearch.Client, 
 			), '{}'),
 			rg.gid::text,
 			COALESCE(rs.name, ''),
-			COALESCE(
-				CASE
-					WHEN r.date_year IS NULL THEN NULL
-					WHEN r.date_month IS NULL THEN r.date_year::text
-					WHEN r.date_day IS NULL THEN r.date_year::text || '-' || lpad(r.date_month::text, 2, '0')
-					ELSE r.date_year::text || '-' || lpad(r.date_month::text, 2, '0') || '-' || lpad(r.date_day::text, 2, '0')
-				END,
-				''
-			)
+			COALESCE(`+local.ReleaseFirstDateSQL+`, '')
 		FROM musicbrainz.release r
 		JOIN musicbrainz.release_group rg ON rg.id = r.release_group
 		JOIN musicbrainz.artist_credit ac ON ac.id = r.artist_credit
 		LEFT JOIN musicbrainz.release_status rs ON rs.id = r.status
+		LEFT JOIN musicbrainz.release_first_release_date rfrd ON rfrd.release = r.id
 		ORDER BY r.id
 	`)
 	if err != nil {
@@ -360,30 +353,7 @@ func indexRecordings(ctx context.Context, db *sql.DB, search *musicsearch.Client
 			COALESCE(album.album_name, '')
 		FROM musicbrainz.recording rec
 		JOIN musicbrainz.artist_credit ac ON ac.id = rec.artist_credit
-		LEFT JOIN LATERAL (
-			SELECT rg.gid::text AS album_id, rg.name AS album_name
-			FROM musicbrainz.track t
-			JOIN musicbrainz.medium m ON m.id = t.medium
-			JOIN musicbrainz.release r ON r.id = m.release
-			JOIN musicbrainz.release_group rg ON rg.id = r.release_group
-			LEFT JOIN musicbrainz.release_group_primary_type rpt ON rpt.id = rg.type
-			LEFT JOIN musicbrainz.release_status rs ON rs.id = r.status
-			WHERE t.recording = rec.id
-			ORDER BY
-				CASE lower(COALESCE(rpt.name, ''))
-					WHEN 'album' THEN 0
-					WHEN 'ep' THEN 1
-					WHEN 'single' THEN 2
-					ELSE 3
-				END,
-				CASE WHEN lower(COALESCE(rs.name, '')) = 'official' THEN 0 ELSE 1 END,
-				CASE WHEN r.country = 222 THEN 0
-				     WHEN r.country = 221 THEN 1
-				     ELSE 2 END,
-				r.date_year NULLS LAST,
-				r.id
-			LIMIT 1
-		) album ON true
+		LEFT JOIN LATERAL (`+local.PreferredRecordingAlbumPickSQL+`) album ON true
 		ORDER BY rec.id
 	`)
 	if err != nil {

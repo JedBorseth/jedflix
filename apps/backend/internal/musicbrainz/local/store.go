@@ -28,6 +28,7 @@ const preferredRecordingAlbumSQL = `
 	JOIN musicbrainz.release_group rg ON rg.id = r.release_group
 	LEFT JOIN musicbrainz.release_group_primary_type rpt ON rpt.id = rg.type
 	LEFT JOIN musicbrainz.release_status rs ON rs.id = r.status
+	LEFT JOIN musicbrainz.release_first_release_date rfrd ON rfrd.release = r.id
 	WHERE t.recording = rec.id
 	ORDER BY
 		CASE lower(COALESCE(rpt.name, ''))
@@ -37,13 +38,60 @@ const preferredRecordingAlbumSQL = `
 			ELSE 3
 		END,
 		CASE WHEN lower(COALESCE(rs.name, '')) = 'official' THEN 0 ELSE 1 END,
-		CASE WHEN r.country = 222 THEN 0
-		     WHEN r.country = 221 THEN 1
-		     ELSE 2 END,
-		r.date_year NULLS LAST,
+		CASE COALESCE((
+			SELECT rc.country
+			FROM musicbrainz.release_country rc
+			WHERE rc.release = r.id
+			ORDER BY CASE rc.country WHEN 222 THEN 0 WHEN 221 THEN 1 ELSE 2 END
+			LIMIT 1
+		), 0) WHEN 222 THEN 0 WHEN 221 THEN 1 ELSE 2 END,
+		rfrd.year NULLS LAST,
 		r.id
 	LIMIT 1
 `
+
+// PreferredRecordingAlbumPickSQL selects album id/name for indexer recording docs.
+const PreferredRecordingAlbumPickSQL = `
+	SELECT rg.gid::text AS album_id, rg.name AS album_name
+	FROM musicbrainz.track t
+	JOIN musicbrainz.medium m ON m.id = t.medium
+	JOIN musicbrainz.release r ON r.id = m.release
+	JOIN musicbrainz.release_group rg ON rg.id = r.release_group
+	LEFT JOIN musicbrainz.release_group_primary_type rpt ON rpt.id = rg.type
+	LEFT JOIN musicbrainz.release_status rs ON rs.id = r.status
+	LEFT JOIN musicbrainz.release_first_release_date rfrd ON rfrd.release = r.id
+	WHERE t.recording = rec.id
+	ORDER BY
+		CASE lower(COALESCE(rpt.name, ''))
+			WHEN 'album' THEN 0
+			WHEN 'ep' THEN 1
+			WHEN 'single' THEN 2
+			ELSE 3
+		END,
+		CASE WHEN lower(COALESCE(rs.name, '')) = 'official' THEN 0 ELSE 1 END,
+		CASE COALESCE((
+			SELECT rc.country
+			FROM musicbrainz.release_country rc
+			WHERE rc.release = r.id
+			ORDER BY CASE rc.country WHEN 222 THEN 0 WHEN 221 THEN 1 ELSE 2 END
+			LIMIT 1
+		), 0) WHEN 222 THEN 0 WHEN 221 THEN 1 ELSE 2 END,
+		rfrd.year NULLS LAST,
+		r.id
+	LIMIT 1
+`
+
+const releaseFirstDateSQL = `
+	CASE
+		WHEN rfrd.year IS NULL THEN NULL
+		WHEN rfrd.month IS NULL THEN rfrd.year::text
+		WHEN rfrd.day IS NULL THEN rfrd.year::text || '-' || lpad(rfrd.month::text, 2, '0')
+		ELSE rfrd.year::text || '-' || lpad(rfrd.month::text, 2, '0') || '-' || lpad(rfrd.day::text, 2, '0')
+	END
+`
+
+// ReleaseFirstDateSQL formats release_first_release_date as YYYY-MM-DD text.
+const ReleaseFirstDateSQL = releaseFirstDateSQL
 
 // Store reads entity details from a local MusicBrainz PostgreSQL replica.
 type Store struct {
@@ -348,15 +396,20 @@ func (s *Store) pickOfficialRelease(ctx context.Context, releaseGroupGID string)
 		FROM musicbrainz.release r
 		JOIN musicbrainz.release_group rg ON rg.id = r.release_group
 		LEFT JOIN musicbrainz.release_status rs ON rs.id = r.status
+		LEFT JOIN musicbrainz.release_first_release_date rfrd ON rfrd.release = r.id
 		WHERE rg.gid = $1::uuid
 		ORDER BY
 			CASE WHEN lower(COALESCE(rs.name, '')) = 'official' THEN 0 ELSE 1 END,
-			CASE WHEN r.country = 222 /* US */ THEN 0
-			     WHEN r.country = 221 /* GB */ THEN 1
-			     ELSE 2 END,
-			r.date_year NULLS LAST,
-			r.date_month NULLS LAST,
-			r.date_day NULLS LAST,
+			CASE COALESCE((
+				SELECT rc.country
+				FROM musicbrainz.release_country rc
+				WHERE rc.release = r.id
+				ORDER BY CASE rc.country WHEN 222 THEN 0 WHEN 221 THEN 1 ELSE 2 END
+				LIMIT 1
+			), 0) WHEN 222 /* US */ THEN 0 WHEN 221 /* GB */ THEN 1 ELSE 2 END,
+			rfrd.year NULLS LAST,
+			rfrd.month NULLS LAST,
+			rfrd.day NULLS LAST,
 			r.id
 		LIMIT 1
 	`, releaseGroupGID).Scan(&gid)
@@ -383,16 +436,9 @@ func (s *Store) fetchReleaseTracks(ctx context.Context, releaseGID string) ([]mu
 			ORDER BY rl.catalog_number NULLS LAST
 			LIMIT 1
 		), ''),
-		COALESCE(
-			CASE
-				WHEN r.date_year IS NULL THEN NULL
-				WHEN r.date_month IS NULL THEN r.date_year::text
-				WHEN r.date_day IS NULL THEN r.date_year::text || '-' || lpad(r.date_month::text, 2, '0')
-				ELSE r.date_year::text || '-' || lpad(r.date_month::text, 2, '0') || '-' || lpad(r.date_day::text, 2, '0')
-			END,
-			''
-		)
+		COALESCE(`+releaseFirstDateSQL+`, '')
 		FROM musicbrainz.release r
+		LEFT JOIN musicbrainz.release_first_release_date rfrd ON rfrd.release = r.id
 		WHERE r.gid = $1::uuid
 	`, releaseGID).Scan(&label, &date)
 

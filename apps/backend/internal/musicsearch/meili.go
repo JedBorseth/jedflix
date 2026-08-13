@@ -84,20 +84,12 @@ func (c *Client) EnsureIndexes(ctx context.Context) error {
 	}
 
 	for _, spec := range specs {
-		task, err := c.meili.CreateIndex(&meilisearch.IndexConfig{
-			Uid:        spec.uid,
-			PrimaryKey: spec.primaryKey,
-		})
-		if err != nil && !isAlreadyExists(err) {
-			return fmt.Errorf("create index %s: %w", spec.uid, err)
-		}
-		if task != nil {
-			if _, err := c.meili.WaitForTaskWithContext(ctx, task.TaskUID, 100*time.Millisecond); err != nil {
-				// Index may already exist from a raced create — continue configuring.
-				_ = err
-			}
+		if err := c.ensureIndex(ctx, spec.uid, spec.primaryKey); err != nil {
+			return err
 		}
 		idx := c.meili.Index(spec.uid)
+		// Settings updates are async. Do not WaitForTask — Meilisearch serializes
+		// them behind document indexing, which can take hours during a reindex.
 		if _, err := idx.UpdateSearchableAttributes(&spec.searchable); err != nil {
 			return fmt.Errorf("searchable %s: %w", spec.uid, err)
 		}
@@ -109,7 +101,6 @@ func (c *Client) EnsureIndexes(ctx context.Context) error {
 				return fmt.Errorf("sortable %s: %w", spec.uid, err)
 			}
 		}
-		// Typo tolerance + prefix search are on by default in Meilisearch.
 		typo := meilisearch.TypoTolerance{
 			Enabled: true,
 			MinWordSizeForTypos: meilisearch.MinWordSizeForTypos{
@@ -121,6 +112,26 @@ func (c *Client) EnsureIndexes(ctx context.Context) error {
 			return fmt.Errorf("typo %s: %w", spec.uid, err)
 		}
 	}
+	return nil
+}
+
+func (c *Client) ensureIndex(ctx context.Context, uid, primaryKey string) error {
+	if _, err := c.meili.GetIndexWithContext(ctx, uid); err == nil {
+		return nil
+	}
+	task, err := c.meili.CreateIndexWithContext(ctx, &meilisearch.IndexConfig{
+		Uid:        uid,
+		PrimaryKey: primaryKey,
+	})
+	if err != nil && !isAlreadyExists(err) {
+		return fmt.Errorf("create index %s: %w", uid, err)
+	}
+	if task == nil {
+		return nil
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	_, _ = c.meili.WaitForTaskWithContext(waitCtx, task.TaskUID, 100*time.Millisecond)
 	return nil
 }
 

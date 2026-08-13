@@ -66,10 +66,14 @@ func main() {
 			log.Printf("warning: Meilisearch unavailable: %v", err)
 		} else {
 			musicClient.SetSearch(searchClient)
-			if err := searchClient.EnsureIndexes(ctx); err != nil {
-				log.Printf("warning: Meilisearch index setup: %v", err)
-			}
 			log.Printf("Music search: Meilisearch at %s", cfg.MeiliURL)
+			go func() {
+				ensureCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+				defer cancel()
+				if err := searchClient.EnsureIndexes(ensureCtx); err != nil {
+					log.Printf("warning: Meilisearch index setup: %v", err)
+				}
+			}()
 		}
 	}
 	if musicClient.LocalEnabled() {
