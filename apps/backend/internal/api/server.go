@@ -700,7 +700,7 @@ func (s *Server) handleLastFMRelated(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
 
 	tracks := make([]musiccatalog.TopTrack, 0)
@@ -735,7 +735,9 @@ func (s *Server) handleLastFMRelated(w http.ResponseWriter, r *http.Request) {
 
 	artists := make([]musiccatalog.Artist, 0)
 	if lastfmReady {
-		if len(tracks) == 0 {
+		// Name-resolve Last.fm similar-tracks is too slow (~20s). Only use it
+		// when we have no recording MBIDs to query embeddings with.
+		if len(tracks) == 0 && !localReady {
 			var err error
 			artists, tracks, err = s.lastfm.RelatedForAlbum(ctx, artist, seeds, limit)
 			if err != nil && len(artists) == 0 {

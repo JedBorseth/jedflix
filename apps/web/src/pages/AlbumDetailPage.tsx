@@ -80,7 +80,7 @@ export function AlbumDetailPage() {
   const relatedAlbums =
     (relatedQuery.data ?? []).filter((item) => item.id !== normalizedId).slice(0, 12);
 
-  const seedTracks = tracks.slice(0, 1).map((track) => ({
+  const seedTracks = tracks.slice(0, 4).map((track) => ({
     artist: (track.artists[0] || primaryArtistName).trim(),
     track: track.name,
     id: track.id,
