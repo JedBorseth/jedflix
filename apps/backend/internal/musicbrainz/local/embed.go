@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -433,26 +434,55 @@ func (s *Store) SimilarTracks(ctx context.Context, trackMBID string, limit int) 
 	if limit <= 0 {
 		limit = 20
 	}
-	rows, err := s.db.QueryContext(ctx, `
+	var seedVec string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT embedding::text
+		FROM jedflix.music_embeddings
+		WHERE entity_type = 'track' AND mbid = $1::uuid
+	`, trackMBID).Scan(&seedVec)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("%w: similar tracks seed: %v", musiccatalog.ErrFetchFailed, err)
+	}
+
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, fmt.Errorf("%w: similar tracks: %v", musiccatalog.ErrFetchFailed, err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `SET LOCAL statement_timeout = '4s'`); err != nil {
+		return nil, fmt.Errorf("%w: similar tracks: %v", musiccatalog.ErrFetchFailed, err)
+	}
+	rows, err := tx.QueryContext(ctx, `
 		SELECT d.entity_type, d.mbid::text, d.name, d.artists, d.artist_ids::text[],
 			d.album_name, COALESCE(d.album_id::text, ''), d.year, d.duration_ms,
-			d.genres, d.embed_text,
-			1 - (e.embedding <=> seed.embedding) AS vec_score,
+			d.genres, d.embed_text, d.popularity,
+			1 - (e.embedding <=> $1::halfvec) AS vec_score,
 			0::float AS unused
-		FROM jedflix.music_embeddings seed
-		JOIN jedflix.music_embeddings e
-			ON e.entity_type = 'track' AND e.mbid <> seed.mbid
+		FROM jedflix.music_embeddings e
 		JOIN jedflix.search_documents d
 			ON d.entity_type = e.entity_type AND d.mbid = e.mbid
-		WHERE seed.entity_type = 'track' AND seed.mbid = $1::uuid
-		ORDER BY e.embedding <=> seed.embedding
-		LIMIT $2
-	`, trackMBID, limit)
+		WHERE e.entity_type = 'track' AND e.mbid <> $2::uuid
+		ORDER BY e.embedding <=> $1::halfvec
+		LIMIT $3
+	`, seedVec, trackMBID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("%w: similar tracks: %v", musiccatalog.ErrFetchFailed, err)
 	}
 	defer rows.Close()
-	return scanHits(rows, "vector")
+	hits, err := scanHits(rows, "vector")
+	if err != nil {
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("%w: similar tracks: %v", musiccatalog.ErrFetchFailed, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("%w: similar tracks: %v", musiccatalog.ErrFetchFailed, err)
+	}
+	return hits, nil
 }
 
 func (s *Store) DocumentCounts(ctx context.Context) (docs, embeddings int, err error) {

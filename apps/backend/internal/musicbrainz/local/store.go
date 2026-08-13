@@ -111,12 +111,12 @@ func Open(databaseURL string) (*Store, error) {
 	db.SetMaxIdleConns(5)
 	db.SetConnMaxLifetime(30 * time.Minute)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := db.PingContext(ctx); err != nil {
+	if err := pingWithRetry(db); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("ping musicbrainz db: %w", err)
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
 	// Require a populated MusicBrainz schema before enabling local mode.
 	var ok bool
 	if err := db.QueryRowContext(ctx, `
@@ -138,10 +138,27 @@ func Open(databaseURL string) (*Store, error) {
 	if err := EnsureArtworkSchema(schemaCtx, db); err != nil {
 		fmt.Printf("jedflix artwork schema unavailable: %v\n", err)
 	}
-	if err := EnsureSearchSchema(schemaCtx, db); err != nil {
+	if SearchSchemaPresent(schemaCtx, db) {
+		// Skip CREATE INDEX on an already-populated catalog — it takes a
+		// table lock that blocks the embedder and search.
+	} else if err := EnsureSearchSchema(schemaCtx, db); err != nil {
 		fmt.Printf("jedflix search schema unavailable: %v\n", err)
 	}
 	return store, nil
+}
+
+func pingWithRetry(db *sql.DB) error {
+	var last error
+	for i := 0; i < 8; i++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		last = db.PingContext(ctx)
+		cancel()
+		if last == nil {
+			return nil
+		}
+		time.Sleep(time.Duration(400*(i+1)) * time.Millisecond)
+	}
+	return last
 }
 
 func (s *Store) Close() error {

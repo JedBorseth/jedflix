@@ -114,6 +114,10 @@ func main() {
 }
 
 func populateIfDue(ctx context.Context, store *local.Store, force bool) error {
+	docs, _, countErr := store.DocumentCounts(ctx)
+	if countErr == nil && !local.ShouldPopulateSearchDocuments(docs) && !force {
+		return nil
+	}
 	if !force {
 		raw, err := store.GetState(ctx, "last_populate_unix")
 		if err == nil && raw != "" {

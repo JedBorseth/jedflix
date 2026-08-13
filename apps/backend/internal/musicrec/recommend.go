@@ -3,6 +3,7 @@ package musicrec
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/jedborseth/jeds-movies/backend/internal/lastfm"
 	"github.com/jedborseth/jeds-movies/backend/internal/musicai"
@@ -109,19 +110,21 @@ func (s *Service) collectCandidates(ctx context.Context, req Request) []musiccat
 		seedArtist = req.Seed.Artists[0]
 	}
 
+	lfmCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
 	if s.lastfm != nil && s.lastfm.Configured() && seedArtist != "" && req.Seed.Title != "" {
-		if tracks, err := s.lastfm.SimilarTracksWide(ctx, seedArtist, req.Seed.Title, 16); err == nil {
+		if tracks, err := s.lastfm.SimilarTracksWide(lfmCtx, seedArtist, req.Seed.Title, 16); err == nil {
 			out = append(out, tracks...)
 		}
-		if artists, err := s.lastfm.SimilarArtistsWide(ctx, seedArtist, 4); err == nil {
+		if artists, err := s.lastfm.SimilarArtistsWide(lfmCtx, seedArtist, 4); err == nil {
 			for i, artist := range artists {
-				if i >= 3 || ctx.Err() != nil {
+				if i >= 3 || lfmCtx.Err() != nil {
 					break
 				}
 				if s.catalog == nil {
 					break
 				}
-				details, err := s.catalog.GetArtist(ctx, artist.ID)
+				details, err := s.catalog.GetArtist(lfmCtx, artist.ID)
 				if err != nil || details == nil {
 					continue
 				}
@@ -137,7 +140,9 @@ func (s *Service) collectCandidates(ctx context.Context, req Request) []musiccat
 
 	if s.catalog != nil {
 		if store := s.catalog.LocalStore(); store != nil && strings.TrimSpace(req.Seed.ID) != "" {
-			if similar, err := store.SimilarTracks(ctx, req.Seed.ID, 16); err == nil {
+			simCtx, simCancel := context.WithTimeout(ctx, 6*time.Second)
+			defer simCancel()
+			if similar, err := store.SimilarTracks(simCtx, req.Seed.ID, 16); err == nil {
 				for _, hit := range similar {
 					out = append(out, musiccatalog.TopTrack{
 						ID:         hit.MBID,

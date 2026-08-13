@@ -73,19 +73,75 @@ func EnsureSearchSchema(ctx context.Context, db *sql.DB) error {
 			value text NOT NULL DEFAULT '',
 			updated_at timestamptz NOT NULL DEFAULT now()
 		)`,
-		`CREATE INDEX IF NOT EXISTS search_documents_type_pop_idx
-			ON jedflix.search_documents (entity_type, popularity DESC)`,
-		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS music_embeddings_hnsw_idx
-			ON jedflix.music_embeddings
-			USING hnsw (embedding halfvec_cosine_ops)
-			WITH (m = 16, ef_construction = 64)`),
 	}
 	for _, stmt := range stmts {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
 			return fmt.Errorf("jedflix search schema: %w", err)
 		}
 	}
+	indexes := []struct {
+		name string
+		stmt string
+	}{
+		{
+			name: "search_documents_type_pop_idx",
+			stmt: `CREATE INDEX IF NOT EXISTS search_documents_type_pop_idx
+				ON jedflix.search_documents (entity_type, popularity DESC)`,
+		},
+		{
+			name: "music_embeddings_hnsw_idx",
+			stmt: fmt.Sprintf(`CREATE INDEX IF NOT EXISTS music_embeddings_hnsw_idx
+				ON jedflix.music_embeddings
+				USING hnsw (embedding halfvec_cosine_ops)
+				WITH (m = 16, ef_construction = 64)`),
+		},
+	}
+	for _, idx := range indexes {
+		if err := ensureIndex(ctx, db, idx.name, idx.stmt); err != nil {
+			return err
+		}
+	}
 	return createSearchDocumentIndexes(ctx, db)
+}
+
+func SearchSchemaPresent(ctx context.Context, db *sql.DB) bool {
+	if db == nil {
+		return false
+	}
+	var ok bool
+	err := db.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM information_schema.tables
+			WHERE table_schema = 'jedflix' AND table_name = 'search_documents'
+		)
+	`).Scan(&ok)
+	return err == nil && ok
+}
+
+func indexExists(ctx context.Context, db *sql.DB, name string) (bool, error) {
+	var ok bool
+	err := db.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM pg_indexes
+			WHERE schemaname = 'jedflix' AND indexname = $1
+		)
+	`, name).Scan(&ok)
+	return ok, err
+}
+
+func ensureIndex(ctx context.Context, db *sql.DB, name, stmt string) error {
+	ok, err := indexExists(ctx, db, name)
+	if err != nil {
+		return fmt.Errorf("check index %s: %w", name, err)
+	}
+	if ok {
+		return nil
+	}
+	if _, err := db.ExecContext(ctx, stmt); err != nil {
+		return fmt.Errorf("jedflix search schema: %w", err)
+	}
+	return nil
 }
 
 func dropSearchDocumentIndexes(ctx context.Context, db *sql.DB) error {
@@ -102,15 +158,24 @@ func dropSearchDocumentIndexes(ctx context.Context, db *sql.DB) error {
 }
 
 func createSearchDocumentIndexes(ctx context.Context, db *sql.DB) error {
-	stmts := []string{
-		`CREATE INDEX IF NOT EXISTS search_documents_tsv_idx
-			ON jedflix.search_documents USING gin (tsv)`,
-		`CREATE INDEX IF NOT EXISTS search_documents_trgm_idx
-			ON jedflix.search_documents USING gin (name_norm gin_trgm_ops)`,
+	indexes := []struct {
+		name string
+		stmt string
+	}{
+		{
+			name: "search_documents_tsv_idx",
+			stmt: `CREATE INDEX IF NOT EXISTS search_documents_tsv_idx
+				ON jedflix.search_documents USING gin (tsv)`,
+		},
+		{
+			name: "search_documents_trgm_idx",
+			stmt: `CREATE INDEX IF NOT EXISTS search_documents_trgm_idx
+				ON jedflix.search_documents USING gin (name_norm gin_trgm_ops)`,
+		},
 	}
-	for _, stmt := range stmts {
-		if _, err := db.ExecContext(ctx, stmt); err != nil {
-			return fmt.Errorf("create search indexes: %w", err)
+	for _, idx := range indexes {
+		if err := ensureIndex(ctx, db, idx.name, idx.stmt); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -120,21 +185,23 @@ func (s *Store) SearchReady(ctx context.Context) bool {
 	if !s.Configured() {
 		return false
 	}
-	var artists, albums, tracks int
+	var ok bool
 	err := s.db.QueryRowContext(ctx, `
-		SELECT
-			COUNT(*) FILTER (WHERE entity_type = 'artist'),
-			COUNT(*) FILTER (WHERE entity_type = 'album'),
-			COUNT(*) FILTER (WHERE entity_type = 'track')
-		FROM jedflix.search_documents
-	`).Scan(&artists, &albums, &tracks)
-	return err == nil && SearchDocumentsReady(artists, albums, tracks)
+		SELECT EXISTS (SELECT 1 FROM jedflix.search_documents LIMIT 1)
+	`).Scan(&ok)
+	return err == nil && ok
 }
 
 // SearchDocumentsReady is true as soon as any indexed subset exists.
 // Search must not wait for a full catalog backfill.
 func SearchDocumentsReady(artists, albums, tracks int) bool {
 	return artists > 0 || albums > 0 || tracks > 0
+}
+
+// ShouldPopulateSearchDocuments is true only while the sidecar index is still
+// filling. A full rescan of a populated catalog holds write locks for minutes.
+func ShouldPopulateSearchDocuments(docs int) bool {
+	return docs < 10000
 }
 
 func (s *Store) SetState(ctx context.Context, key, value string) error {

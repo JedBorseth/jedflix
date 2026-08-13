@@ -29,6 +29,7 @@ type SearchHit struct {
 	DurationMs int
 	Genres     []string
 	EmbedText  string
+	Popularity int
 	Lexical    float64
 	Vector     float64
 	Fused      float64
@@ -97,7 +98,7 @@ func (s *Store) searchText(ctx context.Context, query string, limit int) ([]Sear
 		)
 		SELECT d.entity_type, d.mbid::text, d.name, d.artists, d.artist_ids::text[],
 			d.album_name, COALESCE(d.album_id::text, ''), d.year, d.duration_ms,
-			d.genres, d.embed_text,
+			d.genres, d.embed_text, d.popularity,
 			COALESCE(ts_rank_cd(d.tsv, q.tsq), 0) AS ts_rank,
 			COALESCE(word_similarity(q.qnorm, d.name_norm), 0) AS trgm
 		FROM jedflix.search_documents d, q
@@ -132,10 +133,18 @@ func (s *Store) searchText(ctx context.Context, query string, limit int) ([]Sear
 }
 
 func (s *Store) searchVector(ctx context.Context, queryVec []float32, limit int) ([]SearchHit, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, fmt.Errorf("%w: vector search: %v", musiccatalog.ErrFetchFailed, err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `SET LOCAL statement_timeout = '4s'`); err != nil {
+		return nil, fmt.Errorf("%w: vector search: %v", musiccatalog.ErrFetchFailed, err)
+	}
+	rows, err := tx.QueryContext(ctx, `
 		SELECT d.entity_type, d.mbid::text, d.name, d.artists, d.artist_ids::text[],
 			d.album_name, COALESCE(d.album_id::text, ''), d.year, d.duration_ms,
-			d.genres, d.embed_text,
+			d.genres, d.embed_text, d.popularity,
 			1 - (e.embedding <=> $1::halfvec) AS vec_score,
 			0::float AS unused
 		FROM jedflix.music_embeddings e
@@ -148,7 +157,17 @@ func (s *Store) searchVector(ctx context.Context, queryVec []float32, limit int)
 		return nil, fmt.Errorf("%w: vector search: %v", musiccatalog.ErrFetchFailed, err)
 	}
 	defer rows.Close()
-	return scanHits(rows, "vector")
+	hits, err := scanHits(rows, "vector")
+	if err != nil {
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("%w: vector search: %v", musiccatalog.ErrFetchFailed, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("%w: vector search: %v", musiccatalog.ErrFetchFailed, err)
+	}
+	return hits, nil
 }
 
 func scanHits(rows interface {
@@ -169,7 +188,7 @@ func scanHits(rows interface {
 		if err := rows.Scan(
 			&hit.EntityType, &hit.MBID, &hit.Name, &artists, &artistIDs,
 			&hit.AlbumName, &albumID, &year, &hit.DurationMs, &genres, &hit.EmbedText,
-			&scoreA, &scoreB,
+			&hit.Popularity, &scoreA, &scoreB,
 		); err != nil {
 			return nil, fmt.Errorf("%w: scan search: %v", musiccatalog.ErrFetchFailed, err)
 		}
@@ -223,6 +242,9 @@ func MergeHits(query string, text, vec []SearchHit, limit int) []SearchHit {
 				if hit.EmbedText != "" {
 					item.hit.EmbedText = hit.EmbedText
 				}
+				if hit.Popularity > item.hit.Popularity {
+					item.hit.Popularity = hit.Popularity
+				}
 				if hit.Lexical > item.hit.Lexical {
 					item.hit.Lexical = hit.Lexical
 				}
@@ -256,6 +278,13 @@ func MergeHits(query string, text, vec []SearchHit, limit int) []SearchHit {
 			fused += 0.35
 		} else if nameNorm != "" && strings.HasPrefix(nameNorm, normQuery) && len(normQuery) >= 3 {
 			fused += 0.18
+		}
+		pop := item.hit.Popularity
+		if pop > 100 {
+			pop = 100
+		}
+		if pop > 0 {
+			fused += float64(pop) / 400.0
 		}
 		// Multi-token: require all tokens to appear across name+artists.
 		tokens := strings.Fields(normQuery)

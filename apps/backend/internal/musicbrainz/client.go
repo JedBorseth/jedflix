@@ -286,8 +286,10 @@ func (c *Client) Search(ctx context.Context, query string) (*musiccatalog.Search
 
 	if hybrid, err := c.searchHybrid(ctx, query); err == nil && hybrid != nil &&
 		(len(hybrid.Artists) > 0 || len(hybrid.Albums) > 0 || len(hybrid.Tracks) > 0) {
-		c.trimSearchCache()
-		c.searchCache.Store(cacheKey, cachedSearch{result: *hybrid, cachedAt: c.now()})
+		if ctx.Err() == nil {
+			c.trimSearchCache()
+			c.searchCache.Store(cacheKey, cachedSearch{result: *hybrid, cachedAt: c.now()})
+		}
 		for _, a := range hybrid.Artists {
 			c.rememberArtistSummary(a)
 		}
@@ -335,8 +337,12 @@ func (c *Client) Search(ctx context.Context, query string) (*musiccatalog.Search
 		Artists: artists,
 		Tracks:  tracks,
 	}
-	c.trimSearchCache()
-	c.searchCache.Store(cacheKey, cachedSearch{result: result, cachedAt: c.now()})
+	// Do not cache Last.fm-only fallbacks or timed-out searches. A 45s
+	// hybrid miss used to stick around for 30 minutes with empty tracks.
+	if ctx.Err() == nil && !c.useLocalStore() {
+		c.trimSearchCache()
+		c.searchCache.Store(cacheKey, cachedSearch{result: result, cachedAt: c.now()})
+	}
 	for _, a := range artists {
 		c.rememberArtistSummary(a)
 	}

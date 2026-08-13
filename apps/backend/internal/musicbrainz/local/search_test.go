@@ -42,6 +42,16 @@ func TestMergeHitsPrefersExactAndRRF(t *testing.T) {
 	}
 }
 
+func TestMergeHitsPrefersPopularExactTitle(t *testing.T) {
+	merged := MergeHits("thriller", []SearchHit{
+		{EntityType: "track", MBID: "fob", Name: "Thriller", Artists: []string{"Fall Out Boy"}, Lexical: 3, Popularity: 4},
+		{EntityType: "track", MBID: "mj", Name: "Thriller", Artists: []string{"Michael Jackson"}, Lexical: 3, Popularity: 100},
+	}, nil, 10)
+	if merged[0].MBID != "mj" {
+		t.Fatalf("expected Michael Jackson Thriller first, got %+v", merged[0])
+	}
+}
+
 func TestDocumentText(t *testing.T) {
 	year := 2015
 	got := DocumentText("album", "To Pimp a Butterfly", []string{"Kendrick Lamar"}, "", &year, []string{"hip hop"}, []string{"TPAB"})
@@ -72,6 +82,15 @@ func TestSearchDocumentsReadyAcceptsPartialIndex(t *testing.T) {
 	}
 	if !SearchDocumentsReady(0, 3, 40) {
 		t.Fatal("album+track subset should be searchable")
+	}
+}
+
+func TestShouldPopulateSearchDocuments(t *testing.T) {
+	if !ShouldPopulateSearchDocuments(0) || !ShouldPopulateSearchDocuments(9999) {
+		t.Fatal("small indexes should still populate")
+	}
+	if ShouldPopulateSearchDocuments(10000) || ShouldPopulateSearchDocuments(1_500_000) {
+		t.Fatal("populated catalogs must not full-rescan on embedder start")
 	}
 }
 

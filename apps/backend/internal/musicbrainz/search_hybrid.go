@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jedborseth/jeds-movies/backend/internal/musicai"
 	"github.com/jedborseth/jeds-movies/backend/internal/musicbrainz/local"
@@ -20,7 +21,10 @@ func (c *Client) searchHybrid(ctx context.Context, query string) (*musiccatalog.
 
 	var queryVec []float32
 	if c.ai != nil && c.ai.Configured() {
-		if vec, err := c.ai.EmbedQuery(ctx, query); err == nil {
+		embedCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
+		vec, err := c.ai.EmbedQuery(embedCtx, query)
+		cancel()
+		if err == nil {
 			queryVec = vec
 		}
 	}
@@ -31,12 +35,14 @@ func (c *Client) searchHybrid(ctx context.Context, query string) (*musiccatalog.
 	}
 
 	hits := hybrid.Hits
-	if c.enricher != nil && c.enricher.Configured() {
+	if c.enricher != nil && c.enricher.Configured() && len(hits) < defaultLimit {
 		hits = c.mergeLastFMSearchHits(ctx, query, hits)
 	}
 
 	if c.ai != nil && c.ai.Configured() && len(hits) > 1 {
-		hits = c.rerankHits(ctx, query, hits)
+		rerankCtx, cancel := context.WithTimeout(ctx, 6*time.Second)
+		hits = c.rerankHits(rerankCtx, query, hits)
+		cancel()
 	}
 
 	result := local.HitsToResult(hits, defaultLimit)

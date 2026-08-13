@@ -2,7 +2,6 @@ package musicbrainz
 
 import (
 	"context"
-	"strings"
 
 	"github.com/jedborseth/jeds-movies/backend/internal/musiccatalog"
 )
@@ -41,38 +40,13 @@ func (c *Client) withTrackCoverURLs(ctx context.Context, tracks []musiccatalog.T
 	return out
 }
 
-func (c *Client) enrichTrackArtwork(ctx context.Context, track musiccatalog.TopTrack) musiccatalog.TopTrack {
-	if track.AlbumID != "" && track.DurationMs > 0 {
+func (c *Client) enrichTrackArtwork(_ context.Context, track musiccatalog.TopTrack) musiccatalog.TopTrack {
+	if track.AlbumID != "" {
 		track.ImageURL = c.coverURL(track.AlbumID)
 		return track
 	}
-	if c.useLocalStore() {
-		if id := NormalizeMBID(track.ID); id != "" {
-			if detailed, err := c.local.GetRecording(ctx, id); err == nil && detailed != nil {
-				track = mergeRecordingAlbum(track, detailed)
-			}
-		}
-	}
-	if track.AlbumID != "" {
-		track.ImageURL = c.coverURL(track.AlbumID)
-	} else if !usableImageURL(track.ImageURL) {
+	if !usableImageURL(track.ImageURL) {
 		track.ImageURL = fallbackImage
-	}
-	return track
-}
-
-func mergeRecordingAlbum(track musiccatalog.TopTrack, detailed *musiccatalog.TopTrack) musiccatalog.TopTrack {
-	if detailed.AlbumID != "" {
-		track.AlbumID = detailed.AlbumID
-	}
-	if detailed.AlbumName != "" {
-		track.AlbumName = detailed.AlbumName
-	}
-	if track.ID == "" || strings.HasPrefix(track.ID, "lfm:") {
-		track.ID = detailed.ID
-	}
-	if track.DurationMs <= 0 && detailed.DurationMs > 0 {
-		track.DurationMs = detailed.DurationMs
 	}
 	return track
 }

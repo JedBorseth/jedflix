@@ -72,6 +72,9 @@ services:
       - backend_data:/data
       # Lazy CAA artwork cache — permanent files on disk1.
       - ${JEDFLIX_DATA_ROOT:-/mnt/disk1/jedflix}/music-artwork:/data/music-artwork
+    depends_on:
+      musicbrainz-db:
+        condition: service_healthy
 
   # --- Local MusicBrainz (data lives on /mnt/disk1/jedflix) ---
   musicbrainz-db:
