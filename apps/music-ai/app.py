@@ -24,7 +24,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 EMBEDDING_MODEL = os.environ.get("MUSIC_AI_EMBEDDING_MODEL", "Qwen/Qwen3-Embedding-0.6B")
 RERANKER_MODEL = os.environ.get("MUSIC_AI_RERANKER_MODEL", "Qwen/Qwen3-Reranker-0.6B")
 EMBEDDING_DIM = int(os.environ.get("MUSIC_AI_EMBEDDING_DIM", "512"))
-MAX_EMBED_BATCH = int(os.environ.get("MUSIC_AI_EMBED_BATCH", "8"))
+MAX_EMBED_BATCH = int(os.environ.get("MUSIC_AI_EMBED_BATCH", "32"))
 MAX_RERANK_BATCH = int(os.environ.get("MUSIC_AI_RERANK_BATCH", "8"))
 MAX_TEXTS = int(os.environ.get("MUSIC_AI_MAX_TEXTS", "64"))
 MAX_RERANK_LENGTH = int(os.environ.get("MUSIC_AI_RERANK_MAX_LENGTH", "1024"))

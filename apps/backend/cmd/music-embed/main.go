@@ -39,13 +39,14 @@ func main() {
 	cancel()
 
 	ai := musicai.New(aiURL)
-	if err := populateIfDue(ctx, store, true); err != nil {
+	docs, embeddings, _ := store.DocumentCounts(ctx)
+	if err := populateIfDue(ctx, store, docs < 10000); err != nil {
 		log.Fatalf("populate: %v", err)
 	}
-	docs, embeddings, _ := store.DocumentCounts(ctx)
+	docs, embeddings, _ = store.DocumentCounts(ctx)
 	log.Printf("search documents=%d embeddings=%d", docs, embeddings)
 
-	batch := 8
+	batch := 32
 	idleDelay := 15 * time.Second
 	for {
 		if ctx.Err() != nil {
@@ -107,7 +108,7 @@ func main() {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(250 * time.Millisecond):
+		case <-time.After(50 * time.Millisecond):
 		}
 	}
 }

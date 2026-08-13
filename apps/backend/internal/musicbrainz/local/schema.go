@@ -73,10 +73,6 @@ func EnsureSearchSchema(ctx context.Context, db *sql.DB) error {
 			value text NOT NULL DEFAULT '',
 			updated_at timestamptz NOT NULL DEFAULT now()
 		)`,
-		`CREATE INDEX IF NOT EXISTS search_documents_tsv_idx
-			ON jedflix.search_documents USING gin (tsv)`,
-		`CREATE INDEX IF NOT EXISTS search_documents_trgm_idx
-			ON jedflix.search_documents USING gin (name_norm gin_trgm_ops)`,
 		`CREATE INDEX IF NOT EXISTS search_documents_type_pop_idx
 			ON jedflix.search_documents (entity_type, popularity DESC)`,
 		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS music_embeddings_hnsw_idx
@@ -89,6 +85,34 @@ func EnsureSearchSchema(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("jedflix search schema: %w", err)
 		}
 	}
+	return createSearchDocumentIndexes(ctx, db)
+}
+
+func dropSearchDocumentIndexes(ctx context.Context, db *sql.DB) error {
+	stmts := []string{
+		`DROP INDEX IF EXISTS jedflix.search_documents_tsv_idx`,
+		`DROP INDEX IF EXISTS jedflix.search_documents_trgm_idx`,
+	}
+	for _, stmt := range stmts {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("drop search indexes: %w", err)
+		}
+	}
+	return nil
+}
+
+func createSearchDocumentIndexes(ctx context.Context, db *sql.DB) error {
+	stmts := []string{
+		`CREATE INDEX IF NOT EXISTS search_documents_tsv_idx
+			ON jedflix.search_documents USING gin (tsv)`,
+		`CREATE INDEX IF NOT EXISTS search_documents_trgm_idx
+			ON jedflix.search_documents USING gin (name_norm gin_trgm_ops)`,
+	}
+	for _, stmt := range stmts {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("create search indexes: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -96,11 +120,17 @@ func (s *Store) SearchReady(ctx context.Context) bool {
 	if !s.Configured() {
 		return false
 	}
-	var n int
+	var artists, albums, tracks int
 	err := s.db.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM jedflix.search_documents
-	`).Scan(&n)
-	return err == nil && n > 0
+		SELECT
+			COUNT(*) FILTER (WHERE entity_type = 'artist'),
+			COUNT(*) FILTER (WHERE entity_type = 'album'),
+			COUNT(*) FILTER (WHERE entity_type = 'track')
+		FROM jedflix.search_documents
+	`).Scan(&artists, &albums, &tracks)
+	// Wait until all three types exist so Meilisearch keeps covering
+	// albums/tracks during the first backfill.
+	return err == nil && artists > 1000 && albums > 1000 && tracks > 1000
 }
 
 func (s *Store) SetState(ctx context.Context, key, value string) error {

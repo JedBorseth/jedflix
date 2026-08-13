@@ -78,13 +78,16 @@ jobs:
             df -h /mnt/disk1 || true
             docker system df || true
 
-            # Free space before git fetch/build. Do NOT prune volumes —
-            # caddy_data holds TLS certs.
-            docker builder prune -af || true
-            docker image prune -af || true
+            # Free dangling containers/images only. Keep the BuildKit cache so
+            # the CUDA/torch music-ai image does not rebuild from scratch.
+            # Do NOT prune volumes — caddy_data holds TLS certs.
             docker container prune -f || true
-            # Drop unused networks/build cache without touching volumes.
-            docker system prune -af || true
+            docker image prune -f || true
+            avail_kb="$(df -P / | awk 'NR==2 { print $4 }')"
+            if [ "${avail_kb:-0}" -lt 8388608 ]; then
+              echo "Root has under 8G free; pruning BuildKit cache"
+              docker builder prune -af || true
+            fi
 
             echo "== Disk after cleanup =="
             df -h / || true
@@ -100,9 +103,8 @@ jobs:
             docker ps -aq --filter name=music-indexer-run | xargs -r docker stop || true
             docker ps -aq --filter name=music-indexer-run | xargs -r docker rm || true
 
-            # Reclaim layers left behind by the new images.
-            docker image prune -af || true
-            docker builder prune -af || true
+            # Reclaim replaced image layers, but keep BuildKit cache.
+            docker image prune -f || true
 
             echo "== Disk after deploy =="
             df -h / || true

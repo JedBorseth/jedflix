@@ -76,7 +76,19 @@ func (s *Store) HybridSearch(ctx context.Context, query string, queryVec []float
 }
 
 func (s *Store) searchText(ctx context.Context, query string, limit int) ([]SearchHit, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, fmt.Errorf("%w: text search: %v", musiccatalog.ErrFetchFailed, err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	// Indexed pg_trgm operators only — word_similarity() in WHERE seq-scans the table.
+	if _, err := tx.ExecContext(ctx, `SET LOCAL pg_trgm.word_similarity_threshold = 0.4`); err != nil {
+		return nil, fmt.Errorf("%w: text search: %v", musiccatalog.ErrFetchFailed, err)
+	}
+	if _, err := tx.ExecContext(ctx, `SET LOCAL statement_timeout = '8s'`); err != nil {
+		return nil, fmt.Errorf("%w: text search: %v", musiccatalog.ErrFetchFailed, err)
+	}
+	rows, err := tx.QueryContext(ctx, `
 		WITH q AS (
 			SELECT
 				jedflix.safe_websearch($1) AS tsq,
@@ -91,8 +103,8 @@ func (s *Store) searchText(ctx context.Context, query string, limit int) ([]Sear
 		WHERE (
 			(q.tsq <> ''::tsquery AND d.tsv @@ q.tsq)
 			OR d.name_norm % q.qnorm
+			OR d.name_norm %> q.qnorm
 			OR d.name_norm LIKE q.qnorm || '%'
-			OR word_similarity(q.qnorm, d.name_norm) > 0.32
 		)
 		ORDER BY
 			(COALESCE(ts_rank_cd(d.tsv, q.tsq), 0) * 2
@@ -105,7 +117,17 @@ func (s *Store) searchText(ctx context.Context, query string, limit int) ([]Sear
 		return nil, fmt.Errorf("%w: text search: %v", musiccatalog.ErrFetchFailed, err)
 	}
 	defer rows.Close()
-	return scanHits(rows, "lexical")
+	hits, err := scanHits(rows, "lexical")
+	if err != nil {
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("%w: text search: %v", musiccatalog.ErrFetchFailed, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("%w: text search: %v", musiccatalog.ErrFetchFailed, err)
+	}
+	return hits, nil
 }
 
 func (s *Store) searchVector(ctx context.Context, queryVec []float32, limit int) ([]SearchHit, error) {
