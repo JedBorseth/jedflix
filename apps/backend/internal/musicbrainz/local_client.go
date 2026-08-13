@@ -30,6 +30,10 @@ func (c *Client) withArtistImageURLs(artists []musiccatalog.Artist) []musiccatal
 	return out
 }
 
+func (c *Client) EnrichTracks(ctx context.Context, tracks []musiccatalog.TopTrack) []musiccatalog.TopTrack {
+	return c.withTrackCoverURLs(ctx, tracks)
+}
+
 func (c *Client) withTrackCoverURLs(ctx context.Context, tracks []musiccatalog.TopTrack) []musiccatalog.TopTrack {
 	out := make([]musiccatalog.TopTrack, len(tracks))
 	for i, track := range tracks {

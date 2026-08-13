@@ -85,9 +85,16 @@ type BrowseResponse struct {
 }
 
 type SearchResponse struct {
-	Albums  []Album    `json:"albums"`
-	Artists []Artist   `json:"artists"`
-	Tracks  []TopTrack `json:"tracks"`
+	Albums  []Album      `json:"albums"`
+	Artists []Artist     `json:"artists"`
+	Tracks  []TopTrack   `json:"tracks"`
+	Ranked  []RankedHit  `json:"ranked,omitempty"`
+}
+
+type RankedHit struct {
+	Kind  string  `json:"kind"`
+	ID    string  `json:"id"`
+	Score float64 `json:"score"`
 }
 
 // GenreConfig defines a curated genre shelf.

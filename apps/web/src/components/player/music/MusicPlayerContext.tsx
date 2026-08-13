@@ -20,6 +20,7 @@ import {
 } from "@/lib/musicQueueArtwork";
 import { getYoutubeAudioUrl, type TrackItem } from "@/lib/spotify";
 import { recordRecentlyPlayedMusic } from "@/lib/recentlyPlayedMusic";
+import { useMusicInteractionLog } from "@/lib/musicInteractions";
 import {
   generateInfiniteQueueTracks,
   INFINITE_QUEUE_THRESHOLD,
@@ -168,6 +169,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   /** Recently played tracks for Infinite Queue recommendation context. */
   const playHistoryRef = useRef<MusicQueueTrack[]>([]);
   const infiniteRefillInFlightRef = useRef(false);
+  const logMusic = useMusicInteractionLog();
 
   const current = useMemo(() => {
     const track = queue[queueIndex] ?? null;
@@ -241,6 +243,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       const history = playHistoryRef.current.filter((item) => item.id !== playable.id);
       history.push(playable);
       playHistoryRef.current = history.slice(-20);
+      logMusic({
+        kind: "play",
+        trackId: playable.id,
+        title: playable.title,
+        artists: playable.artists,
+      });
       const videoId =
         playable.youtubeVideoId ||
         (playable.id.startsWith("yt:") ? playable.id.slice(3) : undefined);
@@ -267,7 +275,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         startPlayback(audio, generation);
       }
     },
-    [startPlayback],
+    [logMusic, startPlayback],
   );
 
   const playTrack = useCallback(
@@ -284,13 +292,19 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       queueDirtyRef.current = false;
       prefetchedIdsRef.current = new Set([track.id]);
       playHistoryRef.current = [];
+      logMusic({
+        kind: "select",
+        trackId: track.id,
+        title: track.title,
+        artists: track.artists,
+      });
       setQueue(stripQueueArtwork(list, index));
       setQueueIndex(index);
       setQueueOpen(false);
       loadAndPlay(list[index] ?? track, { immediatePlay: true });
       return session;
     },
-    [loadAndPlay],
+    [loadAndPlay, logMusic],
   );
 
   const extendQueueFromSource = useCallback(
@@ -599,6 +613,19 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     if (queueIndex >= queue.length - 1) {
       return;
     }
+    const currentTrack = queue[queueIndex];
+    if (currentTrack && !catalogEndedRef.current) {
+      const catalogSec = catalogDurationSecRef.current;
+      const audio = audioRef.current;
+      const progress =
+        catalogSec > 0 && audio ? audio.currentTime / catalogSec : 0;
+      logMusic({
+        kind: progress >= 0.8 ? "complete" : "skip",
+        trackId: currentTrack.id,
+        title: currentTrack.title,
+        artists: currentTrack.artists,
+      });
+    }
     const index = queueIndex + 1;
     const track = queue[index];
     if (!track) {
@@ -608,7 +635,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     setQueue((prev) => stripQueueArtwork(prev, index));
     // immediatePlay keeps iOS Media Session / Control Center activation.
     loadAndPlay(track, { immediatePlay: true });
-  }, [loadAndPlay, queue, queueIndex]);
+  }, [loadAndPlay, logMusic, queue, queueIndex]);
 
   /** Advance on catalog end (Spotify length) or real stream EOF — YouTube often outlasts the song. */
   const handleTrackEnded = useCallback(() => {
@@ -616,6 +643,15 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       return;
     }
     catalogEndedRef.current = true;
+    const currentTrack = queue[queueIndex];
+    if (currentTrack) {
+      logMusic({
+        kind: "complete",
+        trackId: currentTrack.id,
+        title: currentTrack.title,
+        artists: currentTrack.artists,
+      });
+    }
     if (queueIndex < queue.length - 1) {
       next();
       return;
@@ -626,7 +662,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     if (audio && !audio.paused) {
       audio.pause();
     }
-  }, [next, queue.length, queueIndex]);
+  }, [logMusic, next, queue, queueIndex]);
 
   const previous = useCallback(() => {
     const audio = audioRef.current;

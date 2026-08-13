@@ -1,4 +1,9 @@
-import type { SpotifyAlbum, SpotifyArtist, SpotifyTopTrack } from "@jedflix/stream-client";
+import type {
+  SpotifyAlbum,
+  SpotifyArtist,
+  SpotifySearchRankedHit,
+  SpotifyTopTrack,
+} from "@jedflix/stream-client";
 
 export type MusicSearchTrack = SpotifyTopTrack & {
   source?: "spotify" | "youtube";
@@ -9,6 +14,7 @@ export type MusicSearchResults = {
   albums: SpotifyAlbum[];
   artists: SpotifyArtist[];
   tracks: MusicSearchTrack[];
+  ranked?: SpotifySearchRankedHit[];
 };
 
 export type RankedMusicHit =
@@ -155,6 +161,78 @@ export function rankMusicSearchResults(
     return order[a.kind] - order[b.kind];
   });
 
+  return hits;
+}
+
+/** Prefer the backend hybrid/rerank order when the search API returns `ranked`. */
+export function applyServerMusicRanking(
+  query: string,
+  results: MusicSearchResults,
+): RankedMusicHit[] {
+  if (!results.ranked || results.ranked.length === 0) {
+    return rankMusicSearchResults(query, results);
+  }
+
+  const tracksById = new Map(results.tracks.map((track) => [track.id, track]));
+  const albumsById = new Map(results.albums.map((album) => [album.id, album]));
+  const artistsById = new Map(results.artists.map((artist) => [artist.id, artist]));
+  const hits: RankedMusicHit[] = [];
+  const used = new Set<string>();
+
+  for (const ranked of results.ranked) {
+    if (ranked.kind === "track") {
+      const track = tracksById.get(ranked.id);
+      if (!track) {
+        continue;
+      }
+      hits.push({
+        kind: "track",
+        id: `track:${track.id}`,
+        track,
+        score: ranked.score ?? 0,
+      });
+      used.add(`track:${track.id}`);
+      continue;
+    }
+    if (ranked.kind === "album") {
+      const album = albumsById.get(ranked.id);
+      if (!album) {
+        continue;
+      }
+      hits.push({
+        kind: "album",
+        id: `album:${album.id}`,
+        album,
+        score: ranked.score ?? 0,
+      });
+      used.add(`album:${album.id}`);
+      continue;
+    }
+    const artist = artistsById.get(ranked.id);
+    if (!artist) {
+      continue;
+    }
+    hits.push({
+      kind: "artist",
+      id: `artist:${artist.id}`,
+      artist,
+      score: ranked.score ?? 0,
+    });
+    used.add(`artist:${artist.id}`);
+  }
+
+  for (const track of results.tracks) {
+    const id = `track:${track.id}`;
+    if (used.has(id)) {
+      continue;
+    }
+    hits.push({
+      kind: "track",
+      id,
+      track,
+      score: scoreMusicNameMatch(query, track.name, 0),
+    });
+  }
   return hits;
 }
 

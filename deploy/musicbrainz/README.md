@@ -1,17 +1,24 @@
 # Local MusicBrainz for JedFlix
 
-JedFlix serves music catalog metadata from a **local MusicBrainz Postgres replica**
-and **Meilisearch**, with a **lazy Cover Art Archive disk cache**.
+JedFlix serves music catalog metadata from a **local MusicBrainz Postgres replica**.
+Search uses **Postgres full-text / trigram matching plus pgvector** (Qwen3 embeddings
+and a local reranker). **Meilisearch** remains a fallback while the Postgres index
+backfills. Artwork is a **lazy Cover Art Archive disk cache**.
 
 ```
 MusicBrainz dump/replication → Postgres (/mnt/disk1/jedflix/musicbrainz/pgdata)
-                             → Meilisearch (/mnt/disk1/jedflix/musicbrainz/meili)
+                             → jedflix.search_documents + music_embeddings (pgvector)
 Cover Art Archive            → lazy cache (/mnt/disk1/jedflix/music-artwork)
+Qwen3 embed/rerank models    → /mnt/disk1/jedflix/models  (music-ai GPU service)
                              → Go /api/v1/music/covers/...
 ```
 
-All MusicBrainz data, search indexes, replication packets, and artwork live under
-`/mnt/disk1/jedflix/` (not the root `/` disk).
+All MusicBrainz data, search indexes, replication packets, artwork, and model
+weights live under `/mnt/disk1/jedflix/` (not the root `/` disk).
+
+The `musicbrainz-db` image stays `postgres:16-alpine` with pgvector compiled in.
+Do not switch to a Debian pgvector image — musl vs glibc collation would risk the
+existing replica.
 
 ## One-time setup (production server)
 
@@ -19,7 +26,8 @@ All MusicBrainz data, search indexes, replication packets, and artwork live unde
 
 ```bash
 sudo mkdir -p /mnt/disk1/jedflix/musicbrainz/{pgdata,meili,dumps,replication} \
-  /mnt/disk1/jedflix/music-artwork
+  /mnt/disk1/jedflix/music-artwork \
+  /mnt/disk1/jedflix/models
 sudo chown -R "$USER:$USER" /mnt/disk1/jedflix
 ```
 
@@ -42,11 +50,15 @@ sudo chown -R "$USER:$USER" /mnt/disk1/jedflix
 MUSICBRAINZ_REINDEX=1 ./scripts/musicbrainz-reindex.sh
 ```
 
-Meilisearch reindex is off by default while JedFlix moves to Postgres/pgvector search.
-Existing `mb_artists` documents remain usable until that migration is done.
+Meilisearch reindex is off by default. Hybrid search reads `jedflix.search_documents`
+(FTS + trigram) and `jedflix.music_embeddings` (pgvector HNSW). The `music-embed`
+service backfills rated artists/albums/recordings, then calls `music-ai` on the
+GTX 1660 Ti (Qwen3-Embedding-0.6B + Qwen3-Reranker-0.6B). FTS works as soon as
+documents exist; vectors fill in over the following hours.
 
 5. Bring up the stack (`docker compose up -d`) and confirm backend logs show
-   `local MusicBrainz + Meilisearch`.
+   `local MusicBrainz Postgres (hybrid pgvector search when indexed)`.
+   `music-ai` logs `models ready on cuda` after the first Hugging Face download.
 
 ## Keep the replica current
 

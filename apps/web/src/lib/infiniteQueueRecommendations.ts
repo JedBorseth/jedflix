@@ -1,5 +1,7 @@
 import type { SpotifyTopTrack } from "@jedflix/stream-client";
+import { createStreamClient } from "@jedflix/stream-client";
 import { getSimilarTracks, topTrackToQueueFields } from "@/lib/lastfm";
+import { getBackendApiBase } from "@/lib/backendEnv";
 import type { MusicQueueTrack } from "@/components/player/music/MusicPlayerContext";
 
 /** Keep upcoming queue topped up when it falls below this many tracks. */
@@ -16,10 +18,14 @@ export type RecommendationSeed = {
   artists: string[];
 };
 
+const streamClient = createStreamClient({
+  apiBase: getBackendApiBase(),
+});
+
 /**
  * Modular recommendation picker for Infinite Queue.
- * Uses a single Last.fm similar-tracks call (resolved via Spotify search) to
- * avoid stampeding Spotify Dev Mode quota.
+ * Prefers the backend hybrid ranker (Last.fm + pgvector + Qwen rerank),
+ * then falls back to a single Last.fm similar-tracks call.
  */
 export async function generateInfiniteQueueTracks(options: {
   current: MusicQueueTrack | null;
@@ -30,8 +36,44 @@ export async function generateInfiniteQueueTracks(options: {
 }): Promise<MusicQueueTrack[]> {
   const limit = options.limit ?? INFINITE_QUEUE_BATCH_SIZE;
   const seeds = buildSeeds(options.current, options.recent);
-  if (seeds.length === 0) {
+  if (seeds.length === 0 || !options.current) {
     return [];
+  }
+
+  try {
+    const ranked = await streamClient.recommendMusic({
+      seed: {
+        id: options.current.id,
+        title: options.current.title,
+        artists: options.current.artists,
+        albumName: options.current.albumName,
+      },
+      recent: options.recent.map((track) => ({
+        id: track.id,
+        title: track.title,
+        artists: track.artists,
+        albumName: track.albumName,
+      })),
+      excludeIds: [...options.excludeIds],
+      recentArtistNames: options.recentArtistNames,
+      limit,
+    });
+    const fromServer: MusicQueueTrack[] = [];
+    for (const track of ranked.tracks ?? []) {
+      if (!track.id || options.excludeIds.has(track.id)) {
+        continue;
+      }
+      fromServer.push(topTrackToQueueFields(track));
+      options.excludeIds.add(track.id);
+      if (fromServer.length >= limit) {
+        break;
+      }
+    }
+    if (fromServer.length > 0) {
+      return fromServer;
+    }
+  } catch {
+    // Fall through to Last.fm-only refill.
   }
 
   const primary = seeds[0]!;

@@ -17,12 +17,20 @@ const (
 	defaultSimilarTracks  = 6
 	maxSimilarArtists     = 6
 	maxSimilarTracks      = 6
+	maxSimilarPool        = 25
 )
 
 // CatalogSearcher resolves Last.fm name hits into catalog objects (MusicBrainz).
 type CatalogSearcher interface {
 	Configured() bool
 	Search(ctx context.Context, query string) (*musiccatalog.SearchResponse, error)
+}
+
+// CatalogNamer is a fast exact-name resolve path. Hybrid search is too slow
+// to use once per Last.fm similar-track hit.
+type CatalogNamer interface {
+	ResolveArtistByName(ctx context.Context, name string) (*musiccatalog.Artist, error)
+	ResolveTrackByName(ctx context.Context, name, artist string) (*musiccatalog.TopTrack, error)
 }
 
 // Service resolves Last.fm recommendations into catalog objects.
@@ -56,7 +64,17 @@ func (s *Service) SimilarArtists(ctx context.Context, artist string, limit int) 
 	if !s.canResolve() {
 		return nil, ErrNotConfigured
 	}
-	limit = clampResolveLimit(limit, defaultSimilarArtists, maxSimilarArtists)
+	return s.similarArtists(ctx, artist, clampResolveLimit(limit, defaultSimilarArtists, maxSimilarArtists))
+}
+
+func (s *Service) SimilarArtistsWide(ctx context.Context, artist string, limit int) ([]musiccatalog.Artist, error) {
+	if !s.canResolve() {
+		return nil, ErrNotConfigured
+	}
+	return s.similarArtists(ctx, artist, clampResolveLimit(limit, 8, maxSimilarPool))
+}
+
+func (s *Service) similarArtists(ctx context.Context, artist string, limit int) ([]musiccatalog.Artist, error) {
 	raw, err := s.lastfm.GetSimilarArtists(ctx, artist, limit)
 	if err != nil {
 		return nil, err
@@ -98,7 +116,17 @@ func (s *Service) SimilarTracks(ctx context.Context, artist, track string, limit
 	if !s.canResolve() {
 		return nil, ErrNotConfigured
 	}
-	limit = clampResolveLimit(limit, defaultSimilarTracks, maxSimilarTracks)
+	return s.similarTracks(ctx, artist, track, clampResolveLimit(limit, defaultSimilarTracks, maxSimilarTracks))
+}
+
+func (s *Service) SimilarTracksWide(ctx context.Context, artist, track string, limit int) ([]musiccatalog.TopTrack, error) {
+	if !s.canResolve() {
+		return nil, ErrNotConfigured
+	}
+	return s.similarTracks(ctx, artist, track, clampResolveLimit(limit, 12, maxSimilarPool))
+}
+
+func (s *Service) similarTracks(ctx context.Context, artist, track string, limit int) ([]musiccatalog.TopTrack, error) {
 	raw, err := s.lastfm.GetSimilarTracks(ctx, artist, track, limit)
 	if err != nil {
 		return nil, err
@@ -228,6 +256,19 @@ func (s *Service) resolveArtist(ctx context.Context, name string) (*musiccatalog
 	}
 	s.resolveMu.Unlock()
 
+	if namer, ok := s.catalog.(CatalogNamer); ok {
+		resolved, err := namer.ResolveArtistByName(ctx, name)
+		if err == nil && resolved != nil {
+			copy := *resolved
+			s.resolveMu.Lock()
+			s.artistCache[key] = &copy
+			s.resolveMu.Unlock()
+			return &copy, nil
+		}
+		// Hybrid search is too slow to run once per Last.fm similar-artist hit.
+		return nil, nil
+	}
+
 	result, err := s.catalog.Search(ctx, name)
 	if err != nil {
 		return nil, err
@@ -252,6 +293,19 @@ func (s *Service) resolveTrack(ctx context.Context, artist, track string) (*musi
 		return cached, nil
 	}
 	s.resolveMu.Unlock()
+
+	if namer, ok := s.catalog.(CatalogNamer); ok {
+		resolved, err := namer.ResolveTrackByName(ctx, track, artist)
+		if err == nil && resolved != nil {
+			copy := *resolved
+			s.resolveMu.Lock()
+			s.trackCache[key] = &copy
+			s.resolveMu.Unlock()
+			return &copy, nil
+		}
+		// Hybrid search is too slow to run once per Last.fm similar-track hit.
+		return nil, nil
+	}
 
 	result, err := s.catalog.Search(ctx, track+" "+artist)
 	if err != nil {

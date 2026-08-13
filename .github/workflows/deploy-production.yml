@@ -31,7 +31,7 @@ jobs:
   deploy:
     needs: test
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
     environment: production
     steps:
       - name: Checkout
@@ -62,15 +62,16 @@ jobs:
           username: ${{ secrets.PROD_SSH_USER }}
           key: ${{ secrets.PROD_SSH_KEY }}
           envs: PROD_APP_DIR
-          # Build + prune can exceed the default on a tight disk.
-          command_timeout: 20m
+          # CUDA image + torch + first pgvector postgres build can exceed 20m.
+          command_timeout: 70m
           script: |
             set -euo pipefail
             cd "${PROD_APP_DIR}"
 
-            echo "== Ensure MusicBrainz / artwork dirs on disk1 =="
+            echo "== Ensure MusicBrainz / artwork / model dirs on disk1 =="
             mkdir -p /mnt/disk1/jedflix/musicbrainz/{pgdata,meili,dumps,replication} \
-              /mnt/disk1/jedflix/music-artwork/{by-mbid,by-hash,missing} || true
+              /mnt/disk1/jedflix/music-artwork/{by-mbid,by-hash,missing} \
+              /mnt/disk1/jedflix/models || true
 
             echo "== Disk before cleanup =="
             df -h / || true
@@ -109,3 +110,10 @@ jobs:
 
             echo "== Smoke: backend health via /backend =="
             curl -fsS "http://127.0.0.1/backend/health" || curl -fsS "https://127.0.0.1/backend/health" -k || true
+
+            echo "== Smoke: pgvector extension =="
+            docker compose exec -T musicbrainz-db psql -U musicbrainz -d musicbrainz -c "CREATE EXTENSION IF NOT EXISTS vector; SELECT extname, extversion FROM pg_extension WHERE extname IN ('vector','pg_trgm');" || true
+
+            echo "== Smoke: music-ai live =="
+            docker compose exec -T music-ai python3 -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8000/live').read().decode())" || true
+            docker compose logs --tail=20 music-ai music-embed || true

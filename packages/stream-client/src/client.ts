@@ -208,10 +208,17 @@ export type SpotifyBrowseResponse = {
   cachedAt: number;
 };
 
+export type SpotifySearchRankedHit = {
+  kind: "track" | "album" | "artist";
+  id: string;
+  score?: number;
+};
+
 export type SpotifySearchResponse = {
   albums: SpotifyAlbum[];
   artists: SpotifyArtist[];
   tracks: SpotifyTopTrack[];
+  ranked?: SpotifySearchRankedHit[];
 };
 
 export type YoutubeMusicSearchTrack = {
@@ -249,6 +256,25 @@ export type LastFmRelatedResponse = {
 
 export type LastFmArtistTagsResponse = {
   tags: LastFmTag[];
+};
+
+export type MusicRecommendSeed = {
+  id: string;
+  title: string;
+  artists: string[];
+  albumName?: string;
+};
+
+export type MusicRecommendRequest = {
+  seed: MusicRecommendSeed;
+  recent?: MusicRecommendSeed[];
+  excludeIds?: string[];
+  recentArtistNames?: string[];
+  limit?: number;
+};
+
+export type MusicRecommendResponse = {
+  tracks: SpotifyTopTrack[];
 };
 
 export type StreamClientConfig = {
@@ -303,6 +329,7 @@ export type StreamClient = {
   }) => Promise<LastFmRelatedResponse>;
   fetchLastFmArtistTags: (artist: string) => Promise<LastFmArtistTagsResponse>;
   searchYoutubeMusic: (query: string) => Promise<YoutubeMusicSearchResponse>;
+  recommendMusic: (request: MusicRecommendRequest) => Promise<MusicRecommendResponse>;
   getYoutubeAudioUrl: (params: {
     artist: string;
     title: string;
@@ -630,6 +657,7 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
       albums: (payload.albums ?? []).map(normalizeSpotifyAlbum),
       artists: (payload.artists ?? []).map(normalizeSpotifyArtist),
       tracks: (payload.tracks ?? []).map(normalizeSpotifyTopTrack),
+      ranked: payload.ranked,
     };
   }
 
@@ -806,6 +834,22 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
     };
   }
 
+  async function recommendMusic(request: MusicRecommendRequest): Promise<MusicRecommendResponse> {
+    const response = await fetch(`${apiBase}/api/v1/music/recommend`, {
+      method: "POST",
+      headers: { ...headers(), "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(payload?.error ?? `Music recommend failed (${response.status})`);
+    }
+    const payload = (await response.json()) as MusicRecommendResponse;
+    return {
+      tracks: (payload.tracks ?? []).map(normalizeSpotifyTopTrack),
+    };
+  }
+
   async function searchYoutubeMusic(query: string): Promise<YoutubeMusicSearchResponse> {
     const params = new URLSearchParams({ q: query.trim() });
     const response = await fetch(`${apiBase}/api/v1/youtube/search?${params.toString()}`, {
@@ -869,6 +913,7 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
     fetchLastFmRelated,
     fetchLastFmArtistTags,
     searchYoutubeMusic,
+    recommendMusic,
     getYoutubeAudioUrl,
   };
 }

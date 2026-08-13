@@ -114,6 +114,28 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_user", ["userId"]),
 
+  /**
+   * Future personalization signals. Logged now; no ranking model consumes this yet.
+   */
+  musicInteractions: defineTable({
+    userId: v.id("users"),
+    kind: v.union(
+      v.literal("play"),
+      v.literal("skip"),
+      v.literal("complete"),
+      v.literal("select"),
+      v.literal("search"),
+      v.literal("click"),
+    ),
+    trackId: v.optional(v.string()),
+    title: v.optional(v.string()),
+    artists: v.optional(v.array(v.string())),
+    query: v.optional(v.string()),
+    resultId: v.optional(v.string()),
+    resultKind: v.optional(v.string()),
+    createdAt: v.number(),
+  }).index("by_user_and_created", ["userId", "createdAt"]),
+
   /** Long-running Spotify → JedFlix library import. One active job per user. */
   spotifyImportJobs: defineTable({
     userId: v.id("users"),

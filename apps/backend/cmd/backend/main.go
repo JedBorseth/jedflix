@@ -15,8 +15,10 @@ import (
 	"github.com/jedborseth/jeds-movies/backend/internal/config"
 	"github.com/jedborseth/jeds-movies/backend/internal/lastfm"
 	"github.com/jedborseth/jeds-movies/backend/internal/letterboxd"
+	"github.com/jedborseth/jeds-movies/backend/internal/musicai"
 	"github.com/jedborseth/jeds-movies/backend/internal/musicbrainz"
 	"github.com/jedborseth/jeds-movies/backend/internal/musicbrainz/local"
+	"github.com/jedborseth/jeds-movies/backend/internal/musicrec"
 	"github.com/jedborseth/jeds-movies/backend/internal/musicsearch"
 	"github.com/jedborseth/jeds-movies/backend/internal/openlibrary"
 	"github.com/jedborseth/jeds-movies/backend/internal/realdebrid"
@@ -66,7 +68,7 @@ func main() {
 			log.Printf("warning: Meilisearch unavailable: %v", err)
 		} else {
 			musicClient.SetSearch(searchClient)
-			log.Printf("Music search: Meilisearch at %s", cfg.MeiliURL)
+			log.Printf("Music search fallback: Meilisearch at %s", cfg.MeiliURL)
 			go func() {
 				ensureCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 				defer cancel()
@@ -76,10 +78,19 @@ func main() {
 			}()
 		}
 	}
+	aiClient := musicai.New(cfg.MusicAIURL)
+	if aiClient != nil {
+		musicClient.SetAI(aiClient)
+		if aiClient.Ready(ctx) {
+			log.Printf("Music AI (embed/rerank) ready at %s", cfg.MusicAIURL)
+		} else {
+			log.Printf("Music AI configured at %s (models may still be loading)", cfg.MusicAIURL)
+		}
+	}
 	if musicClient.LocalEnabled() {
-		log.Println("Music catalog: local MusicBrainz + Meilisearch (public MB API unused for search/detail)")
+		log.Println("Music catalog: local MusicBrainz Postgres (hybrid pgvector search when indexed)")
 	} else {
-		log.Println("Music catalog provider: MusicBrainz API (+ Cover Art Archive) — set MUSICBRAINZ_DATABASE_URL + MEILI_URL for local mode")
+		log.Println("Music catalog provider: MusicBrainz API (+ Cover Art Archive) — set MUSICBRAINZ_DATABASE_URL for local mode")
 	}
 	if cfg.MusicArtworkPath != "" {
 		log.Printf("Music artwork cache path: %s", cfg.MusicArtworkPath)
@@ -111,7 +122,9 @@ func main() {
 	}
 
 	youtubeResolver := youtube.NewResolver()
+	recommender := musicrec.New(musicClient, lastfmService, aiClient)
 	server := api.NewServer(cfg, resolverService, letterboxdClient, openLibraryClient, musicClient, lastfmService, youtubeResolver, tmdbClient)
+	server.SetRecommender(recommender)
 	httpServer := &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           server.Router(),

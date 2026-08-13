@@ -17,6 +17,7 @@ import (
 	"github.com/jedborseth/jeds-movies/backend/internal/letterboxd"
 	"github.com/jedborseth/jeds-movies/backend/internal/musicbrainz"
 	"github.com/jedborseth/jeds-movies/backend/internal/musiccatalog"
+	"github.com/jedborseth/jeds-movies/backend/internal/musicrec"
 	"github.com/jedborseth/jeds-movies/backend/internal/openlibrary"
 	"github.com/jedborseth/jeds-movies/backend/internal/resolvejobs"
 	"github.com/jedborseth/jeds-movies/backend/internal/resolver"
@@ -32,6 +33,7 @@ type Server struct {
 	openLibrary *openlibrary.Client
 	music       *musicbrainz.Client
 	lastfm      *lastfm.Service
+	recommender *musicrec.Service
 	tmdb        *tmdb.Client
 	youtube     *youtube.Resolver
 	limiter     *ipRateLimiter
@@ -74,6 +76,13 @@ func NewServer(
 		resolveSem:  make(chan struct{}, resolveSlots),
 		youtubeSem:  make(chan struct{}, youtubeSlots),
 	}
+}
+
+func (s *Server) SetRecommender(rec *musicrec.Service) {
+	if s == nil {
+		return
+	}
+	s.recommender = rec
 }
 
 func (s *Server) Router() http.Handler {
@@ -124,6 +133,7 @@ func (s *Server) Router() http.Handler {
 		r.Get("/lastfm/similar-tracks", s.handleLastFMSimilarTracks)
 		r.Get("/lastfm/artist-tags", s.handleLastFMArtistTags)
 		r.Get("/lastfm/related", s.handleLastFMRelated)
+		r.Post("/music/recommend", s.handleMusicRecommend)
 		r.Get("/tmdb/*", s.handleTmdbProxy)
 		r.Get("/youtube/search", s.handleYouTubeSearch)
 		r.Get("/youtube/audio", s.handleYouTubeAudio)
@@ -683,6 +693,30 @@ func (s *Server) handleLastFMRelated(w http.ResponseWriter, r *http.Request) {
 		"artists": artists,
 		"tracks":  tracks,
 	})
+}
+
+func (s *Server) handleMusicRecommend(w http.ResponseWriter, r *http.Request) {
+	if s.recommender == nil || !s.recommender.Configured() {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "music recommendations are not configured"})
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	var req musicrec.Request
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	result, err := s.recommender.Recommend(ctx, req)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	if s.music != nil && result != nil {
+		result.Tracks = s.music.EnrichTracks(ctx, result.Tracks)
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) handleYouTubeSearch(w http.ResponseWriter, r *http.Request) {

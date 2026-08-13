@@ -47,6 +47,7 @@ type Config struct {
 	MusicBrainzDatabaseURL string
 	MeiliURL               string
 	MeiliAPIKey            string
+	MusicAIURL             string
 	MusicArtworkPath       string
 	MusicCoverPublicBase   string
 	LastFMAPIKey           string
@@ -95,6 +96,7 @@ func Load() Config {
 		MusicBrainzDatabaseURL: strings.TrimSpace(os.Getenv("MUSICBRAINZ_DATABASE_URL")),
 		MeiliURL:               strings.TrimRight(strings.TrimSpace(os.Getenv("MEILI_URL")), "/"),
 		MeiliAPIKey:            strings.TrimSpace(os.Getenv("MEILI_API_KEY")),
+		MusicAIURL:             strings.TrimRight(strings.TrimSpace(os.Getenv("MUSIC_AI_URL")), "/"),
 		MusicArtworkPath:       strings.TrimSpace(envOr("MUSIC_ARTWORK_PATH", "/data/music-artwork")),
 		MusicCoverPublicBase:   strings.TrimRight(envOr("MUSIC_COVER_PUBLIC_BASE", "/backend/api/v1/music/covers"), "/"),
 		LastFMAPIKey:           strings.TrimSpace(os.Getenv("LASTFM_API_KEY")),

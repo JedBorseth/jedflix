@@ -33,5 +33,9 @@ export type {
   LastFmSimilarTracksResponse,
   LastFmRelatedResponse,
   LastFmArtistTagsResponse,
+  MusicRecommendRequest,
+  MusicRecommendResponse,
+  MusicRecommendSeed,
+  SpotifySearchRankedHit,
 } from "./client";
 export { createStreamClient, StreamResolveError } from "./client";

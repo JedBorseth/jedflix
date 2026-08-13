@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  applyServerMusicRanking,
   mergeMusicSearchTracks,
   normalizeMusicDedupeKey,
   rankMusicSearchResults,
@@ -121,5 +122,38 @@ describe("musicSearch relevance", () => {
     expect(shuffled).toHaveLength(5);
     expect([...shuffled].sort()).toEqual([1, 2, 3, 4, 5]);
     expect(input).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  test("applyServerMusicRanking keeps backend order instead of re-scoring", () => {
+    const ranked = applyServerMusicRanking("beat", {
+      tracks: [
+        spotifyTrack({ id: "t-beatles", name: "Let It Be", artists: ["The Beatles"] }),
+        spotifyTrack({ id: "t-beat-it", name: "Beat It", artists: ["Michael Jackson"] }),
+      ],
+      albums: [],
+      artists: [
+        {
+          id: "a-beatles",
+          name: "The Beatles",
+          imageUrl: "https://img/b.jpg",
+          genres: [],
+          popularity: 99,
+        },
+      ],
+      ranked: [
+        { kind: "track", id: "t-beat-it", score: 0.9 },
+        { kind: "artist", id: "a-beatles", score: 0.4 },
+        { kind: "track", id: "t-beatles", score: 0.2 },
+      ],
+    });
+    expect(ranked.map((hit) => {
+      if (hit.kind === "track") {
+        return `track:${hit.track.id}`;
+      }
+      if (hit.kind === "album") {
+        return `album:${hit.album.id}`;
+      }
+      return `artist:${hit.artist.id}`;
+    })).toEqual(["track:t-beat-it", "artist:a-beatles", "track:t-beatles"]);
   });
 });

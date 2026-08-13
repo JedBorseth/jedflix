@@ -56,6 +56,7 @@ services:
       MUSICBRAINZ_DATABASE_URL: ${MUSICBRAINZ_DATABASE_URL:-postgres://musicbrainz:${MUSICBRAINZ_DB_PASSWORD:-musicbrainz}@musicbrainz-db:5432/musicbrainz?sslmode=disable}
       MEILI_URL: ${MEILI_URL:-http://meilisearch:7700}
       MEILI_API_KEY: ${MEILI_API_KEY:-${MEILI_MASTER_KEY:-jedflix_meili_master_change_me}}
+      MUSIC_AI_URL: ${MUSIC_AI_URL:-http://music-ai:8000}
       MUSIC_ARTWORK_PATH: ${MUSIC_ARTWORK_PATH:-/data/music-artwork}
       MUSIC_COVER_PUBLIC_BASE: ${MUSIC_COVER_PUBLIC_BASE:-/backend/api/v1/music/covers}
       # Spotify credentials unused for catalog; still accepted for local tooling.
@@ -76,7 +77,10 @@ services:
 
   # --- Local MusicBrainz (data lives on /mnt/disk1/jedflix) ---
   musicbrainz-db:
-    image: postgres:16-alpine
+    build:
+      context: .
+      dockerfile: deploy/musicbrainz/Dockerfile.postgres
+    image: jedflix-musicbrainz-db
     restart: unless-stopped
     environment:
       POSTGRES_DB: musicbrainz
@@ -152,6 +156,43 @@ services:
       musicbrainz-db:
         condition: service_healthy
       meilisearch:
+        condition: service_healthy
+
+  music-ai:
+    build:
+      context: ./apps/music-ai
+    restart: unless-stopped
+    runtime: nvidia
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+      HF_HOME: /models
+      HUGGINGFACE_HUB_CACHE: /models
+      TRANSFORMERS_CACHE: /models
+      MUSIC_AI_EMBEDDING_MODEL: ${MUSIC_AI_EMBEDDING_MODEL:-Qwen/Qwen3-Embedding-0.6B}
+      MUSIC_AI_RERANKER_MODEL: ${MUSIC_AI_RERANKER_MODEL:-Qwen/Qwen3-Reranker-0.6B}
+      MUSIC_AI_EMBEDDING_DIM: ${MUSIC_AI_EMBEDDING_DIM:-512}
+    volumes:
+      - ${JEDFLIX_DATA_ROOT:-/mnt/disk1/jedflix}/models:/models
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/live')"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+  music-embed:
+    build:
+      context: ./apps/backend
+      target: embedder
+    restart: unless-stopped
+    environment:
+      MUSICBRAINZ_DATABASE_URL: postgres://musicbrainz:${MUSICBRAINZ_DB_PASSWORD:-musicbrainz}@musicbrainz-db:5432/musicbrainz?sslmode=disable
+      MUSIC_AI_URL: http://music-ai:8000
+    depends_on:
+      musicbrainz-db:
         condition: service_healthy
 
 volumes:

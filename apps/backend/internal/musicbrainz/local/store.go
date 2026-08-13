@@ -133,10 +133,13 @@ func Open(databaseURL string) (*Store, error) {
 		return nil, fmt.Errorf("%w: musicbrainz schema missing — run scripts/musicbrainz-import.sh", ErrNotConfigured)
 	}
 	store := &Store{db: db}
-	schemaCtx, schemaCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	schemaCtx, schemaCancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer schemaCancel()
 	if err := EnsureArtworkSchema(schemaCtx, db); err != nil {
 		fmt.Printf("jedflix artwork schema unavailable: %v\n", err)
+	}
+	if err := EnsureSearchSchema(schemaCtx, db); err != nil {
+		fmt.Printf("jedflix search schema unavailable: %v\n", err)
 	}
 	return store, nil
 }

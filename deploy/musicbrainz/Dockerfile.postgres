@@ -1,0 +1,15 @@
+# Keep Alpine (musl) so the existing MusicBrainz data directory stays
+# collation-compatible. Switching to a Debian pgvector image would risk
+# index/locale breakage on the replica.
+FROM postgres:16-alpine
+
+RUN set -eux; \
+	apk add --no-cache --virtual .build-deps git build-base; \
+	if apk add --no-cache --virtual .clang-deps clang19 llvm19-dev; then :; \
+	elif apk add --no-cache --virtual .clang-deps clang18 llvm18-dev; then :; \
+	else apk add --no-cache --virtual .clang-deps clang llvm-dev; fi; \
+	git clone --branch v0.8.0 --depth 1 https://github.com/pgvector/pgvector.git /tmp/pgvector; \
+	make -C /tmp/pgvector OPTFLAGS=""; \
+	make -C /tmp/pgvector install; \
+	apk del .build-deps .clang-deps; \
+	rm -rf /tmp/pgvector

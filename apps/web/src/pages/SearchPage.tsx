@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { AuthorCard } from "@/components/browse/AuthorCard";
@@ -13,10 +13,11 @@ import {
 } from "@/components/player/music/MusicPlayerContext";
 import { SwipeableTrackRow } from "@/components/player/music/SwipeableTrackRow";
 import { PosterGridSkeleton } from "@/components/ui/skeleton";
+import { useMusicInteractionLog } from "@/lib/musicInteractions";
 import { useLikeTrack } from "@/hooks/useLikeTrack";
 import { useUserSettings } from "@/hooks/useUserSettings";
 import {
-  rankMusicSearchResults,
+  applyServerMusicRanking,
   type RankedMusicHit,
 } from "@/lib/musicSearch";
 import { searchBooksAll } from "@/lib/openlibrary";
@@ -63,6 +64,7 @@ export function SearchPage() {
   const navigate = useNavigate();
   const musicPlayer = useMusicPlayer();
   const likeTrack = useLikeTrack();
+  const logMusic = useMusicInteractionLog();
   const { youtubeMusicSearch } = useUserSettings();
   const query = searchParams.get("q")?.trim() ?? "";
   const typeParam = searchParams.get("type");
@@ -104,8 +106,15 @@ export function SearchPage() {
     if (searchKind !== "music" || !query || !musicQuery.data) {
       return [] as RankedMusicHit[];
     }
-    return rankMusicSearchResults(query, musicQuery.data);
+    return applyServerMusicRanking(query, musicQuery.data);
   }, [searchKind, query, musicQuery.data]);
+
+  useEffect(() => {
+    if (searchKind !== "music" || !query) {
+      return;
+    }
+    logMusic({ kind: "search", query });
+  }, [logMusic, query, searchKind]);
 
   const trackQueue = useMemo(() => {
     return rankedMusicHits
@@ -174,6 +183,15 @@ export function SearchPage() {
       return;
     }
     musicPlayer.playTrack(track, trackQueue);
+    logMusic({
+      kind: "click",
+      query,
+      trackId: track.id,
+      title: track.title,
+      artists: track.artists,
+      resultId: track.id,
+      resultKind: "track",
+    });
   }
 
   return (
@@ -298,6 +316,16 @@ export function SearchPage() {
                           key={hit.id}
                           to={getAlbumDetailPath(hit.album)}
                           state={{ preview: hit.album }}
+                          onClick={() =>
+                            logMusic({
+                              kind: "click",
+                              query,
+                              title: hit.album.name,
+                              artists: hit.album.artists,
+                              resultId: hit.album.id,
+                              resultKind: "album",
+                            })
+                          }
                           className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-zinc-900/80 md:px-12"
                         >
                           <ProgressiveCoverImage
@@ -319,6 +347,15 @@ export function SearchPage() {
                       <AppLink
                         key={hit.id}
                         to={getArtistPath(hit.artist.id)}
+                        onClick={() =>
+                          logMusic({
+                            kind: "click",
+                            query,
+                            title: hit.artist.name,
+                            resultId: hit.artist.id,
+                            resultKind: "artist",
+                          })
+                        }
                         className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-zinc-900/80 md:px-12"
                       >
                         <ProgressiveCoverImage

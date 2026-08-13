@@ -83,6 +83,7 @@ export async function searchMusicAll(
     albums: spotify.albums ?? [],
     artists: spotify.artists ?? [],
     tracks: mergeMusicSearchTracks(spotifyTracks, youtubeTracks),
+    ranked: spotify.ranked,
   };
 }
 

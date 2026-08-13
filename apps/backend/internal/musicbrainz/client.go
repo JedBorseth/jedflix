@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/jedborseth/jeds-movies/backend/internal/config"
+	"github.com/jedborseth/jeds-movies/backend/internal/musicai"
 	"github.com/jedborseth/jeds-movies/backend/internal/musicbrainz/local"
 	"github.com/jedborseth/jeds-movies/backend/internal/musiccatalog"
 	"github.com/jedborseth/jeds-movies/backend/internal/musicsearch"
@@ -77,6 +78,7 @@ type Client struct {
 	enricher        Enricher
 	local           *local.Store
 	search          *musicsearch.Client
+	ai              *musicai.Client
 
 	rateMu  sync.Mutex
 	lastReq time.Time
@@ -163,18 +165,53 @@ func (c *Client) SetLocalStore(store *local.Store) {
 	c.local = store
 }
 
-// SetSearch wires Meilisearch for catalog search (replaces public MB search).
+// SetSearch wires Meilisearch as a fallback while the Postgres index backfills.
 func (c *Client) SetSearch(search *musicsearch.Client) {
 	c.search = search
 }
 
-// LocalEnabled reports whether normal traffic should avoid the public MusicBrainz API.
-func (c *Client) LocalEnabled() bool {
-	return c != nil && c.local != nil && c.local.Configured() && c.search != nil && c.search.Configured()
-}
-
 func (c *Client) SetEnricher(e Enricher) {
 	c.enricher = e
+}
+
+func (c *Client) SetAI(ai *musicai.Client) {
+	c.ai = ai
+}
+
+func (c *Client) LocalStore() *local.Store {
+	if c == nil {
+		return nil
+	}
+	return c.local
+}
+
+func (c *Client) LocalEnabled() bool {
+	return c != nil && c.useLocalStore()
+}
+
+// ResolveArtistByName is a fast exact lookup used by Last.fm resolution.
+func (c *Client) ResolveArtistByName(ctx context.Context, name string) (*musiccatalog.Artist, error) {
+	return c.resolveArtistByName(ctx, name)
+}
+
+// ResolveTrackByName is a fast exact lookup used by Last.fm resolution.
+func (c *Client) ResolveTrackByName(ctx context.Context, name, artist string) (*musiccatalog.TopTrack, error) {
+	name = strings.TrimSpace(name)
+	artist = strings.TrimSpace(artist)
+	if name == "" || artist == "" {
+		return nil, musiccatalog.ErrBadRequest
+	}
+	if c.useLocalStore() {
+		track, err := c.local.ResolveRecordingByName(ctx, name, artist)
+		if err == nil && track != nil {
+			enriched := c.enrichTrackArtwork(ctx, *track)
+			return &enriched, nil
+		}
+		if err != nil && !errors.Is(err, musiccatalog.ErrNotFound) {
+			return nil, err
+		}
+	}
+	return nil, musiccatalog.ErrNotFound
 }
 
 func (c *Client) Configured() bool {
@@ -254,6 +291,20 @@ func (c *Client) Search(ctx context.Context, query string) (*musiccatalog.Search
 		errTracks  error
 	)
 
+	if hybrid, err := c.searchHybrid(ctx, query); err == nil && hybrid != nil &&
+		(len(hybrid.Artists) > 0 || len(hybrid.Albums) > 0 || len(hybrid.Tracks) > 0) {
+		c.trimSearchCache()
+		c.searchCache.Store(cacheKey, cachedSearch{result: *hybrid, cachedAt: c.now()})
+		for _, a := range hybrid.Artists {
+			c.rememberArtistSummary(a)
+		}
+		for _, a := range hybrid.Albums {
+			c.rememberAlbumSummary(a)
+		}
+		c.WarmArtworkAsync(ctx, hybrid.Albums, hybrid.Tracks, hybrid.Artists)
+		return hybrid, nil
+	}
+
 	if c.search != nil && c.search.Configured() {
 		result, err := c.search.Search(ctx, query, defaultLimit)
 		if err != nil {
@@ -262,27 +313,24 @@ func (c *Client) Search(ctx context.Context, query string) (*musiccatalog.Search
 		artists = c.withArtistImageURLs(result.Artists)
 		albums = c.withCoverURLs(result.Albums)
 		tracks = c.withTrackCoverURLs(ctx, result.Tracks)
-	} else if c.LocalEnabled() {
-		return nil, fmt.Errorf("%w: local search is not available", musiccatalog.ErrFetchFailed)
-	} else {
+	} else if !c.useLocalStore() {
 		artists, errArtists = c.searchArtists(ctx, query, defaultLimit)
 		albums, errAlbums = c.searchAlbums(ctx, query, defaultLimit)
 		tracks, errTracks = c.searchRecordings(ctx, query, defaultLimit)
+	}
 
-		// Last.fm fallback when MusicBrainz is busy/empty.
-		if len(artists) == 0 && len(albums) == 0 && len(tracks) == 0 &&
-			c.enricher != nil && c.enricher.Configured() {
-			if hints, err := c.enricher.SearchArtists(ctx, query, defaultLimit); err == nil {
-				artists = c.artistsFromHints(hints, defaultLimit)
-			}
-			if hints, err := c.enricher.SearchAlbums(ctx, query, defaultLimit); err == nil {
-				albums = c.albumsFromHints(ctx, hints, defaultLimit)
-			}
-			if hits, err := c.enricher.SearchTracks(ctx, query, defaultLimit); err == nil {
-				tracks = c.withTrackCoverURLs(ctx, hits)
-			}
-			errArtists, errAlbums, errTracks = nil, nil, nil
+	if len(artists) == 0 && len(albums) == 0 && len(tracks) == 0 &&
+		c.enricher != nil && c.enricher.Configured() {
+		if hints, err := c.enricher.SearchArtists(ctx, query, defaultLimit); err == nil {
+			artists = c.artistsFromHints(hints, defaultLimit)
 		}
+		if hints, err := c.enricher.SearchAlbums(ctx, query, defaultLimit); err == nil {
+			albums = c.albumsFromHints(ctx, hints, defaultLimit)
+		}
+		if hits, err := c.enricher.SearchTracks(ctx, query, defaultLimit); err == nil {
+			tracks = c.withTrackCoverURLs(ctx, hits)
+		}
+		errArtists, errAlbums, errTracks = nil, nil, nil
 	}
 
 	if len(artists) == 0 && len(albums) == 0 && len(tracks) == 0 {
