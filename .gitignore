@@ -20,6 +20,11 @@ apps/stream-server/bin/
 stream-server/.env
 .turbo
 
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
