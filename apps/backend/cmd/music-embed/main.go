@@ -46,7 +46,7 @@ func main() {
 	docs, embeddings, _ = store.DocumentCounts(ctx)
 	log.Printf("search documents=%d embeddings=%d", docs, embeddings)
 
-	batch := 32
+	batch := 16
 	idleDelay := 15 * time.Second
 	for {
 		if ctx.Err() != nil {

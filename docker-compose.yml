@@ -172,7 +172,7 @@ services:
       MUSIC_AI_EMBEDDING_MODEL: ${MUSIC_AI_EMBEDDING_MODEL:-Qwen/Qwen3-Embedding-0.6B}
       MUSIC_AI_RERANKER_MODEL: ${MUSIC_AI_RERANKER_MODEL:-Qwen/Qwen3-Reranker-0.6B}
       MUSIC_AI_EMBEDDING_DIM: ${MUSIC_AI_EMBEDDING_DIM:-512}
-      MUSIC_AI_EMBED_BATCH: ${MUSIC_AI_EMBED_BATCH:-32}
+      MUSIC_AI_EMBED_BATCH: ${MUSIC_AI_EMBED_BATCH:-8}
     volumes:
       - ${JEDFLIX_DATA_ROOT:-/mnt/disk1/jedflix}/models:/models
     expose:
