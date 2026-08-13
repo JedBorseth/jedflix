@@ -115,5 +115,5 @@ jobs:
             docker compose exec -T musicbrainz-db psql -U musicbrainz -d musicbrainz -c "CREATE EXTENSION IF NOT EXISTS vector; SELECT extname, extversion FROM pg_extension WHERE extname IN ('vector','pg_trgm');" || true
 
             echo "== Smoke: music-ai live =="
-            docker compose exec -T music-ai python3 -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8000/live').read().decode())" || true
+            docker compose exec -T music-ai python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8000/live').read().decode())" || true
             docker compose logs --tail=20 music-ai music-embed || true

@@ -1,4 +1,4 @@
-FROM nvidia/cuda:12.4.1-base-ubuntu22.04
+FROM python:3.12-slim-bookworm
 
 ENV DEBIAN_FRONTEND=noninteractive \
 	PYTHONUNBUFFERED=1 \
@@ -9,15 +9,15 @@ ENV DEBIAN_FRONTEND=noninteractive \
 	HF_HUB_DISABLE_TELEMETRY=1
 
 RUN apt-get update \
-	&& apt-get install -y --no-install-recommends python3 python3-pip python3-venv ca-certificates \
+	&& apt-get install -y --no-install-recommends ca-certificates libgomp1 \
 	&& rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY requirements.txt /app/requirements.txt
-RUN pip3 install --no-cache-dir --upgrade pip \
-	&& pip3 install --no-cache-dir torch==2.5.1 --index-url https://download.pytorch.org/whl/cu124 \
-	&& pip3 install --no-cache-dir -r /app/requirements.txt
+RUN pip install --no-cache-dir --upgrade pip \
+	&& pip install --no-cache-dir torch==2.6.0 --extra-index-url https://download.pytorch.org/whl/cu124 \
+	&& pip install --no-cache-dir -r /app/requirements.txt
 
 COPY . /app
 EXPOSE 8000
-CMD ["python3", "-m", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+CMD ["python", "-m", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
