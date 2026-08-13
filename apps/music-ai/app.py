@@ -15,7 +15,8 @@ import numpy as np
 import torch
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
-from sentence_transformers import CrossEncoder, SentenceTransformer
+from sentence_transformers import SentenceTransformer
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 log = logging.getLogger("music-ai")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -24,15 +25,24 @@ EMBEDDING_MODEL = os.environ.get("MUSIC_AI_EMBEDDING_MODEL", "Qwen/Qwen3-Embeddi
 RERANKER_MODEL = os.environ.get("MUSIC_AI_RERANKER_MODEL", "Qwen/Qwen3-Reranker-0.6B")
 EMBEDDING_DIM = int(os.environ.get("MUSIC_AI_EMBEDDING_DIM", "512"))
 MAX_EMBED_BATCH = int(os.environ.get("MUSIC_AI_EMBED_BATCH", "8"))
-MAX_RERANK_BATCH = int(os.environ.get("MUSIC_AI_RERANK_BATCH", "16"))
+MAX_RERANK_BATCH = int(os.environ.get("MUSIC_AI_RERANK_BATCH", "8"))
 MAX_TEXTS = int(os.environ.get("MUSIC_AI_MAX_TEXTS", "64"))
+MAX_RERANK_LENGTH = int(os.environ.get("MUSIC_AI_RERANK_MAX_LENGTH", "1024"))
+DEFAULT_INSTRUCT = (
+	"Given a music search query, retrieve relevant artists, albums, or tracks"
+)
 
 app = FastAPI(title="JedFlix music-ai", version="1.0.0")
 _gpu_lock = asyncio.Lock()
 _ready = False
 _device = "cpu"
 _embedder: SentenceTransformer | None = None
-_reranker: CrossEncoder | None = None
+_rerank_tokenizer: Any = None
+_rerank_model: Any = None
+_yes_id = 0
+_no_id = 0
+_prefix_tokens: list[int] = []
+_suffix_tokens: list[int] = []
 _load_error: str | None = None
 
 
@@ -42,12 +52,6 @@ def _pick_device() -> str:
 	return "cpu"
 
 
-def _dtype_kwargs(device: str) -> dict[str, Any]:
-	if device == "cuda":
-		return {"torch_dtype": torch.float16}
-	return {}
-
-
 def _load_embedder(device: str) -> SentenceTransformer:
 	kwargs: dict[str, Any] = {
 		"device": device,
@@ -55,9 +59,8 @@ def _load_embedder(device: str) -> SentenceTransformer:
 		"tokenizer_kwargs": {"padding_side": "left"},
 		"trust_remote_code": True,
 	}
-	model_kwargs = _dtype_kwargs(device)
-	if model_kwargs:
-		kwargs["model_kwargs"] = model_kwargs
+	if device == "cuda":
+		kwargs["model_kwargs"] = {"torch_dtype": torch.float16}
 	try:
 		return SentenceTransformer(EMBEDDING_MODEL, **kwargs)
 	except TypeError:
@@ -66,32 +69,44 @@ def _load_embedder(device: str) -> SentenceTransformer:
 		return SentenceTransformer(EMBEDDING_MODEL, **kwargs)
 
 
-def _load_reranker(device: str) -> CrossEncoder:
-	model_kwargs = _dtype_kwargs(device)
-	try:
-		return CrossEncoder(
-			RERANKER_MODEL,
-			device=device,
-			trust_remote_code=True,
-			model_kwargs=model_kwargs or None,
-			tokenizer_kwargs={"padding_side": "left"},
-		)
-	except TypeError:
-		return CrossEncoder(
-			RERANKER_MODEL,
-			device=device,
-			automodel_args=model_kwargs,
-		)
+def _load_reranker(device: str) -> None:
+	global _rerank_tokenizer, _rerank_model, _yes_id, _no_id, _prefix_tokens, _suffix_tokens
+	dtype = torch.float16 if device == "cuda" else torch.float32
+	tokenizer = AutoTokenizer.from_pretrained(
+		RERANKER_MODEL,
+		padding_side="left",
+		trust_remote_code=True,
+	)
+	if tokenizer.pad_token_id is None:
+		tokenizer.pad_token = tokenizer.eos_token
+	model = AutoModelForCausalLM.from_pretrained(
+		RERANKER_MODEL,
+		torch_dtype=dtype,
+		trust_remote_code=True,
+	).to(device)
+	model.eval()
+	prefix = (
+		'<|im_start|>system\nJudge whether the Document meets the requirements based on the Query '
+		'and the Instruct provided. Note that the answer can only be "yes" or "no".<|im_end|>\n'
+		'<|im_start|>user\n'
+	)
+	suffix = "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+	_prefix_tokens = tokenizer.encode(prefix, add_special_tokens=False)
+	_suffix_tokens = tokenizer.encode(suffix, add_special_tokens=False)
+	_yes_id = tokenizer.convert_tokens_to_ids("yes")
+	_no_id = tokenizer.convert_tokens_to_ids("no")
+	_rerank_tokenizer = tokenizer
+	_rerank_model = model
 
 
 def _load_models() -> None:
-	global _embedder, _reranker, _ready, _device, _load_error
+	global _embedder, _ready, _device, _load_error
 	try:
 		_device = _pick_device()
 		log.info("loading embedding model %s dim=%s device=%s", EMBEDDING_MODEL, EMBEDDING_DIM, _device)
 		_embedder = _load_embedder(_device)
 		log.info("loading reranker model %s", RERANKER_MODEL)
-		_reranker = _load_reranker(_device)
+		_load_reranker(_device)
 		if _device == "cuda":
 			torch.cuda.empty_cache()
 		_ready = True
@@ -157,7 +172,7 @@ def live() -> dict[str, str]:
 
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
-	if _ready and _embedder is not None and _reranker is not None:
+	if _ready and _embedder is not None and _rerank_model is not None:
 		return HealthResponse(
 			status="ok",
 			device=_device,
@@ -170,7 +185,7 @@ def health() -> HealthResponse:
 			status="error",
 			device=_device,
 			embedding=_embedder is not None,
-			reranker=_reranker is not None,
+			reranker=_rerank_model is not None,
 			dim=EMBEDDING_DIM,
 			error=_load_error,
 		)
@@ -216,25 +231,41 @@ def _embed_sync(texts: list[str], is_query: bool) -> list[list[float]]:
 	return [row.tolist() for row in array]
 
 
+def _format_rerank_body(query: str, document: str, instruct: str) -> str:
+	return f"<Instruct>: {instruct}\n<Query>: {query}\n<Document>: {document}"
+
+
+@torch.inference_mode()
 def _rerank_sync(query: str, documents: list[RerankDocument], instruct: str | None) -> list[RerankResult]:
-	if _reranker is None:
+	if _rerank_model is None or _rerank_tokenizer is None:
 		raise RuntimeError("reranker model is not loaded")
-	# Qwen3-Reranker CrossEncoder applies its own instruct template.
-	# Only prepend a custom instruct when the caller supplies one.
-	query_text = f"{instruct} {query}".strip() if instruct else query
-	pairs = [(query_text, doc.text) for doc in documents]
-	predict_kwargs: dict[str, Any] = {
-		"batch_size": min(MAX_RERANK_BATCH, len(pairs)),
-		"show_progress_bar": False,
-		"convert_to_numpy": True,
-	}
-	try:
-		scores = _reranker.predict(pairs, **predict_kwargs)
-	except TypeError:
-		predict_kwargs.pop("convert_to_numpy", None)
-		scores = _reranker.predict(pairs, **predict_kwargs)
+	instruction = instruct or DEFAULT_INSTRUCT
+	max_body = max(32, MAX_RERANK_LENGTH - len(_prefix_tokens) - len(_suffix_tokens))
+	scores: list[float] = []
+	for start in range(0, len(documents), MAX_RERANK_BATCH):
+		batch = documents[start : start + MAX_RERANK_BATCH]
+		encoded: list[list[int]] = []
+		for doc in batch:
+			body_ids = _rerank_tokenizer.encode(
+				_format_rerank_body(query, doc.text, instruction),
+				add_special_tokens=False,
+				truncation=True,
+				max_length=max_body,
+			)
+			encoded.append(_prefix_tokens + body_ids + _suffix_tokens)
+		padded = _rerank_tokenizer.pad(
+			{"input_ids": encoded},
+			padding=True,
+			return_tensors="pt",
+		)
+		inputs = {key: value.to(_device) for key, value in padded.items()}
+		logits = _rerank_model(**inputs).logits[:, -1, :]
+		yes_logits = logits[:, _yes_id]
+		no_logits = logits[:, _no_id]
+		probs = torch.nn.functional.log_softmax(torch.stack([no_logits, yes_logits], dim=1), dim=1)[:, 1].exp()
+		scores.extend(float(score) for score in probs.detach().cpu())
 	out = [
-		RerankResult(id=doc.id, score=float(score))
+		RerankResult(id=doc.id, score=score)
 		for doc, score in zip(documents, scores, strict=True)
 	]
 	out.sort(key=lambda item: item.score, reverse=True)
