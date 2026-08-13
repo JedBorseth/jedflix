@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 	"unicode"
+
+	"golang.org/x/sync/singleflight"
 )
 
 var (
@@ -34,8 +36,9 @@ type Resolver struct {
 	searchN     int
 	now         func() time.Time
 
-	mu    sync.Mutex
-	cache map[string]cachedURL
+	mu       sync.Mutex
+	cache    map[string]cachedURL
+	inflight singleflight.Group
 }
 
 type cachedURL struct {
@@ -60,6 +63,7 @@ type StreamInfo struct {
 	Title       string `json:"title"`
 	VideoID     string `json:"videoId"`
 	Ext         string `json:"ext"`
+	DurationMs  int    `json:"durationMs"`
 }
 
 type searchEntry struct {
@@ -116,12 +120,46 @@ func (r *Resolver) Resolve(ctx context.Context, req Request) (*StreamInfo, error
 			return nil, fmt.Errorf("%w: artist is required", ErrBadRequest)
 		}
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	key := cacheKey(req)
 	if info, ok := r.getCached(key); ok {
-		return &info, nil
+		cached := info
+		return &cached, nil
 	}
 
+	v, err, _ := r.inflight.Do(key, func() (interface{}, error) {
+		if info, ok := r.getCached(key); ok {
+			return info, nil
+		}
+		// Detach from the caller so a cancelled HEAD does not kill an in-flight GET.
+		resolveCtx, cancel := context.WithTimeout(context.Background(), ResolveTimeout)
+		defer cancel()
+		info, err := r.resolveUncached(resolveCtx, req)
+		if err != nil {
+			return nil, err
+		}
+		r.putCached(key, *info)
+		return *info, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	info := v.(StreamInfo)
+	return &info, nil
+}
+
+// Invalidate drops a cached googlevideo URL so the next Resolve re-runs yt-dlp.
+func (r *Resolver) Invalidate(req Request) {
+	key := cacheKey(req)
+	r.mu.Lock()
+	delete(r.cache, key)
+	r.mu.Unlock()
+}
+
+func (r *Resolver) resolveUncached(ctx context.Context, req Request) (*StreamInfo, error) {
 	if _, err := exec.LookPath(r.ytdlpPath); err != nil {
 		return nil, ErrYtdlpMissing
 	}
@@ -140,12 +178,7 @@ func (r *Resolver) Resolve(ctx context.Context, req Request) (*StreamInfo, error
 		}
 	}
 
-	info, err := r.extractStream(ctx, best)
-	if err != nil {
-		return nil, err
-	}
-	r.putCached(key, *info)
-	return info, nil
+	return r.extractStream(ctx, best)
 }
 
 func cacheKey(req Request) string {
@@ -500,6 +533,7 @@ func (r *Resolver) extractStream(ctx context.Context, entry *searchEntry) (*Stre
 		URL              string        `json:"url"`
 		Ext              string        `json:"ext"`
 		ACodec           string        `json:"acodec"`
+		Duration         float64       `json:"duration"`
 		RequestedFormats []formatProbe `json:"requested_formats"`
 		Formats          []formatProbe `json:"formats"`
 	}
@@ -562,12 +596,19 @@ func (r *Resolver) extractStream(ctx context.Context, entry *searchEntry) (*Stre
 		title = entry.Title
 	}
 
+	durationMs := firstPositiveDurationMs(
+		DurationMsFromSeconds(payload.Duration),
+		DurationMsFromSeconds(entry.Duration),
+		DurationMsFromStreamURL(streamURL),
+	)
+
 	return &StreamInfo{
 		URL:         streamURL,
 		ContentType: contentTypeFor(ext, acodec),
 		Title:       title,
 		VideoID:     videoID,
 		Ext:         ext,
+		DurationMs:  durationMs,
 	}, nil
 }
 

@@ -2,10 +2,12 @@ import { useEffect, useRef } from "react";
 import {
   artworkFromImageUrl,
   clearMediaSessionActionHandlers,
+  configurePlaybackAudioSession,
   hasMediaSessionSupport,
   setMediaSessionMetadata,
   setMediaSessionPlaybackState,
   setMediaSessionPositionState,
+  shouldUpdateMediaPosition,
   type MediaSessionPlaybackState,
 } from "@/lib/mediaSession";
 
@@ -31,6 +33,13 @@ export type UseMediaSessionOptions = {
    * controls (preferred for music on iOS lock screen / Control Center).
    */
   preferTrackSkip?: boolean;
+  /** Rebind next/previous when this changes (e.g. current track id). */
+  actionHandlerKey?: string;
+  /**
+   * Minimum time between setPositionState calls. Frequent updates make iOS
+   * revert lock-screen buttons to skip ±10s. Music should use ~1000ms.
+   */
+  positionMinIntervalMs?: number;
 };
 
 /**
@@ -55,6 +64,8 @@ export function useMediaSession({
   onNextTrack,
   onStop,
   preferTrackSkip = false,
+  actionHandlerKey,
+  positionMinIntervalMs = 0,
 }: UseMediaSessionOptions) {
   const handlersRef = useRef({
     onPlay,
@@ -74,12 +85,16 @@ export function useMediaSession({
     onNextTrack,
     onStop,
   };
+  const lastPositionPublishRef = useRef(0);
+  const lastPublishedPositionRef = useRef(0);
+  const lastDurationRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     if (!enabled || !title || !hasMediaSessionSupport()) {
       return;
     }
 
+    configurePlaybackAudioSession();
     setMediaSessionMetadata({
       title,
       artist,
@@ -110,25 +125,56 @@ export function useMediaSession({
 
     if (durationSec == null || positionSec == null) {
       setMediaSessionPositionState(null);
+      lastPositionPublishRef.current = 0;
       return;
     }
 
+    const now = Date.now();
+    const durationChanged = lastDurationRef.current !== durationSec;
+    lastDurationRef.current = durationSec;
+    const force = durationChanged || playbackState !== "playing";
+    if (
+      !shouldUpdateMediaPosition({
+        lastPublishedAtMs: lastPositionPublishRef.current,
+        nowMs: now,
+        intervalMs: positionMinIntervalMs,
+        force,
+        lastPositionSec: lastPublishedPositionRef.current,
+        nextPositionSec: positionSec,
+      })
+    ) {
+      return;
+    }
+
+    lastPositionPublishRef.current = now;
+    lastPublishedPositionRef.current = positionSec;
     setMediaSessionPositionState({
       duration: durationSec,
       position: positionSec,
       playbackRate,
     });
-  }, [durationSec, enabled, playbackRate, positionSec]);
+  }, [
+    durationSec,
+    enabled,
+    playbackRate,
+    playbackState,
+    positionMinIntervalMs,
+    positionSec,
+  ]);
 
   useEffect(() => {
     if (!enabled || !hasMediaSessionSupport()) {
+      clearMediaSessionActionHandlers();
       return;
     }
 
+    configurePlaybackAudioSession();
     const mediaSession = navigator.mediaSession;
-    clearMediaSessionActionHandlers(mediaSession);
 
-    const bind = (action: MediaSessionAction, handler: MediaSessionActionHandler | null) => {
+    const bind = (
+      action: MediaSessionAction,
+      handler: MediaSessionActionHandler | null,
+    ) => {
       try {
         mediaSession.setActionHandler(action, handler);
       } catch {
@@ -145,7 +191,12 @@ export function useMediaSession({
     bind("stop", () => {
       handlersRef.current.onStop?.() ?? handlersRef.current.onPause?.();
     });
-    if (!preferTrackSkip) {
+    if (preferTrackSkip) {
+      // Explicit null (not omit) so iOS does not fall back to ±10s seek.
+      bind("seekbackward", null);
+      bind("seekforward", null);
+      bind("seekto", null);
+    } else {
       bind("seekbackward", (details) => {
         const offset = details.seekOffset ?? 10;
         handlersRef.current.onSeekBy?.(-offset);
@@ -167,8 +218,33 @@ export function useMediaSession({
       handlersRef.current.onNextTrack?.();
     });
 
+    const reassertTrackSkip = () => {
+      if (!preferTrackSkip || !hasMediaSessionSupport()) {
+        return;
+      }
+      bind("seekbackward", null);
+      bind("seekforward", null);
+      bind("seekto", null);
+      bind("previoustrack", () => {
+        handlersRef.current.onPreviousTrack?.();
+      });
+      bind("nexttrack", () => {
+        handlersRef.current.onNextTrack?.();
+      });
+    };
+    document.addEventListener("visibilitychange", reassertTrackSkip);
+    window.addEventListener("pageshow", reassertTrackSkip);
+
+    return () => {
+      document.removeEventListener("visibilitychange", reassertTrackSkip);
+      window.removeEventListener("pageshow", reassertTrackSkip);
+    };
+    // Do not clear handlers on rebind — the gap lets iOS revert to ±10s skip.
+  }, [actionHandlerKey, enabled, preferTrackSkip]);
+
+  useEffect(() => {
     return () => {
       clearMediaSessionActionHandlers();
     };
-  }, [enabled, preferTrackSkip]);
+  }, []);
 }

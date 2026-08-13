@@ -29,7 +29,10 @@ const MEDIA_SESSION_ACTIONS = [
   "stop",
 ] as const;
 
-export function toAbsoluteMediaUrl(url: string, origin = defaultOrigin()): string {
+export function toAbsoluteMediaUrl(
+  url: string,
+  origin = defaultOrigin(),
+): string {
   if (!url) {
     return url;
   }
@@ -60,7 +63,9 @@ export function artworkFromImageUrl(
   }
 
   const absolute = toAbsoluteMediaUrl(url, origin);
-  const tmdbMatch = /^(https:\/\/image\.tmdb\.org\/t\/p\/)w\d+(\/.+)$/i.exec(absolute);
+  const tmdbMatch = /^(https:\/\/image\.tmdb\.org\/t\/p\/)w\d+(\/.+)$/i.exec(
+    absolute,
+  );
   if (tmdbMatch) {
     const [, prefix, path] = tmdbMatch;
     return [
@@ -79,7 +84,11 @@ export function formatWatchSessionTitle(
   season?: number,
   episode?: number,
 ): string {
-  if (mediaType === "tv" && Number.isFinite(season) && Number.isFinite(episode)) {
+  if (
+    mediaType === "tv" &&
+    Number.isFinite(season) &&
+    Number.isFinite(episode)
+  ) {
     const seasonLabel = String(season).padStart(2, "0");
     const episodeLabel = String(episode).padStart(2, "0");
     return `${title} · S${seasonLabel}E${episodeLabel}`;
@@ -108,7 +117,9 @@ export type PlayMediaResult =
  * Callers must not treat `aborted` as "now playing" — check the element or wait
  * for a later successful play (e.g. after Media Session src changes on iOS).
  */
-export async function playMediaElement(media: HTMLMediaElement): Promise<PlayMediaResult> {
+export async function playMediaElement(
+  media: HTMLMediaElement,
+): Promise<PlayMediaResult> {
   try {
     await media.play();
     return media.paused ? { status: "aborted" } : { status: "playing" };
@@ -119,7 +130,8 @@ export async function playMediaElement(media: HTMLMediaElement): Promise<PlayMed
     }
     return {
       status: "error",
-      error: error instanceof Error ? error : new Error("Could not start playback"),
+      error:
+        error instanceof Error ? error : new Error("Could not start playback"),
     };
   }
 }
@@ -163,16 +175,27 @@ export function setMediaSessionPlaybackState(
 }
 
 export function setMediaSessionPositionState(
-  position: { duration: number; position: number; playbackRate?: number } | null,
+  position: {
+    duration: number;
+    position: number;
+    playbackRate?: number;
+  } | null,
   mediaSession: MediaSession | undefined = typeof navigator !== "undefined"
     ? navigator.mediaSession
     : undefined,
 ): void {
-  if (!hasMediaSessionSupport(mediaSession) || typeof mediaSession.setPositionState !== "function") {
+  if (
+    !hasMediaSessionSupport(mediaSession) ||
+    typeof mediaSession.setPositionState !== "function"
+  ) {
     return;
   }
 
-  if (!position || !Number.isFinite(position.duration) || position.duration <= 0) {
+  if (
+    !position ||
+    !Number.isFinite(position.duration) ||
+    position.duration <= 0
+  ) {
     try {
       mediaSession.setPositionState();
     } catch {
@@ -196,6 +219,48 @@ export function setMediaSessionPositionState(
     });
   } catch {
     // Some browsers throw if position > duration during seek transitions.
+  }
+}
+
+export function shouldUpdateMediaPosition(args: {
+  lastPublishedAtMs: number;
+  nowMs: number;
+  intervalMs: number;
+  force?: boolean;
+  lastPositionSec?: number;
+  nextPositionSec?: number;
+  seekThresholdSec?: number;
+}): boolean {
+  if (args.force || args.intervalMs <= 0) {
+    return true;
+  }
+  if (
+    args.lastPositionSec != null &&
+    args.nextPositionSec != null &&
+    Math.abs(args.nextPositionSec - args.lastPositionSec) >=
+      (args.seekThresholdSec ?? 1.5)
+  ) {
+    return true;
+  }
+  return args.nowMs - args.lastPublishedAtMs >= args.intervalMs;
+}
+
+type AudioSessionLike = { type: string };
+
+/** Keep iOS in the playback audio session so lock-screen controls stay as music, not ±10s. */
+export function configurePlaybackAudioSession(
+  nav: { audioSession?: AudioSessionLike } | undefined = typeof navigator !==
+  "undefined"
+    ? (navigator as { audioSession?: AudioSessionLike })
+    : undefined,
+): void {
+  if (!nav?.audioSession) {
+    return;
+  }
+  try {
+    nav.audioSession.type = "playback";
+  } catch {
+    // WebKit throws if the page is not yet in a media context.
   }
 }
 

@@ -35,7 +35,10 @@ export function mapVideoJsError(code?: number | null): string {
 }
 
 /** Expand terse browser/network errors (esp. Safari "Load failed") into actionable text. */
-export function formatStreamFailure(error: unknown, fallback = "Failed to resolve stream"): string {
+export function formatStreamFailure(
+  error: unknown,
+  fallback = "Failed to resolve stream",
+): string {
   if (!(error instanceof Error)) {
     return fallback;
   }
@@ -55,7 +58,11 @@ export function formatStreamFailure(error: unknown, fallback = "Failed to resolv
     );
   }
 
-  if (error.name === "AbortError" || lower.includes("aborted") || lower.includes("cancelled")) {
+  if (
+    error.name === "AbortError" ||
+    lower.includes("aborted") ||
+    lower.includes("cancelled")
+  ) {
     return `Resolve was cancelled before finishing (${message}).`;
   }
 
@@ -81,12 +88,43 @@ export function mapMediaElementError(media: HTMLMediaElement | null): string {
   return `${base} ${detail}`;
 }
 
+/**
+ * Safari's MEDIA_ERR_SRC_NOT_SUPPORTED (code 4) and "The operation is not
+ * supported" are usually dead/expired streams or a play() on a broken element —
+ * not a real codec problem. JedFlix music is AAC in M4A (Safari-native).
+ */
+export function mapMusicAudioError(media: HTMLMediaElement | null): string {
+  const mediaError = media?.error;
+  if (!mediaError) {
+    return "Playback failed for an unknown reason.";
+  }
+  const detail = mediaError.message?.trim() ?? "";
+  switch (mediaError.code) {
+    case 1:
+      return "Playback was interrupted. Tap play to resume.";
+    case 2:
+      return "The audio stream dropped. Tap play to retry.";
+    case 3:
+      return "This track could not be decoded. JedFlix plays AAC/M4A; skip to the next song.";
+    case 4:
+      if (/operation is not supported/i.test(detail)) {
+        return "Safari interrupted playback (not an unsupported file type — we stream AAC/M4A). Tap play to retry.";
+      }
+      if (/^load failed$/i.test(detail)) {
+        return "The audio stream failed to load. Tap play to retry. JedFlix streams AAC/M4A, which Safari supports.";
+      }
+      return "Couldn't load this track. The stream may have expired or the connection dropped — not an unsupported format (we use AAC/M4A). Tap play to retry.";
+    default:
+      return detail || "This track could not be played. Tap play to retry.";
+  }
+}
+
 /** When HTML audio gets JSON from the stream-server, surface the server message instead of "no supported sources". */
 export async function resolveStreamServerAudioError(
   media: HTMLMediaElement,
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
-  const base = mapMediaElementError(media);
+  const base = mapMusicAudioError(media);
   const src = media.currentSrc || media.src;
   if (!src || media.error?.code !== 4) {
     return base;

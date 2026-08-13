@@ -97,7 +97,7 @@ func (s *Server) Router() http.Handler {
 		AllowedOrigins:   s.cfg.CORSOrigins,
 		AllowedMethods:   []string{"GET", "HEAD", "POST", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "Range"},
-		ExposedHeaders:   []string{"Content-Range", "Accept-Ranges", "Content-Length"},
+		ExposedHeaders:   []string{"Content-Range", "Accept-Ranges", "Content-Length", "Content-Type", "X-Audio-Duration-Ms", "X-Audio-Ext"},
 		AllowCredentials: false,
 		MaxAge:           300,
 	}))
@@ -762,22 +762,46 @@ func (s *Server) handleYouTubeAudio(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), youtube.ResolveTimeout)
-	defer cancel()
-
-	info, err := s.youtube.Resolve(ctx, youtube.Request{
+	req := youtube.Request{
 		Artist:     artist,
 		Title:      title,
 		Album:      album,
 		DurationMs: durationMs,
 		VideoID:    videoID,
-	})
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), youtube.ResolveTimeout)
+	defer cancel()
+
+	info, err := s.youtube.Resolve(ctx, req)
 	if err != nil {
 		writeYouTubeError(w, err)
 		return
 	}
 
+	if r.Method == http.MethodHead {
+		youtube.WriteMetadataHeaders(w, info)
+		w.Header().Set("Access-Control-Expose-Headers", youtube.ExposedAudioHeaders())
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	if err := youtube.Proxy(w, r, info); err != nil {
+		if youtube.IsRetryableProxyError(err) {
+			s.youtube.Invalidate(req)
+			retryCtx, retryCancel := context.WithTimeout(r.Context(), youtube.ResolveTimeout)
+			defer retryCancel()
+			retried, retryErr := s.youtube.Resolve(retryCtx, req)
+			if retryErr == nil {
+				if proxyErr := youtube.Proxy(w, r, retried); proxyErr == nil {
+					return
+				} else {
+					err = proxyErr
+				}
+			} else {
+				err = retryErr
+			}
+		}
 		// Headers may already be written while streaming; only report JSON if not.
 		if !headersWritten(w) {
 			writeYouTubeError(w, err)

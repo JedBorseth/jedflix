@@ -5,19 +5,23 @@ import {
   isPlayAbortError,
   playMediaElement,
   toAbsoluteMediaUrl,
+  shouldUpdateMediaPosition,
 } from "./mediaSession";
 
 describe("toAbsoluteMediaUrl", () => {
   test("resolves relative paths against origin", () => {
-    expect(toAbsoluteMediaUrl("/pwa-512x512.png", "https://jedflix.example")).toBe(
-      "https://jedflix.example/pwa-512x512.png",
-    );
+    expect(
+      toAbsoluteMediaUrl("/pwa-512x512.png", "https://jedflix.example"),
+    ).toBe("https://jedflix.example/pwa-512x512.png");
   });
 
   test("keeps absolute URLs", () => {
-    expect(toAbsoluteMediaUrl("https://cdn.example/cover.jpg", "https://jedflix.example")).toBe(
-      "https://cdn.example/cover.jpg",
-    );
+    expect(
+      toAbsoluteMediaUrl(
+        "https://cdn.example/cover.jpg",
+        "https://jedflix.example",
+      ),
+    ).toBe("https://cdn.example/cover.jpg");
   });
 });
 
@@ -67,7 +71,9 @@ describe("artworkFromImageUrl", () => {
 
 describe("formatWatchSessionTitle", () => {
   test("formats TV episode labels", () => {
-    expect(formatWatchSessionTitle("The X-Files", "tv", 1, 2)).toBe("The X-Files · S01E02");
+    expect(formatWatchSessionTitle("The X-Files", "tv", 1, 2)).toBe(
+      "The X-Files · S01E02",
+    );
   });
 
   test("keeps movie titles plain", () => {
@@ -77,10 +83,14 @@ describe("formatWatchSessionTitle", () => {
 
 describe("isPlayAbortError", () => {
   test("detects AbortError and aborted messages", () => {
-    expect(isPlayAbortError(new DOMException("The operation was aborted.", "AbortError"))).toBe(
+    expect(
+      isPlayAbortError(
+        new DOMException("The operation was aborted.", "AbortError"),
+      ),
+    ).toBe(true);
+    expect(isPlayAbortError(new Error("The operation was aborted."))).toBe(
       true,
     );
-    expect(isPlayAbortError(new Error("The operation was aborted."))).toBe(true);
     expect(
       isPlayAbortError(
         new DOMException(
@@ -93,13 +103,48 @@ describe("isPlayAbortError", () => {
   });
 });
 
+describe("shouldUpdateMediaPosition", () => {
+  test("always publishes when interval is 0", () => {
+    expect(
+      shouldUpdateMediaPosition({
+        lastPublishedAtMs: 1000,
+        nowMs: 1001,
+        intervalMs: 0,
+      }),
+    ).toBe(true);
+  });
+
+  test("throttles sub-interval updates unless seeking", () => {
+    expect(
+      shouldUpdateMediaPosition({
+        lastPublishedAtMs: 1000,
+        nowMs: 1400,
+        intervalMs: 1000,
+        lastPositionSec: 10,
+        nextPositionSec: 10.4,
+      }),
+    ).toBe(false);
+    expect(
+      shouldUpdateMediaPosition({
+        lastPublishedAtMs: 1000,
+        nowMs: 1400,
+        intervalMs: 1000,
+        lastPositionSec: 10,
+        nextPositionSec: 25,
+      }),
+    ).toBe(true);
+  });
+});
+
 describe("playMediaElement", () => {
   test("returns playing when play resolves and element is not paused", async () => {
     const media = {
       paused: false,
       play: async () => undefined,
     } as unknown as HTMLMediaElement;
-    await expect(playMediaElement(media)).resolves.toEqual({ status: "playing" });
+    await expect(playMediaElement(media)).resolves.toEqual({
+      status: "playing",
+    });
   });
 
   test("returns aborted when play resolves but element is paused", async () => {
@@ -107,7 +152,9 @@ describe("playMediaElement", () => {
       paused: true,
       play: async () => undefined,
     } as unknown as HTMLMediaElement;
-    await expect(playMediaElement(media)).resolves.toEqual({ status: "aborted" });
+    await expect(playMediaElement(media)).resolves.toEqual({
+      status: "aborted",
+    });
   });
 
   test("returns aborted for AbortError without treating it as playing", async () => {
@@ -117,7 +164,9 @@ describe("playMediaElement", () => {
         throw new DOMException("The operation was aborted.", "AbortError");
       },
     } as unknown as HTMLMediaElement;
-    await expect(playMediaElement(media)).resolves.toEqual({ status: "aborted" });
+    await expect(playMediaElement(media)).resolves.toEqual({
+      status: "aborted",
+    });
   });
 
   test("returns error for NotAllowedError", async () => {

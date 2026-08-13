@@ -80,12 +80,25 @@ func Proxy(w http.ResponseWriter, r *http.Request, info *StreamInfo) error {
 	}
 	defer resp.Body.Close()
 
+	status := resp.StatusCode
+	if status == 0 {
+		status = http.StatusOK
+	}
+	if !isPlayableUpstreamStatus(status) {
+		return fmt.Errorf("%w: upstream status %d", ErrResolveFail, status)
+	}
+
 	contentType := resp.Header.Get("Content-Type")
 	if contentType == "" || strings.HasPrefix(contentType, "application/octet-stream") {
 		if info.ContentType != "" {
 			contentType = info.ContentType
 		}
 	}
+	if !looksLikeAudioContentType(contentType) {
+		return fmt.Errorf("%w: upstream content-type %s", ErrResolveFail, contentType)
+	}
+
+	WriteMetadataHeaders(w, info)
 	if contentType != "" {
 		w.Header().Set("Content-Type", contentType)
 	}
@@ -99,12 +112,8 @@ func Proxy(w http.ResponseWriter, r *http.Request, info *StreamInfo) error {
 	if w.Header().Get("Accept-Ranges") == "" {
 		w.Header().Set("Accept-Ranges", "bytes")
 	}
-	w.Header().Set("Access-Control-Expose-Headers", "Content-Range, Accept-Ranges, Content-Length, Content-Type")
+	w.Header().Set("Access-Control-Expose-Headers", exposedAudioHeaders())
 
-	status := resp.StatusCode
-	if status == 0 {
-		status = http.StatusOK
-	}
 	w.WriteHeader(status)
 
 	if r.Method == http.MethodHead {
@@ -141,6 +150,19 @@ func validateUpstreamURL(raw string) error {
 		}
 	}
 	return fmt.Errorf("upstream host not allowed")
+}
+
+func IsRetryableProxyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if !errors.Is(err, ErrResolveFail) {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "upstream status") ||
+		strings.Contains(msg, "upstream content-type") ||
+		strings.Contains(msg, "upstream fetch failed")
 }
 
 func copyHeader(w http.ResponseWriter, resp *http.Response, key string) {
