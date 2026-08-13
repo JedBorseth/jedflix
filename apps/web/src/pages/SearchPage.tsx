@@ -22,6 +22,7 @@ import {
 } from "@/lib/musicSearch";
 import { searchBooksAll } from "@/lib/openlibrary";
 import { catalogQueryKeys } from "@/lib/queryClient";
+import { MUSIC_SEARCH_MIN_CHARS, shouldLiveSearch } from "@/lib/searchDebounce";
 import { buildSpellSuggestions } from "@/lib/searchSuggestions";
 import {
   formatTrackDuration,
@@ -79,8 +80,9 @@ export function SearchPage() {
 
   const musicQuery = useQuery({
     queryKey: catalogQueryKeys.spotify.search(query, youtubeMusicSearch),
-    queryFn: () => searchMusicAll(query, { includeYoutube: youtubeMusicSearch }),
-    enabled: Boolean(query) && searchKind === "music",
+    queryFn: ({ signal }) =>
+      searchMusicAll(query, { includeYoutube: youtubeMusicSearch, signal }),
+    enabled: shouldLiveSearch(query, "music") && searchKind === "music",
   });
 
   const mediaQuery = useQuery({
@@ -110,7 +112,7 @@ export function SearchPage() {
   }, [searchKind, query, musicQuery.data]);
 
   useEffect(() => {
-    if (searchKind !== "music" || !query) {
+    if (searchKind !== "music" || !shouldLiveSearch(query, "music")) {
       return;
     }
     logMusic({ kind: "search", query });
@@ -122,7 +124,13 @@ export function SearchPage() {
       .map((hit) => searchTrackToQueueTrack(hit.track));
   }, [rankedMusicHits]);
 
-  const isLoading = Boolean(query) && activeQuery.data === undefined && !activeQuery.isError;
+  const musicQueryPending =
+    searchKind === "music" && query.trim().length > 0 && query.trim().length < MUSIC_SEARCH_MIN_CHARS;
+  const isLoading =
+    Boolean(query) &&
+    !musicQueryPending &&
+    activeQuery.data === undefined &&
+    !activeQuery.isError;
   const hasResults =
     searchKind === "books"
       ? bookResults.length > 0 || authorResults.length > 0
@@ -226,8 +234,11 @@ export function SearchPage() {
           ) : null}
 
           {error ? <p className="text-zinc-400">{error}</p> : null}
+          {musicQueryPending ? (
+            <p className="text-zinc-400">Keep typing to search music.</p>
+          ) : null}
           {isLoading ? <PosterGridSkeleton count={8} /> : null}
-          {!isLoading && !hasResults && query ? (
+          {!isLoading && !hasResults && query && !musicQueryPending ? (
             <p className="text-zinc-400">No results found.</p>
           ) : null}
 

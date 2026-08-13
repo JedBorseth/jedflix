@@ -337,9 +337,9 @@ func (c *Client) Search(ctx context.Context, query string) (*musiccatalog.Search
 		Artists: artists,
 		Tracks:  tracks,
 	}
-	// Do not cache Last.fm-only fallbacks or timed-out searches. A 45s
-	// hybrid miss used to stick around for 30 minutes with empty tracks.
-	if ctx.Err() == nil && !c.useLocalStore() {
+	// Cache successful results, including Last.fm fallbacks that completed.
+	// Skip empty/timed-out responses so a 45s miss cannot stick for 30 minutes.
+	if ctx.Err() == nil && (len(artists) > 0 || len(albums) > 0 || len(tracks) > 0) {
 		c.trimSearchCache()
 		c.searchCache.Store(cacheKey, cachedSearch{result: result, cachedAt: c.now()})
 	}
@@ -461,6 +461,43 @@ func (c *Client) ListArtistAlbums(ctx context.Context, artistID string, limit in
 		albums = albums[:limit]
 	}
 	return albums, nil
+}
+
+// SimilarTracks returns embedding-neighbor tracks for a recording MBID.
+func (c *Client) SimilarTracks(ctx context.Context, trackID string, limit int) ([]musiccatalog.TopTrack, error) {
+	if !c.useLocalStore() {
+		return nil, nil
+	}
+	trackID = NormalizeMBID(trackID)
+	if trackID == "" {
+		return nil, fmt.Errorf("%w: track id is required", musiccatalog.ErrBadRequest)
+	}
+	if limit <= 0 {
+		limit = defaultLimit
+	}
+	hits, err := c.local.SimilarTracks(ctx, trackID, limit)
+	if err != nil {
+		return nil, err
+	}
+	if len(hits) == 0 {
+		return nil, nil
+	}
+	out := make([]musiccatalog.TopTrack, 0, len(hits))
+	for _, hit := range hits {
+		if hit.EntityType != "track" || hit.MBID == "" {
+			continue
+		}
+		out = append(out, musiccatalog.TopTrack{
+			ID:         hit.MBID,
+			Name:       hit.Name,
+			Artists:    hit.Artists,
+			ArtistIDs:  hit.ArtistIDs,
+			DurationMs: hit.DurationMs,
+			AlbumID:    hit.AlbumID,
+			AlbumName:  hit.AlbumName,
+		})
+	}
+	return c.withTrackCoverURLs(ctx, out), nil
 }
 
 func NormalizeMBID(value string) string {

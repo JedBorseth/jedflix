@@ -662,33 +662,93 @@ func (s *Server) handleLastFMArtistTags(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) handleLastFMRelated(w http.ResponseWriter, r *http.Request) {
-	if s.lastfm == nil || !s.lastfm.Configured() {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "last.fm is not configured"})
-		return
-	}
 	artist := strings.TrimSpace(r.URL.Query().Get("artist"))
 	limit := parsePositiveInt(r.URL.Query().Get("limit"), 6)
 	seeds := make([]struct{ Artist, Track string }, 0)
+	seedIDs := make([]string, 0)
+	seenID := map[string]struct{}{}
+	addSeedID := func(id string) {
+		id = musicbrainz.NormalizeMBID(id)
+		if id == "" {
+			return
+		}
+		if _, ok := seenID[id]; ok {
+			return
+		}
+		seenID[id] = struct{}{}
+		seedIDs = append(seedIDs, id)
+	}
+	for _, raw := range r.URL.Query()["seedId"] {
+		addSeedID(raw)
+	}
 	for _, raw := range r.URL.Query()["seed"] {
-		artistName, trackName, ok := splitSeed(raw)
+		artistName, trackName, id, ok := splitSeed(raw)
 		if !ok {
 			continue
 		}
 		seeds = append(seeds, struct{ Artist, Track string }{Artist: artistName, Track: trackName})
+		addSeedID(id)
 	}
-	// Also accept a single track= + artist= pair as a seed.
 	if track := strings.TrimSpace(r.URL.Query().Get("track")); track != "" && artist != "" {
 		seeds = append([]struct{ Artist, Track string }{{Artist: artist, Track: track}}, seeds...)
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
-	defer cancel()
-
-	artists, tracks, err := s.lastfm.RelatedForAlbum(ctx, artist, seeds, limit)
-	if err != nil {
-		writeLastFMError(w, err)
+	lastfmReady := s.lastfm != nil && s.lastfm.Configured()
+	localReady := s.music != nil && s.music.LocalEnabled() && len(seedIDs) > 0
+	if !lastfmReady && !localReady {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "last.fm is not configured"})
 		return
 	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+
+	tracks := make([]musiccatalog.TopTrack, 0)
+	if localReady {
+		seenTrack := map[string]struct{}{}
+		for _, id := range seedIDs {
+			if ctx.Err() != nil {
+				break
+			}
+			hits, err := s.music.SimilarTracks(ctx, id, limit)
+			if err != nil || len(hits) == 0 {
+				continue
+			}
+			for _, hit := range hits {
+				if hit.ID == "" || hit.ID == id {
+					continue
+				}
+				if _, ok := seenTrack[hit.ID]; ok {
+					continue
+				}
+				seenTrack[hit.ID] = struct{}{}
+				tracks = append(tracks, hit)
+				if len(tracks) >= limit {
+					break
+				}
+			}
+			if len(tracks) >= limit {
+				break
+			}
+		}
+	}
+
+	artists := make([]musiccatalog.Artist, 0)
+	if lastfmReady {
+		if len(tracks) == 0 {
+			var err error
+			artists, tracks, err = s.lastfm.RelatedForAlbum(ctx, artist, seeds, limit)
+			if err != nil && len(artists) == 0 {
+				writeLastFMError(w, err)
+				return
+			}
+		} else if strings.TrimSpace(artist) != "" && !strings.EqualFold(artist, "Various Artists") {
+			if similar, err := s.lastfm.SimilarArtists(ctx, artist, limit); err == nil {
+				artists = similar
+			}
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"artists": artists,
 		"tracks":  tracks,
@@ -925,18 +985,21 @@ func parsePositiveInt(raw string, fallback int) int {
 	return n
 }
 
-// splitSeed parses "Artist|||Track" seed pairs from query params.
-func splitSeed(raw string) (artist, track string, ok bool) {
-	parts := strings.SplitN(raw, "|||", 2)
-	if len(parts) != 2 {
-		return "", "", false
+// splitSeed parses "Artist|||Track" or "Artist|||Track|||MBID" seed pairs.
+func splitSeed(raw string) (artist, track, id string, ok bool) {
+	parts := strings.Split(raw, "|||")
+	if len(parts) < 2 {
+		return "", "", "", false
 	}
 	artist = strings.TrimSpace(parts[0])
 	track = strings.TrimSpace(parts[1])
-	if artist == "" || track == "" {
-		return "", "", false
+	if len(parts) >= 3 {
+		id = strings.TrimSpace(parts[2])
 	}
-	return artist, track, true
+	if artist == "" || track == "" {
+		return "", "", "", false
+	}
+	return artist, track, id, true
 }
 
 func (s *Server) tryAcquire(sem chan struct{}) bool {

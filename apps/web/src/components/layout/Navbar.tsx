@@ -20,12 +20,14 @@ import {
   MagnifyingGlassIcon,
 } from "@radix-ui/react-icons";
 import { useUserSettings } from "@/hooks/useUserSettings";
+import {
+  searchDebounceMs,
+  shouldLiveSearch,
+  type SearchMode,
+} from "@/lib/searchDebounce";
 import { cn } from "@/lib/utils";
 
-export type SearchMode = "media" | "books" | "music";
-
-/** Wait this long after typing before hitting remote search APIs. */
-export const SEARCH_DEBOUNCE_MS = 500;
+export type { SearchMode };
 
 function isBooksPath(pathname: string, search: string): boolean {
   if (
@@ -187,6 +189,10 @@ export function Navbar() {
         return;
       }
 
+      if (!shouldLiveSearch(trimmed, activeSearchMode)) {
+        return;
+      }
+
       if (!onSearch) {
         searchOriginRef.current = current || "/";
       }
@@ -196,7 +202,7 @@ export function Navbar() {
         return;
       }
       void navigate(nextPath, { replace: onSearch });
-    }, SEARCH_DEBOUNCE_MS);
+    }, searchDebounceMs(activeSearchMode));
 
     return () => window.clearTimeout(timer);
   }, [query, activeSearchMode, isSearchOpen, navigate]);

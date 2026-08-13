@@ -39,7 +39,7 @@ func (c *Client) searchHybrid(ctx context.Context, query string) (*musiccatalog.
 		hits = c.mergeLastFMSearchHits(ctx, query, hits)
 	}
 
-	if c.ai != nil && c.ai.Configured() && len(hits) > 1 {
+	if c.ai != nil && c.ai.Configured() && shouldRerank(query, hits) {
 		rerankCtx, cancel := context.WithTimeout(ctx, 6*time.Second)
 		hits = c.rerankHits(rerankCtx, query, hits)
 		cancel()
@@ -74,16 +74,11 @@ func (c *Client) mergeLastFMSearchHits(ctx context.Context, query string, hits [
 		existing["name:"+local.NormalizeSearchText(hit.Name)+"|"+local.NormalizeSearchText(strings.Join(hit.Artists, " "))] = struct{}{}
 	}
 	for i, track := range lfmTracks {
-		id := strings.TrimSpace(track.ID)
-		if id == "" && len(track.Artists) > 0 {
-			if resolved, err := c.ResolveTrackByName(ctx, track.Name, track.Artists[0]); err == nil && resolved != nil {
-				track = *resolved
-				id = track.ID
-			}
-		}
+		id := NormalizeMBID(track.ID)
 		if id == "" {
 			continue
 		}
+		track.ID = id
 		key := "track:" + id
 		nameKey := "name:" + local.NormalizeSearchText(track.Name) + "|" + local.NormalizeSearchText(strings.Join(track.Artists, " "))
 		if _, ok := existing[key]; ok {
@@ -109,6 +104,20 @@ func (c *Client) mergeLastFMSearchHits(ctx context.Context, query string, hits [
 		})
 	}
 	return hits
+}
+
+func shouldRerank(query string, hits []local.SearchHit) bool {
+	if len(hits) <= 1 {
+		return false
+	}
+	if len(strings.TrimSpace(query)) < 4 {
+		return false
+	}
+	norm := local.NormalizeSearchText(query)
+	if local.NormalizeSearchText(hits[0].Name) == norm {
+		return false
+	}
+	return true
 }
 
 func (c *Client) rerankHits(ctx context.Context, query string, hits []local.SearchHit) []local.SearchHit {

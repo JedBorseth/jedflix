@@ -74,3 +74,30 @@ func NormalizeSearchText(value string) string {
 	}
 	return strings.TrimSpace(b.String())
 }
+
+var lexicalStopwords = map[string]struct{}{
+	"a": {}, "an": {}, "and": {}, "for": {}, "in": {}, "of": {}, "on": {}, "or": {}, "the": {}, "to": {},
+}
+
+// FuzzyToken returns the longest non-stopword token when it is distinctive
+// enough for pg_trgm. Empty means skip % / %> (short or stopword-heavy queries).
+func FuzzyToken(query string) string {
+	longest := ""
+	for _, token := range strings.Fields(NormalizeSearchText(query)) {
+		if _, stop := lexicalStopwords[token]; stop {
+			continue
+		}
+		if len(token) > len(longest) {
+			longest = token
+		}
+	}
+	if len(longest) < 5 {
+		return ""
+	}
+	return longest
+}
+
+// UseFuzzyTrigram is true when trigram % / %> will not explode on common tokens.
+func UseFuzzyTrigram(query string) bool {
+	return FuzzyToken(query) != ""
+}

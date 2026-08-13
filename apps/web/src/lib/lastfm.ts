@@ -54,7 +54,7 @@ export async function getSimilarTracks(
 export async function getRelatedMusic(params: {
   artist?: string;
   track?: string;
-  seeds?: Array<{ artist: string; track: string }>;
+  seeds?: Array<{ artist: string; track: string; id?: string }>;
   limit?: number;
 }): Promise<RelatedMusic> {
   try {

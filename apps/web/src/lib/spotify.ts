@@ -68,11 +68,11 @@ export async function getMusicBrowse(): Promise<MusicBrowseResponse> {
 
 export async function searchMusicAll(
   query: string,
-  options: { includeYoutube?: boolean } = {},
+  options: { includeYoutube?: boolean; signal?: AbortSignal } = {},
 ): Promise<MusicSearchResults> {
-  const spotifyPromise = streamClient.searchSpotify(query);
+  const spotifyPromise = streamClient.searchSpotify(query, { signal: options.signal });
   const youtubePromise = options.includeYoutube
-    ? streamClient.searchYoutubeMusic(query).catch(() => ({ tracks: [] }))
+    ? streamClient.searchYoutubeMusic(query, { signal: options.signal }).catch(() => ({ tracks: [] }))
     : Promise.resolve({ tracks: [] });
 
   const [spotify, youtube] = await Promise.all([spotifyPromise, youtubePromise]);

@@ -298,7 +298,10 @@ export type StreamClient = {
   fetchOpenLibraryWork: (workId: string) => Promise<OpenLibraryBook>;
   fetchOpenLibraryAuthor: (authorId: string) => Promise<OpenLibraryAuthorDetails>;
   fetchSpotifyBrowse: () => Promise<SpotifyBrowseResponse>;
-  searchSpotify: (query: string) => Promise<SpotifySearchResponse>;
+  searchSpotify: (
+    query: string,
+    options?: { signal?: AbortSignal },
+  ) => Promise<SpotifySearchResponse>;
   fetchSpotifyAlbum: (
     albumId: string,
     hints?: { name?: string; artist?: string },
@@ -324,11 +327,14 @@ export type StreamClient = {
   fetchLastFmRelated: (params: {
     artist?: string;
     track?: string;
-    seeds?: Array<{ artist: string; track: string }>;
+    seeds?: Array<{ artist: string; track: string; id?: string }>;
     limit?: number;
   }) => Promise<LastFmRelatedResponse>;
   fetchLastFmArtistTags: (artist: string) => Promise<LastFmArtistTagsResponse>;
-  searchYoutubeMusic: (query: string) => Promise<YoutubeMusicSearchResponse>;
+  searchYoutubeMusic: (
+    query: string,
+    options?: { signal?: AbortSignal },
+  ) => Promise<YoutubeMusicSearchResponse>;
   recommendMusic: (request: MusicRecommendRequest) => Promise<MusicRecommendResponse>;
   getYoutubeAudioUrl: (params: {
     artist: string;
@@ -643,10 +649,14 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
     return normalizeSpotifyBrowseResponse(await response.json());
   }
 
-  async function searchSpotify(query: string): Promise<SpotifySearchResponse> {
+  async function searchSpotify(
+    query: string,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<SpotifySearchResponse> {
     const params = new URLSearchParams({ q: query.trim() });
     const response = await fetch(`${apiBase}/api/v1/spotify/search?${params.toString()}`, {
       headers: headers(),
+      signal: options.signal,
     });
     if (!response.ok) {
       const payload = (await response.json().catch(() => null)) as { error?: string } | null;
@@ -782,7 +792,7 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
   async function fetchLastFmRelated(params: {
     artist?: string;
     track?: string;
-    seeds?: Array<{ artist: string; track: string }>;
+    seeds?: Array<{ artist: string; track: string; id?: string }>;
     limit?: number;
   }): Promise<LastFmRelatedResponse> {
     const query = new URLSearchParams();
@@ -797,7 +807,16 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
     }
     for (const seed of params.seeds ?? []) {
       if (seed.artist?.trim() && seed.track?.trim()) {
-        query.append("seed", `${seed.artist.trim()}|||${seed.track.trim()}`);
+        const id = seed.id?.trim();
+        query.append(
+          "seed",
+          id
+            ? `${seed.artist.trim()}|||${seed.track.trim()}|||${id}`
+            : `${seed.artist.trim()}|||${seed.track.trim()}`,
+        );
+        if (id) {
+          query.append("seedId", id);
+        }
       }
     }
     const response = await fetch(`${apiBase}/api/v1/lastfm/related?${query}`, {
@@ -850,10 +869,14 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
     };
   }
 
-  async function searchYoutubeMusic(query: string): Promise<YoutubeMusicSearchResponse> {
+  async function searchYoutubeMusic(
+    query: string,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<YoutubeMusicSearchResponse> {
     const params = new URLSearchParams({ q: query.trim() });
     const response = await fetch(`${apiBase}/api/v1/youtube/search?${params.toString()}`, {
       headers: headers(),
+      signal: options.signal,
     });
     if (!response.ok) {
       const payload = (await response.json().catch(() => null)) as { error?: string } | null;

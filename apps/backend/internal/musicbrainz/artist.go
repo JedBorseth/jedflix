@@ -72,6 +72,19 @@ func (c *Client) browseArtistReleaseGroups(ctx context.Context, artistID string,
 }
 
 func (c *Client) fetchTopTracks(ctx context.Context, artist musiccatalog.Artist) []musiccatalog.TopTrack {
+	if c.useLocalStore() && artist.ID != "" {
+		localCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
+		tracks, err := c.local.ListArtistTopTracks(localCtx, artist.ID, 10)
+		cancel()
+		if err == nil && len(tracks) > 0 {
+			out := make([]musiccatalog.TopTrack, 0, len(tracks))
+			for i := range tracks {
+				out = append(out, *c.finalizeTopTrack(artist, &tracks[i]))
+			}
+			return out
+		}
+	}
+
 	var hints []musiccatalog.TopTrack
 	if c.enricher != nil && c.enricher.Configured() {
 		lfmCtx, cancel := context.WithTimeout(ctx, lastFMTopTracksTimeout)

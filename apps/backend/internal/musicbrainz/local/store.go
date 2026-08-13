@@ -231,8 +231,102 @@ func (s *Store) GetArtist(ctx context.Context, artistGID string) (*musiccatalog.
 		},
 		Albums:      albums,
 		Discography: discography,
-		TopTracks:   nil, // filled by caller via Last.fm / search
+		TopTracks:   nil, // filled by caller via local popularity / Last.fm
 	}, nil
+}
+
+// ListArtistTopTracks returns popular recordings for an artist using MusicBrainz
+// rating_count (same signal as jedflix.search_documents.popularity).
+func (s *Store) ListArtistTopTracks(ctx context.Context, artistGID string, limit int) ([]musiccatalog.TopTrack, error) {
+	if !s.Configured() {
+		return nil, ErrNotConfigured
+	}
+	artistGID = strings.ToLower(strings.TrimSpace(artistGID))
+	if artistGID == "" {
+		return nil, musiccatalog.ErrBadRequest
+	}
+	if limit <= 0 {
+		limit = 10
+	}
+	if limit > 25 {
+		limit = 25
+	}
+
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, fmt.Errorf("%w: artist top tracks: %v", musiccatalog.ErrFetchFailed, err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `SET LOCAL statement_timeout = '3s'`); err != nil {
+		return nil, fmt.Errorf("%w: artist top tracks: %v", musiccatalog.ErrFetchFailed, err)
+	}
+
+	rows, err := tx.QueryContext(ctx, `
+		SELECT rec.gid::text,
+			rec.name,
+			COALESCE(rec.length, 0),
+			COALESCE((
+				SELECT array_agg(acn.name ORDER BY acn.position)
+				FROM musicbrainz.artist_credit_name acn
+				WHERE acn.artist_credit = rec.artist_credit
+			), '{}') AS artist_names,
+			COALESCE((
+				SELECT array_agg(a2.gid::text ORDER BY acn.position)
+				FROM musicbrainz.artist_credit_name acn
+				JOIN musicbrainz.artist a2 ON a2.id = acn.artist
+				WHERE acn.artist_credit = rec.artist_credit
+			), '{}') AS artist_ids,
+			COALESCE(d.album_id::text, ''),
+			COALESCE(d.album_name, '')
+		FROM musicbrainz.artist a
+		JOIN musicbrainz.artist_credit_name acn0
+			ON acn0.artist = a.id AND acn0.position = 0
+		JOIN musicbrainz.recording rec ON rec.artist_credit = acn0.artist_credit
+		JOIN musicbrainz.recording_meta rm
+			ON rm.id = rec.id AND rm.rating_count > 0
+		LEFT JOIN jedflix.search_documents d
+			ON d.entity_type = 'track' AND d.mbid = rec.gid
+		WHERE a.gid = $1::uuid
+		ORDER BY rm.rating_count DESC,
+			rec.length DESC NULLS LAST,
+			rec.id
+		LIMIT $2
+	`, artistGID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("%w: artist top tracks: %v", musiccatalog.ErrFetchFailed, err)
+	}
+	defer rows.Close()
+
+	out := make([]musiccatalog.TopTrack, 0, limit)
+	for rows.Next() {
+		var (
+			track              musiccatalog.TopTrack
+			artistNames        pqStringArray
+			artistIDs          pqStringArray
+			albumID, albumName string
+		)
+		if err := rows.Scan(
+			&track.ID, &track.Name, &track.DurationMs,
+			&artistNames, &artistIDs, &albumID, &albumName,
+		); err != nil {
+			return nil, fmt.Errorf("%w: scan artist top tracks: %v", musiccatalog.ErrFetchFailed, err)
+		}
+		track.Artists = []string(artistNames)
+		track.ArtistIDs = []string(artistIDs)
+		track.AlbumID = albumID
+		track.AlbumName = albumName
+		out = append(out, track)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("%w: artist top tracks: %v", musiccatalog.ErrFetchFailed, err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("%w: artist top tracks: %v", musiccatalog.ErrFetchFailed, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("%w: artist top tracks: %v", musiccatalog.ErrFetchFailed, err)
+	}
+	return out, nil
 }
 
 func (s *Store) listArtistReleaseGroups(ctx context.Context, artistGID string, limit int) ([]musiccatalog.Album, error) {

@@ -83,10 +83,11 @@ export function AlbumDetailPage() {
   const seedTracks = tracks.slice(0, 1).map((track) => ({
     artist: (track.artists[0] || primaryArtistName).trim(),
     track: track.name,
+    id: track.id,
   }));
   const relatedKey = [
     primaryArtistName,
-    ...seedTracks.map((seed) => `${seed.artist}:${seed.track}`),
+    ...seedTracks.map((seed) => `${seed.artist}:${seed.track}:${seed.id ?? ""}`),
   ].join("|");
 
   const lastfmRelatedQuery = useQuery({

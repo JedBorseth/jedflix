@@ -90,17 +90,21 @@ services:
     command:
       - postgres
       - -c
-      - shared_buffers=1GB
+      - shared_buffers=2GB
       - -c
       - work_mem=64MB
       - -c
       - maintenance_work_mem=1GB
       - -c
       - max_wal_size=2GB
+      - -c
+      - effective_cache_size=8GB
+      - -c
+      - random_page_cost=1.5
     volumes:
       - ${JEDFLIX_DATA_ROOT:-/mnt/disk1/jedflix}/musicbrainz/pgdata:/var/lib/postgresql/data
       - ${JEDFLIX_DATA_ROOT:-/mnt/disk1/jedflix}/musicbrainz/dumps:/dumps
-    shm_size: 2gb
+    shm_size: 3gb
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U musicbrainz -d musicbrainz"]
       interval: 10s

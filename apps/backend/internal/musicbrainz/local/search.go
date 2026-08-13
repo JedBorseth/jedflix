@@ -84,17 +84,19 @@ func (s *Store) searchText(ctx context.Context, query string, limit int) ([]Sear
 	}
 	defer func() { _ = tx.Rollback() }()
 	// Indexed pg_trgm operators only — word_similarity() in WHERE seq-scans the table.
-	if _, err := tx.ExecContext(ctx, `SET LOCAL pg_trgm.word_similarity_threshold = 0.4`); err != nil {
+	if _, err := tx.ExecContext(ctx, `SET LOCAL pg_trgm.word_similarity_threshold = 0.55`); err != nil {
 		return nil, fmt.Errorf("%w: text search: %v", musiccatalog.ErrFetchFailed, err)
 	}
 	if _, err := tx.ExecContext(ctx, `SET LOCAL statement_timeout = '8s'`); err != nil {
 		return nil, fmt.Errorf("%w: text search: %v", musiccatalog.ErrFetchFailed, err)
 	}
+	fuzzy := FuzzyToken(query)
 	rows, err := tx.QueryContext(ctx, `
 		WITH q AS (
 			SELECT
 				jedflix.safe_websearch($1) AS tsq,
-				lower(jedflix.f_unaccent($1)) AS qnorm
+				lower(jedflix.f_unaccent($1)) AS qnorm,
+				lower(jedflix.f_unaccent($2)) AS fuzzy
 		)
 		SELECT d.entity_type, d.mbid::text, d.name, d.artists, d.artist_ids::text[],
 			d.album_name, COALESCE(d.album_id::text, ''), d.year, d.duration_ms,
@@ -104,17 +106,16 @@ func (s *Store) searchText(ctx context.Context, query string, limit int) ([]Sear
 		FROM jedflix.search_documents d, q
 		WHERE (
 			(q.tsq <> ''::tsquery AND d.tsv @@ q.tsq)
-			OR d.name_norm % q.qnorm
-			OR d.name_norm %> q.qnorm
 			OR d.name_norm LIKE q.qnorm || '%'
+			OR (q.fuzzy <> '' AND (d.name_norm % q.fuzzy OR d.name_norm %> q.fuzzy))
 		)
 		ORDER BY
 			(COALESCE(ts_rank_cd(d.tsv, q.tsq), 0) * 2
 				+ COALESCE(word_similarity(q.qnorm, d.name_norm), 0)
 				+ LEAST(d.popularity, 100)::float / 400) DESC,
 			d.popularity DESC
-		LIMIT $2
-	`, query, limit*3)
+		LIMIT $3
+	`, query, fuzzy, limit*3)
 	if err != nil {
 		return nil, fmt.Errorf("%w: text search: %v", musiccatalog.ErrFetchFailed, err)
 	}

@@ -67,9 +67,24 @@ func TestFormatHalfvec(t *testing.T) {
 	}
 }
 
-func TestNormalizeSearchText(t *testing.T) {
-	if got := NormalizeSearchText("  Beat It! "); got != "beat it" {
-		t.Fatalf("got %q", got)
+func TestFuzzyTokenSkipsShortAndStopwordQueries(t *testing.T) {
+	if got := FuzzyToken("hip"); got != "" {
+		t.Fatalf("hip fuzzy=%q", got)
+	}
+	if got := FuzzyToken("the"); got != "" {
+		t.Fatalf("the fuzzy=%q", got)
+	}
+	if got := FuzzyToken("the spotlight"); got != "spotlight" {
+		t.Fatalf("the spotlight fuzzy=%q", got)
+	}
+	if got := FuzzyToken("drake"); got != "drake" {
+		t.Fatalf("drake fuzzy=%q", got)
+	}
+	if FuzzyToken("the weeknd") != "weeknd" {
+		t.Fatalf("the weeknd fuzzy=%q", FuzzyToken("the weeknd"))
+	}
+	if UseFuzzyTrigram("hi") {
+		t.Fatal("short queries must not use trigram %")
 	}
 }
 
