@@ -62,3 +62,36 @@ func TestNormalizeSearchText(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestSearchDocumentsReadyAcceptsPartialIndex(t *testing.T) {
+	if SearchDocumentsReady(0, 0, 0) {
+		t.Fatal("empty index should not be ready")
+	}
+	if !SearchDocumentsReady(12, 0, 0) {
+		t.Fatal("artist-only subset should be searchable")
+	}
+	if !SearchDocumentsReady(0, 3, 40) {
+		t.Fatal("album+track subset should be searchable")
+	}
+}
+
+func TestHitsToResultKeepsTracksAlbumsArtists(t *testing.T) {
+	hits := []SearchHit{
+		{EntityType: "track", MBID: "t1", Name: "Song", Artists: []string{"A"}, Fused: 3},
+		{EntityType: "album", MBID: "al1", Name: "LP", Artists: []string{"A"}, Fused: 2},
+		{EntityType: "artist", MBID: "ar1", Name: "A", Fused: 1},
+	}
+	result := HitsToResult(hits, 10)
+	if len(result.Tracks) != 1 || result.Tracks[0].ID != "t1" {
+		t.Fatalf("tracks = %+v", result.Tracks)
+	}
+	if len(result.Albums) != 1 || result.Albums[0].ID != "al1" {
+		t.Fatalf("albums = %+v", result.Albums)
+	}
+	if len(result.Artists) != 1 || result.Artists[0].ID != "ar1" {
+		t.Fatalf("artists = %+v", result.Artists)
+	}
+	if len(result.Ranked) != 3 {
+		t.Fatalf("ranked = %+v", result.Ranked)
+	}
+}

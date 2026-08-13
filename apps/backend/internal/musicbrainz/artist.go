@@ -84,7 +84,7 @@ func (c *Client) fetchTopTracks(ctx context.Context, artist musiccatalog.Artist)
 
 	if len(hints) == 0 {
 		query := artist.Name
-		if !c.useLocalSearch() {
+		if !c.useLocalStore() {
 			query = fmt.Sprintf(`artist:"%s"`, luceneEscape(artist.Name))
 		}
 		tracks, err := c.searchRecordingsLocalOrRemote(ctx, query, 10)
@@ -159,23 +159,6 @@ func (c *Client) resolveTopTrack(ctx context.Context, artist musiccatalog.Artist
 		if id := NormalizeMBID(hint.ID); id != "" {
 			if rec, err := c.local.GetRecording(ctx, id); err == nil && rec != nil {
 				return applyHint(rec)
-			}
-		}
-	}
-
-	if c.useLocalSearch() {
-		tracks, err := c.search.SearchRecordingsForArtist(ctx, hint.Name, artist.ID, 5)
-		if err != nil || len(tracks) == 0 {
-			tracks, err = c.search.SearchRecordings(ctx, hint.Name+" "+artist.Name, 5)
-		}
-		if err == nil {
-			if best := pickResolvedTrack(hint, tracks); best != nil {
-				if c.useLocalStore() && (best.DurationMs <= 0 || best.AlbumID == "") {
-					if rec, err := c.local.GetRecording(ctx, best.ID); err == nil && rec != nil {
-						return applyHint(rec)
-					}
-				}
-				return applyHint(best)
 			}
 		}
 	}

@@ -52,10 +52,8 @@ services:
       MUSIC_CATALOG_CACHE_TTL: ${MUSIC_CATALOG_CACHE_TTL:-6h}
       MUSICBRAINZ_API_BASE_URL: ${MUSICBRAINZ_API_BASE_URL:-https://musicbrainz.org/ws/2}
       COVER_ART_ARCHIVE_BASE_URL: ${COVER_ART_ARCHIVE_BASE_URL:-https://coverartarchive.org}
-      # Local MusicBrainz replica + Meilisearch (no public MB API for search/detail).
+      # Local MusicBrainz replica + pgvector/Qwen search (no public MB API for search/detail).
       MUSICBRAINZ_DATABASE_URL: ${MUSICBRAINZ_DATABASE_URL:-postgres://musicbrainz:${MUSICBRAINZ_DB_PASSWORD:-musicbrainz}@musicbrainz-db:5432/musicbrainz?sslmode=disable}
-      MEILI_URL: ${MEILI_URL:-http://meilisearch:7700}
-      MEILI_API_KEY: ${MEILI_API_KEY:-${MEILI_MASTER_KEY:-jedflix_meili_master_change_me}}
       MUSIC_AI_URL: ${MUSIC_AI_URL:-http://music-ai:8000}
       MUSIC_ARTWORK_PATH: ${MUSIC_ARTWORK_PATH:-/data/music-artwork}
       MUSIC_COVER_PUBLIC_BASE: ${MUSIC_COVER_PUBLIC_BASE:-/backend/api/v1/music/covers}
@@ -106,22 +104,6 @@ services:
       timeout: 5s
       retries: 12
 
-  meilisearch:
-    image: getmeili/meilisearch:v1.11
-    restart: unless-stopped
-    environment:
-      MEILI_ENV: production
-      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-jedflix_meili_master_change_me}
-      MEILI_MAX_INDEXING_MEMORY: ${MEILI_MAX_INDEXING_MEMORY:-2GiB}
-      MEILI_DB_PATH: /meili_data
-    volumes:
-      - ${JEDFLIX_DATA_ROOT:-/mnt/disk1/jedflix}/musicbrainz/meili:/meili_data
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:7700/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-
   mbslave:
     build:
       context: .
@@ -139,23 +121,6 @@ services:
       - ${JEDFLIX_DATA_ROOT:-/mnt/disk1/jedflix}/musicbrainz/replication:/replication
     depends_on:
       musicbrainz-db:
-        condition: service_healthy
-
-  music-indexer:
-    # Manual only (profile music-tools). Not started by deploy or cron.
-    # Run with MUSICBRAINZ_REINDEX=1 ./scripts/musicbrainz-reindex.sh when needed.
-    build:
-      context: ./apps/backend
-      target: indexer
-    profiles: ["music-tools"]
-    environment:
-      MUSICBRAINZ_DATABASE_URL: postgres://musicbrainz:${MUSICBRAINZ_DB_PASSWORD:-musicbrainz}@musicbrainz-db:5432/musicbrainz?sslmode=disable
-      MEILI_URL: http://meilisearch:7700
-      MEILI_API_KEY: ${MEILI_MASTER_KEY:-jedflix_meili_master_change_me}
-    depends_on:
-      musicbrainz-db:
-        condition: service_healthy
-      meilisearch:
         condition: service_healthy
 
   music-ai:

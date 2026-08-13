@@ -22,8 +22,12 @@ import { getYoutubeAudioUrl, type TrackItem } from "@/lib/spotify";
 import { recordRecentlyPlayedMusic } from "@/lib/recentlyPlayedMusic";
 import { useMusicInteractionLog } from "@/lib/musicInteractions";
 import {
+  exclusionIdsFromTracks,
   generateInfiniteQueueTracks,
-  INFINITE_QUEUE_THRESHOLD,
+  INFINITE_QUEUE_PREVIEW_SIZE,
+  remainingUpcomingCount,
+  shouldAppendInfiniteRecommendations,
+  uniqueQueueTracks,
 } from "@/lib/infiniteQueueRecommendations";
 import {
   prefetchYoutubeAudioTracks,
@@ -54,6 +58,8 @@ type MusicPlayerContextValue = {
   expanded: boolean;
   queueOpen: boolean;
   infiniteQueue: boolean;
+  /** Next auto-queued recommendations, shown before they join the playable queue. */
+  upcomingRecommendations: MusicQueueTrack[];
   currentTime: number;
   duration: number;
   error: string | null;
@@ -157,6 +163,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const [expanded, setExpanded] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
   const [infiniteQueue, setInfiniteQueueState] = useState(false);
+  const [upcomingRecommendations, setUpcomingRecommendations] = useState<MusicQueueTrack[]>([]);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -166,6 +173,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   queueRef.current = queue;
   const infiniteQueueRef = useRef(false);
   infiniteQueueRef.current = infiniteQueue;
+  const upcomingRecommendationsRef = useRef<MusicQueueTrack[]>([]);
+  upcomingRecommendationsRef.current = upcomingRecommendations;
   /** Recently played tracks for Infinite Queue recommendation context. */
   const playHistoryRef = useRef<MusicQueueTrack[]>([]);
   const infiniteRefillInFlightRef = useRef(false);
@@ -453,6 +462,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
 
   const clearUpcoming = useCallback(() => {
     queueDirtyRef.current = true;
+    upcomingRecommendationsRef.current = [];
+    setUpcomingRecommendations([]);
     setQueue((prev) => {
       if (prev.length === 0) {
         return prev;
@@ -469,10 +480,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     }
     const currentQueue = queueRef.current;
     const index = queueIndexRef.current;
-    const remaining = currentQueue.length - index - 1;
-    if (remaining >= INFINITE_QUEUE_THRESHOLD) {
-      return;
-    }
+    const remaining = remainingUpcomingCount(currentQueue.length, index);
     const currentTrack = currentQueue[index] ?? null;
     if (!currentTrack) {
       return;
@@ -481,37 +489,75 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     infiniteRefillInFlightRef.current = true;
     const session = queueSessionRef.current;
     try {
-      const excludeIds = new Set(currentQueue.map((track) => track.id));
       const recent = playHistoryRef.current.slice(-8);
-      const recentArtistNames = [...recent, ...currentQueue.slice(Math.max(0, index - 3), index + 1)]
+      const recentArtistNames = [
+        ...recent,
+        ...currentQueue.slice(Math.max(0, index - 3), index + 1),
+      ]
         .map((track) => track.artists[0] ?? "")
         .filter(Boolean);
 
-      const recommendations = await generateInfiniteQueueTracks({
-        current: currentTrack,
-        recent,
-        excludeIds,
-        recentArtistNames,
-      });
-      if (
-        session !== queueSessionRef.current ||
-        !infiniteQueueRef.current ||
-        recommendations.length === 0
-      ) {
-        return;
-      }
-      setQueue((prev) => {
-        const existing = new Set(prev.map((track) => track.id));
-        const toAppend = recommendations
-          .filter((track) => !existing.has(track.id))
-          .map((track) => ({ ...track, autoQueued: true }));
+      const fetchRecommendations = async (excludeIds: Set<string>, limit: number) => {
+        return generateInfiniteQueueTracks({
+          current: currentTrack,
+          recent,
+          excludeIds,
+          recentArtistNames,
+          limit,
+        });
+      };
+
+      let playableQueue = currentQueue;
+      if (shouldAppendInfiniteRecommendations(remaining)) {
+        let toAppend = upcomingRecommendationsRef.current;
         if (toAppend.length === 0) {
-          return prev;
+          toAppend = await fetchRecommendations(
+            exclusionIdsFromTracks(playableQueue, playHistoryRef.current),
+            INFINITE_QUEUE_PREVIEW_SIZE,
+          );
         }
-        return [...prev, ...toAppend];
-      });
+        if (session !== queueSessionRef.current || !infiniteQueueRef.current) {
+          return;
+        }
+        const added = uniqueQueueTracks(
+          toAppend,
+          playableQueue.map((track) => track.id),
+          INFINITE_QUEUE_PREVIEW_SIZE,
+          playableQueue,
+        ).map((track) => ({ ...track, autoQueued: true }));
+        if (added.length > 0) {
+          playableQueue = [...playableQueue, ...added];
+          queueRef.current = playableQueue;
+          setQueue(playableQueue);
+        }
+        upcomingRecommendationsRef.current = [];
+        setUpcomingRecommendations([]);
+      }
+
+      const previewNeed = INFINITE_QUEUE_PREVIEW_SIZE - upcomingRecommendationsRef.current.length;
+      if (previewNeed > 0) {
+        const preview = await fetchRecommendations(
+          exclusionIdsFromTracks(
+            playableQueue,
+            upcomingRecommendationsRef.current,
+            playHistoryRef.current,
+          ),
+          previewNeed,
+        );
+        if (session !== queueSessionRef.current || !infiniteQueueRef.current) {
+          return;
+        }
+        const nextPreview = uniqueQueueTracks(
+          [...upcomingRecommendationsRef.current, ...preview],
+          playableQueue.map((track) => track.id),
+          INFINITE_QUEUE_PREVIEW_SIZE,
+          playableQueue,
+        );
+        upcomingRecommendationsRef.current = nextPreview;
+        setUpcomingRecommendations(nextPreview);
+      }
     } catch {
-      // Last.fm / network failures must never interrupt playback.
+      // Recommendation / network failures must never interrupt playback.
     } finally {
       infiniteRefillInFlightRef.current = false;
     }
@@ -718,6 +764,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     queueSessionRef.current += 1;
     queueDirtyRef.current = false;
     playHistoryRef.current = [];
+    upcomingRecommendationsRef.current = [];
     infiniteRefillInFlightRef.current = false;
     setQueue([]);
     setQueueIndex(0);
@@ -725,6 +772,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     setLoading(false);
     setExpanded(false);
     setQueueOpen(false);
+    setUpcomingRecommendations([]);
     setCurrentTime(0);
     setDuration(0);
     setError(null);
@@ -738,7 +786,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const upcoming = upcomingTracksForPrefetch(queue, queueIndex, 2);
+    const queued = upcomingTracksForPrefetch(queue, queueIndex, 2);
+    const previewNeed = Math.max(0, 2 - queued.length);
+    const upcoming = [
+      ...queued,
+      ...upcomingRecommendations.slice(0, previewNeed),
+    ];
     if (upcoming.length === 0) {
       return;
     }
@@ -748,14 +801,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       alreadyPrefetched: prefetchedIdsRef.current,
     });
     return () => controller.abort();
-  }, [queue, queueIndex]);
+  }, [queue, queueIndex, upcomingRecommendations]);
 
   useEffect(() => {
     if (!infiniteQueue) {
-      return;
-    }
-    const remaining = queue.length - queueIndex - 1;
-    if (remaining >= INFINITE_QUEUE_THRESHOLD) {
+      upcomingRecommendationsRef.current = [];
+      setUpcomingRecommendations([]);
       return;
     }
     void appendInfiniteRecommendations();
@@ -788,6 +839,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       expanded,
       queueOpen,
       infiniteQueue,
+      upcomingRecommendations,
       currentTime,
       duration,
       error,
@@ -822,6 +874,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       extendQueueFromSource,
       handleSetExpanded,
       infiniteQueue,
+      upcomingRecommendations,
       loading,
       next,
       pause,

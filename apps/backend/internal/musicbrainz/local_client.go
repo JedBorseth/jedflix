@@ -2,7 +2,6 @@ package musicbrainz
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/jedborseth/jeds-movies/backend/internal/musiccatalog"
@@ -90,88 +89,69 @@ func (c *Client) fetchArtistDetailsLocal(ctx context.Context, artistID string) (
 	return details, nil
 }
 
-func (c *Client) useLocalSearch() bool {
-	return c.search != nil && c.search.Configured()
-}
-
 func (c *Client) useLocalStore() bool {
 	return c.local != nil && c.local.Configured()
 }
 
-// searchArtists prefers Meilisearch when configured (no public MusicBrainz API).
 func (c *Client) searchArtistsLocalOrRemote(ctx context.Context, query string, limit int) ([]musiccatalog.Artist, error) {
-	if c.useLocalSearch() {
-		artists, err := c.search.SearchArtists(ctx, query, limit)
+	if c.useLocalStore() {
+		hybrid, err := c.searchHybrid(ctx, query)
 		if err != nil {
 			return nil, err
 		}
-		return c.withArtistImageURLs(artists), nil
+		if hybrid == nil {
+			return nil, nil
+		}
+		return limitArtists(hybrid.Artists, limit), nil
 	}
 	return c.searchArtists(ctx, query, limit)
 }
 
-func (c *Client) searchAlbumsLocalOrRemote(ctx context.Context, query string, limit int, primaryType string) ([]musiccatalog.Album, error) {
-	if c.useLocalSearch() {
-		filter := ""
-		if primaryType != "" {
-			filter = fmt.Sprintf(`primaryType = "%s"`, primaryType)
-		}
-		// Strip Lucene-ish operators for Meilisearch plain queries.
-		plain := stripLucene(query)
-		albums, err := c.search.SearchReleaseGroups(ctx, plain, filter, limit)
+func (c *Client) searchAlbumsLocalOrRemote(ctx context.Context, query string, limit int, _ string) ([]musiccatalog.Album, error) {
+	if c.useLocalStore() {
+		hybrid, err := c.searchHybrid(ctx, query)
 		if err != nil {
 			return nil, err
 		}
-		return c.withCoverURLs(albums), nil
+		if hybrid == nil {
+			return nil, nil
+		}
+		return limitAlbums(hybrid.Albums, limit), nil
 	}
 	return c.searchAlbums(ctx, query, limit)
 }
 
 func (c *Client) searchRecordingsLocalOrRemote(ctx context.Context, query string, limit int) ([]musiccatalog.TopTrack, error) {
-	if c.useLocalSearch() {
-		tracks, err := c.search.SearchRecordings(ctx, stripLucene(query), limit)
+	if c.useLocalStore() {
+		hybrid, err := c.searchHybrid(ctx, query)
 		if err != nil {
 			return nil, err
 		}
-		return c.withTrackCoverURLs(ctx, tracks), nil
+		if hybrid == nil {
+			return nil, nil
+		}
+		return limitTracks(hybrid.Tracks, limit), nil
 	}
 	return c.searchRecordings(ctx, query, limit)
 }
 
-func stripLucene(query string) string {
-	q := query
-	for _, prefix := range []string{
-		"tag:", "artist:", "recording:", "releasegroup:", "primarytype:",
-	} {
-		// Best-effort: drop fielded Lucene when talking to Meilisearch.
-		_ = prefix
+func limitArtists(items []musiccatalog.Artist, limit int) []musiccatalog.Artist {
+	if limit > 0 && len(items) > limit {
+		return items[:limit]
 	}
-	replacer := strings.NewReplacer(
-		`AND`, " ",
-		`OR`, " ",
-		`NOT`, " ",
-		`"`, " ",
-		`(`, " ",
-		`)`, " ",
-		`[`, " ",
-		`]`, " ",
-		`{`, " ",
-		`}`, " ",
-		`:`, " ",
-		`*`, " ",
-	)
-	parts := strings.Fields(replacer.Replace(q))
-	filtered := make([]string, 0, len(parts))
-	for _, p := range parts {
-		lower := strings.ToLower(p)
-		if strings.HasPrefix(lower, "primarytype") || strings.HasPrefix(lower, "firstreleasedate") {
-			continue
-		}
-		if lower == "album" || lower == "ep" || lower == "single" {
-			// Likely a type token from Lucene queries — skip for plain search.
-			continue
-		}
-		filtered = append(filtered, p)
+	return items
+}
+
+func limitAlbums(items []musiccatalog.Album, limit int) []musiccatalog.Album {
+	if limit > 0 && len(items) > limit {
+		return items[:limit]
 	}
-	return strings.TrimSpace(strings.Join(filtered, " "))
+	return items
+}
+
+func limitTracks(items []musiccatalog.TopTrack, limit int) []musiccatalog.TopTrack {
+	if limit > 0 && len(items) > limit {
+		return items[:limit]
+	}
+	return items
 }

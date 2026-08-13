@@ -8,7 +8,10 @@ import type { MusicQueueTrack } from "@/components/player/music/MusicPlayerConte
 export const INFINITE_QUEUE_THRESHOLD = 5;
 
 /** How many auto-recommended tracks to append per refill. */
-export const INFINITE_QUEUE_BATCH_SIZE = 4;
+export const INFINITE_QUEUE_BATCH_SIZE = 5;
+
+/** Visible preview of songs that will be added on the next refill. */
+export const INFINITE_QUEUE_PREVIEW_SIZE = 5;
 
 /** Avoid repeating the same primary artist within this many recent plays. */
 export const ARTIST_COOLDOWN_WINDOW = 4;
@@ -212,6 +215,62 @@ function softShuffle<T>(items: T[], intensity: number): T[] {
 
 function normalizeArtist(name: string): string {
   return name.trim().toLowerCase();
+}
+
+export function remainingUpcomingCount(queueLength: number, queueIndex: number): number {
+  return Math.max(0, queueLength - queueIndex - 1);
+}
+
+export function shouldAppendInfiniteRecommendations(remaining: number): boolean {
+  return remaining < INFINITE_QUEUE_THRESHOLD;
+}
+
+export function exclusionIdsFromTracks(
+  ...lists: Array<ReadonlyArray<{ id: string } | null | undefined>>
+): Set<string> {
+  const ids = new Set<string>();
+  for (const list of lists) {
+    for (const track of list) {
+      if (track?.id) {
+        ids.add(track.id);
+      }
+    }
+  }
+  return ids;
+}
+
+export function uniqueQueueTracks<T extends { id: string; title: string; artists: string[] }>(
+  incoming: T[],
+  excludeIds: Iterable<string>,
+  limit: number,
+  existing: Array<{ title: string; artists: string[] }> = [],
+): T[] {
+  const seen = new Set(excludeIds);
+  const nameKeys = new Set(
+    existing.map(
+      (track) =>
+        `${normalizeArtist(track.artists[0] ?? "")}|${track.title.trim().toLowerCase()}`,
+    ),
+  );
+  const out: T[] = [];
+  for (const track of incoming) {
+    if (!track.id || seen.has(track.id)) {
+      continue;
+    }
+    const nameKey = `${normalizeArtist(track.artists[0] ?? "")}|${track.title.trim().toLowerCase()}`;
+    if (nameKey !== "|" && nameKeys.has(nameKey)) {
+      continue;
+    }
+    seen.add(track.id);
+    if (nameKey !== "|") {
+      nameKeys.add(nameKey);
+    }
+    out.push(track);
+    if (out.length >= limit) {
+      break;
+    }
+  }
+  return out;
 }
 
 /** Pure helpers exported for unit tests. */

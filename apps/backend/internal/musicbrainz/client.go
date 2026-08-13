@@ -18,7 +18,6 @@ import (
 	"github.com/jedborseth/jeds-movies/backend/internal/musicai"
 	"github.com/jedborseth/jeds-movies/backend/internal/musicbrainz/local"
 	"github.com/jedborseth/jeds-movies/backend/internal/musiccatalog"
-	"github.com/jedborseth/jeds-movies/backend/internal/musicsearch"
 )
 
 const (
@@ -77,7 +76,6 @@ type Client struct {
 	catalogPath     string
 	enricher        Enricher
 	local           *local.Store
-	search          *musicsearch.Client
 	ai              *musicai.Client
 
 	rateMu  sync.Mutex
@@ -163,11 +161,6 @@ func NewClient(cfg config.Config) *Client {
 // SetLocalStore wires a MusicBrainz Postgres replica for detail lookups.
 func (c *Client) SetLocalStore(store *local.Store) {
 	c.local = store
-}
-
-// SetSearch wires Meilisearch as a fallback while the Postgres index backfills.
-func (c *Client) SetSearch(search *musicsearch.Client) {
-	c.search = search
 }
 
 func (c *Client) SetEnricher(e Enricher) {
@@ -305,15 +298,7 @@ func (c *Client) Search(ctx context.Context, query string) (*musiccatalog.Search
 		return hybrid, nil
 	}
 
-	if c.search != nil && c.search.Configured() {
-		result, err := c.search.Search(ctx, query, defaultLimit)
-		if err != nil {
-			return nil, err
-		}
-		artists = c.withArtistImageURLs(result.Artists)
-		albums = c.withCoverURLs(result.Albums)
-		tracks = c.withTrackCoverURLs(ctx, result.Tracks)
-	} else if !c.useLocalStore() {
+	if !c.useLocalStore() {
 		artists, errArtists = c.searchArtists(ctx, query, defaultLimit)
 		albums, errAlbums = c.searchAlbums(ctx, query, defaultLimit)
 		tracks, errTracks = c.searchRecordings(ctx, query, defaultLimit)

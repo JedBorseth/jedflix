@@ -494,16 +494,6 @@ func (c *Client) resolveArtistArtwork(ctx context.Context, artistID string) ([]b
 		}
 	}
 
-	if c.useLocalSearch() {
-		albums, err := c.search.PreferredAlbumsForArtist(ctx, artistID, 5)
-		if err == nil {
-			if data, contentType, albumID, ok := c.firstAlbumArtwork(ctx, albums); ok {
-				c.rememberArtworkURL(ctx, artistID, local.ArtworkKindArtist, c.caaFrontURL(albumID), albumID)
-				return data, contentType, nil
-			}
-		}
-	}
-
 	return nil, "", musiccatalog.ErrNotFound
 }
 

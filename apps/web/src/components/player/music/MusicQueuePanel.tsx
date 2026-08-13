@@ -143,6 +143,7 @@ export function MusicQueuePanel() {
     clearUpcoming,
     infiniteQueue,
     setInfiniteQueue,
+    upcomingRecommendations,
   } = useMusicPlayer();
   const listRef = useRef<HTMLDivElement>(null);
   const [draggingVisualIndex, setDraggingVisualIndex] = useState<number | null>(null);
@@ -273,7 +274,7 @@ export function MusicQueuePanel() {
 
         <div
           ref={listRef}
-          className="min-h-0 flex-1 overflow-y-auto overscroll-contain touch-pan-y pb-[env(safe-area-inset-bottom)]"
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain touch-pan-y"
         >
           <ul
             className="relative w-full"
@@ -336,6 +337,55 @@ export function MusicQueuePanel() {
             })}
           </ul>
         </div>
+
+        {infiniteQueue && upcomingRecommendations.length > 0 ? (
+          <div className="shrink-0 border-t border-zinc-800 pb-[env(safe-area-inset-bottom)]">
+            <div className="px-4 pb-2 pt-3">
+              <p className="text-sm font-medium text-white">Coming up</p>
+              <p className="text-xs text-zinc-500">
+                Next {upcomingRecommendations.length}{" "}
+                {upcomingRecommendations.length === 1 ? "song" : "songs"} added
+                automatically when the queue runs low
+              </p>
+            </div>
+            <ul>
+              {upcomingRecommendations.slice(0, 5).map((track) => {
+                const artist = track.artists.filter(Boolean).join(", ");
+                const imageUrl = track.imageUrl || artworkForTrack(track.id);
+                return (
+                  <li
+                    key={`upcoming-${track.id}`}
+                    className="flex h-16 items-center gap-3 border-b border-zinc-800/80 px-4 last:border-b-0"
+                  >
+                    {imageUrl ? (
+                      <ProgressiveCoverImage
+                        src={imageUrl}
+                        alt=""
+                        loading="lazy"
+                        decoding="async"
+                        className="h-11 w-11 shrink-0 rounded object-cover"
+                      />
+                    ) : (
+                      <div className="h-11 w-11 shrink-0 rounded bg-zinc-800" aria-hidden />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-zinc-200">{track.title}</p>
+                      <p className="truncate text-xs text-zinc-500">{artist}</p>
+                    </div>
+                    <span className="shrink-0 rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-400">
+                      Auto
+                    </span>
+                    <span className="shrink-0 text-xs tabular-nums text-zinc-500">
+                      {formatTrackDuration(track.durationMs)}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ) : (
+          <div className="pb-[env(safe-area-inset-bottom)]" />
+        )}
       </div>
     </div>
   );

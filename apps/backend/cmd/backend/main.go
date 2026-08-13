@@ -19,7 +19,6 @@ import (
 	"github.com/jedborseth/jeds-movies/backend/internal/musicbrainz"
 	"github.com/jedborseth/jeds-movies/backend/internal/musicbrainz/local"
 	"github.com/jedborseth/jeds-movies/backend/internal/musicrec"
-	"github.com/jedborseth/jeds-movies/backend/internal/musicsearch"
 	"github.com/jedborseth/jeds-movies/backend/internal/openlibrary"
 	"github.com/jedborseth/jeds-movies/backend/internal/realdebrid"
 	"github.com/jedborseth/jeds-movies/backend/internal/resolver"
@@ -62,22 +61,6 @@ func main() {
 			defer store.Close()
 		}
 	}
-	if cfg.MeiliURL != "" {
-		searchClient, err := musicsearch.New(cfg.MeiliURL, cfg.MeiliAPIKey)
-		if err != nil {
-			log.Printf("warning: Meilisearch unavailable: %v", err)
-		} else {
-			musicClient.SetSearch(searchClient)
-			log.Printf("Music search fallback: Meilisearch at %s", cfg.MeiliURL)
-			go func() {
-				ensureCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-				defer cancel()
-				if err := searchClient.EnsureIndexes(ensureCtx); err != nil {
-					log.Printf("warning: Meilisearch index setup: %v", err)
-				}
-			}()
-		}
-	}
 	aiClient := musicai.New(cfg.MusicAIURL)
 	if aiClient != nil {
 		musicClient.SetAI(aiClient)
@@ -88,7 +71,7 @@ func main() {
 		}
 	}
 	if musicClient.LocalEnabled() {
-		log.Println("Music catalog: local MusicBrainz Postgres (hybrid pgvector search when indexed)")
+		log.Println("Music catalog: local MusicBrainz Postgres (embed → pgvector → Qwen rerank)")
 	} else {
 		log.Println("Music catalog provider: MusicBrainz API (+ Cover Art Archive) — set MUSICBRAINZ_DATABASE_URL for local mode")
 	}

@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { SpotifyTopTrack } from "@jedflix/stream-client";
-import { infiniteQueueInternals } from "@/lib/infiniteQueueRecommendations";
+import {
+  exclusionIdsFromTracks,
+  infiniteQueueInternals,
+  remainingUpcomingCount,
+  shouldAppendInfiniteRecommendations,
+  uniqueQueueTracks,
+} from "@/lib/infiniteQueueRecommendations";
 import type { MusicQueueTrack } from "@/components/player/music/MusicPlayerContext";
 
 const { buildSeeds, interleavePools, normalizeArtist } = infiniteQueueInternals;
@@ -66,5 +72,49 @@ describe("infiniteQueueRecommendations helpers", () => {
 
   test("normalizeArtist lowercases and trims", () => {
     expect(normalizeArtist("  Radiohead ")).toBe("radiohead");
+  });
+});
+
+describe("infinite queue preview helpers", () => {
+  test("remainingUpcomingCount counts songs after the current index", () => {
+    expect(remainingUpcomingCount(1, 0)).toBe(0);
+    expect(remainingUpcomingCount(6, 0)).toBe(5);
+    expect(remainingUpcomingCount(6, 4)).toBe(1);
+  });
+
+  test("shouldAppendInfiniteRecommendations is true when the queue is low", () => {
+    expect(shouldAppendInfiniteRecommendations(0)).toBe(true);
+    expect(shouldAppendInfiniteRecommendations(4)).toBe(true);
+    expect(shouldAppendInfiniteRecommendations(5)).toBe(false);
+  });
+
+  test("exclusionIdsFromTracks unions queue, preview, and history ids", () => {
+    const ids = exclusionIdsFromTracks(
+      [queueTrack("1", "A", ["X"])],
+      [queueTrack("2", "B", ["Y"]), null],
+      [queueTrack("1", "A", ["X"])],
+    );
+    expect([...ids].sort()).toEqual(["1", "2"]);
+  });
+
+  test("uniqueQueueTracks drops ids and title+artist duplicates already in the queue", () => {
+    const existing = [queueTrack("1", "Karma Police", ["Radiohead"])];
+    const incoming = [
+      queueTrack("1", "Karma Police", ["Radiohead"]),
+      queueTrack("2", "Karma Police", ["Radiohead"]),
+      queueTrack("3", "Paranoid Android", ["Radiohead"]),
+      queueTrack("4", "Exit Music", ["Radiohead"]),
+    ];
+    const unique = uniqueQueueTracks(incoming, ["1"], 5, existing);
+    expect(unique.map((track) => track.id)).toEqual(["3", "4"]);
+  });
+
+  test("uniqueQueueTracks respects the preview limit", () => {
+    const incoming = [
+      queueTrack("a", "A", ["One"]),
+      queueTrack("b", "B", ["Two"]),
+      queueTrack("c", "C", ["Three"]),
+    ];
+    expect(uniqueQueueTracks(incoming, [], 2).map((track) => track.id)).toEqual(["a", "b"]);
   });
 });

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Full one-shot setup: import MusicBrainz, reindex Meilisearch, restart backend, install cron.
+# Full one-shot setup: import MusicBrainz, restart backend, install cron.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -16,7 +16,6 @@ exec >> "${LOG}" 2>&1
 echo "=== JedFlix MusicBrainz setup started $(date -Is) ==="
 
 "${ROOT}/scripts/musicbrainz-import.sh"
-# Meilisearch reindex disabled — use MUSICBRAINZ_REINDEX=1 ./scripts/musicbrainz-reindex.sh if needed.
 docker compose -f "${COMPOSE_FILE}" up -d --force-recreate --no-deps backend
 (
   crontab -l 2>/dev/null | grep -v musicbrainz-sync || true

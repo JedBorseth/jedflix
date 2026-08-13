@@ -11,7 +11,10 @@ import (
 )
 
 func (c *Client) searchHybrid(ctx context.Context, query string) (*musiccatalog.SearchResponse, error) {
-	if !c.useLocalStore() || !c.local.SearchReady(ctx) {
+	if !c.useLocalStore() {
+		return nil, nil
+	}
+	if !c.local.SearchReady(ctx) {
 		return nil, nil
 	}
 

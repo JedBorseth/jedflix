@@ -168,7 +168,7 @@ func (c *Client) genreArtists(ctx context.Context, genre musiccatalog.GenreConfi
 
 func (c *Client) genreAlbums(ctx context.Context, genre musiccatalog.GenreConfig, tag string, singles bool) []musiccatalog.Album {
 	if singles {
-		if c.useLocalSearch() {
+		if c.useLocalStore() {
 			albums, err := c.searchAlbumsLocalOrRemote(ctx, tag, catalogShelfLimit, "Single")
 			if err != nil {
 				return nil
@@ -192,7 +192,7 @@ func (c *Client) genreAlbums(ctx context.Context, genre musiccatalog.GenreConfig
 		}
 	}
 
-	if c.useLocalSearch() {
+	if c.useLocalStore() {
 		albums, err := c.searchAlbumsLocalOrRemote(ctx, tag, catalogShelfLimit, "Album")
 		if err != nil {
 			return nil
@@ -209,8 +209,7 @@ func (c *Client) genreAlbums(ctx context.Context, genre musiccatalog.GenreConfig
 
 func (c *Client) fetchNewReleases(ctx context.Context) ([]musiccatalog.Album, error) {
 	year := c.now().Year()
-	if c.useLocalSearch() {
-		// Meilisearch can't do date-range Lucene; approximate with year token + Album filter.
+	if c.useLocalStore() {
 		albums, err := c.searchAlbumsLocalOrRemote(ctx, fmt.Sprintf("%d", year), catalogShelfLimit, "Album")
 		if err != nil {
 			return nil, err

@@ -4,14 +4,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /backend ./cmd/backend
-RUN CGO_ENABLED=0 GOOS=linux go build -o /music-indexer ./cmd/music-indexer
 RUN CGO_ENABLED=0 GOOS=linux go build -o /music-embed ./cmd/music-embed
-
-FROM alpine:3.20 AS indexer
-RUN apk add --no-cache ca-certificates
-WORKDIR /app
-COPY --from=builder /music-indexer /app/music-indexer
-ENTRYPOINT ["/app/music-indexer"]
 
 FROM alpine:3.20 AS embedder
 RUN apk add --no-cache ca-certificates

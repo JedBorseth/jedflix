@@ -66,9 +66,10 @@ func (s *Store) HybridSearch(ctx context.Context, query string, queryVec []float
 	}
 	var vecHits []SearchHit
 	if len(queryVec) == EmbeddingDim {
-		vecHits, err = s.searchVector(ctx, queryVec, defaultVectorLimit)
-		if err != nil {
-			return nil, err
+		// Vector recall is best-effort: a partial embedding backfill, empty
+		// table, or GPU hiccup must not block lexical search.
+		if hits, vecErr := s.searchVector(ctx, queryVec, defaultVectorLimit); vecErr == nil {
+			vecHits = hits
 		}
 	}
 	merged := MergeHits(query, textHits, vecHits, mergedCandidateCap)

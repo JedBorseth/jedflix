@@ -128,9 +128,13 @@ func (s *Store) SearchReady(ctx context.Context) bool {
 			COUNT(*) FILTER (WHERE entity_type = 'track')
 		FROM jedflix.search_documents
 	`).Scan(&artists, &albums, &tracks)
-	// Wait until all three types exist so Meilisearch keeps covering
-	// albums/tracks during the first backfill.
-	return err == nil && artists > 1000 && albums > 1000 && tracks > 1000
+	return err == nil && SearchDocumentsReady(artists, albums, tracks)
+}
+
+// SearchDocumentsReady is true as soon as any indexed subset exists.
+// Search must not wait for a full catalog backfill.
+func SearchDocumentsReady(artists, albums, tracks int) bool {
+	return artists > 0 || albums > 0 || tracks > 0
 }
 
 func (s *Store) SetState(ctx context.Context, key, value string) error {

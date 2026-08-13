@@ -172,12 +172,10 @@ func (c *Client) resolveArtistByName(ctx context.Context, name string) (*musicca
 			artist.ImageURL = c.artistCoverURL(artist.ID)
 			return artist, nil
 		}
-		if !errors.Is(err, musiccatalog.ErrNotFound) && err != nil && !c.useLocalSearch() {
+		if err != nil && !errors.Is(err, musiccatalog.ErrNotFound) {
 			return nil, err
 		}
-	}
-	if c.useLocalSearch() {
-		artists, err := c.search.SearchArtists(ctx, name, 5)
+		artists, err := c.searchArtistsLocalOrRemote(ctx, name, 5)
 		if err != nil {
 			return nil, err
 		}
@@ -225,32 +223,28 @@ func (c *Client) resolveAlbumByName(ctx context.Context, name, artist string) (*
 			album.ImageURL = c.coverURL(album.ID)
 			return album, nil
 		}
-		if err != nil && !errors.Is(err, musiccatalog.ErrNotFound) && !c.useLocalSearch() {
+		if err != nil && !errors.Is(err, musiccatalog.ErrNotFound) {
 			return nil, err
 		}
-	}
-	if c.useLocalSearch() {
 		q := name
 		if artist != "" {
 			q = name + " " + artist
 		}
-		albums, err := c.search.SearchReleaseGroups(ctx, q, "", 5)
+		albums, err := c.searchAlbumsLocalOrRemote(ctx, q, 5, "")
 		if err != nil {
 			return nil, err
 		}
 		if len(albums) == 0 {
 			return nil, musiccatalog.ErrNotFound
 		}
-		album := albums[0]
-		if c.useLocalStore() {
-			detailed, err := c.local.GetReleaseGroupAlbum(ctx, album.ID, true)
-			if err == nil && detailed != nil {
-				detailed.ImageURL = c.coverURL(detailed.ID)
-				return detailed, nil
-			}
+		album = &albums[0]
+		detailed, err := c.local.GetReleaseGroupAlbum(ctx, album.ID, true)
+		if err == nil && detailed != nil {
+			detailed.ImageURL = c.coverURL(detailed.ID)
+			return detailed, nil
 		}
 		album.ImageURL = c.coverURL(album.ID)
-		return &album, nil
+		return album, nil
 	}
 	query := `releasegroup:"` + luceneEscape(name) + `"`
 	if artist != "" {

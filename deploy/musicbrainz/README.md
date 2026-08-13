@@ -2,8 +2,7 @@
 
 JedFlix serves music catalog metadata from a **local MusicBrainz Postgres replica**.
 Search uses **Postgres full-text / trigram matching plus pgvector** (Qwen3 embeddings
-and a local reranker). **Meilisearch** remains a fallback while the Postgres index
-backfills. Artwork is a **lazy Cover Art Archive disk cache**.
+and a local reranker). Artwork is a **lazy Cover Art Archive disk cache**.
 
 ```
 MusicBrainz dump/replication → Postgres (/mnt/disk1/jedflix/musicbrainz/pgdata)
@@ -25,7 +24,7 @@ existing replica.
 1. Ensure disk paths exist:
 
 ```bash
-sudo mkdir -p /mnt/disk1/jedflix/musicbrainz/{pgdata,meili,dumps,replication} \
+sudo mkdir -p /mnt/disk1/jedflix/musicbrainz/{pgdata,dumps,replication} \
   /mnt/disk1/jedflix/music-artwork \
   /mnt/disk1/jedflix/models
 sudo chown -R "$USER:$USER" /mnt/disk1/jedflix
@@ -34,7 +33,6 @@ sudo chown -R "$USER:$USER" /mnt/disk1/jedflix
 2. Set secrets in the server `.env`:
 
 - `MUSICBRAINZ_DB_PASSWORD`
-- `MEILI_MASTER_KEY`
 - `MBSLAVE_MUSICBRAINZ_TOKEN` (MetaBrainz live data feed token)
 
 3. Import the official database (long-running). The `mbslave` image installs
@@ -44,21 +42,15 @@ sudo chown -R "$USER:$USER" /mnt/disk1/jedflix
 ./scripts/musicbrainz-import.sh
 ```
 
-4. (Optional, disabled by default) Build the Meilisearch search index:
-
-```bash
-MUSICBRAINZ_REINDEX=1 ./scripts/musicbrainz-reindex.sh
-```
-
-Meilisearch reindex is off by default. Hybrid search reads `jedflix.search_documents`
-(FTS + trigram) and `jedflix.music_embeddings` (pgvector HNSW). The `music-embed`
-service backfills rated artists/albums/recordings, then calls `music-ai` on the
-GTX 1660 Ti (Qwen3-Embedding-0.6B + Qwen3-Reranker-0.6B). FTS works as soon as
-documents exist; vectors fill in over the following hours.
-
-5. Bring up the stack (`docker compose up -d`) and confirm backend logs show
-   `local MusicBrainz Postgres (hybrid pgvector search when indexed)`.
+4. Bring up the stack (`docker compose up -d`) and confirm backend logs show
+   `local MusicBrainz Postgres (embed → pgvector → Qwen rerank)`.
    `music-ai` logs `models ready on cuda` after the first Hugging Face download.
+
+Hybrid search reads `jedflix.search_documents` (FTS + trigram) and
+`jedflix.music_embeddings` (pgvector HNSW). The `music-embed` service backfills
+rated artists/albums/recordings, then calls `music-ai` on the GTX 1660 Ti
+(Qwen3-Embedding-0.6B + Qwen3-Reranker-0.6B). Search works against whatever
+subset is indexed so far; vectors fill in over the following hours.
 
 ## Keep the replica current
 
@@ -68,8 +60,6 @@ Replication applies incremental MB changes — run it on a modest schedule (ever
 # Cron: twice daily (00:00 and 12:00 server time)
 0 0,12 * * * cd /home/jedborseth/jedflix && MBSLAVE_MUSICBRAINZ_TOKEN=... ./scripts/musicbrainz-sync.sh >>/var/log/mbslave-sync.log 2>&1
 ```
-
-After large schema changes, re-run `MUSICBRAINZ_REINDEX=1 ./scripts/musicbrainz-reindex.sh` if you still rely on Meilisearch.
 
 ## Artwork
 
