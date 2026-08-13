@@ -16,7 +16,7 @@ exec >> "${LOG}" 2>&1
 echo "=== JedFlix MusicBrainz setup started $(date -Is) ==="
 
 "${ROOT}/scripts/musicbrainz-import.sh"
-"${ROOT}/scripts/musicbrainz-reindex.sh"
+# Meilisearch reindex disabled — use MUSICBRAINZ_REINDEX=1 ./scripts/musicbrainz-reindex.sh if needed.
 docker compose -f "${COMPOSE_FILE}" up -d --force-recreate --no-deps backend
 (
   crontab -l 2>/dev/null | grep -v musicbrainz-sync || true

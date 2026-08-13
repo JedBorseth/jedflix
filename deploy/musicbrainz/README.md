@@ -36,11 +36,14 @@ sudo chown -R "$USER:$USER" /mnt/disk1/jedflix
 ./scripts/musicbrainz-import.sh
 ```
 
-4. Build the search index:
+4. (Optional, disabled by default) Build the Meilisearch search index:
 
 ```bash
-./scripts/musicbrainz-reindex.sh
+MUSICBRAINZ_REINDEX=1 ./scripts/musicbrainz-reindex.sh
 ```
+
+Meilisearch reindex is off by default while JedFlix moves to Postgres/pgvector search.
+Existing `mb_artists` documents remain usable until that migration is done.
 
 5. Bring up the stack (`docker compose up -d`) and confirm backend logs show
    `local MusicBrainz + Meilisearch`.
@@ -54,7 +57,7 @@ Replication applies incremental MB changes — run it on a modest schedule (ever
 0 0,12 * * * cd /home/jedborseth/jedflix && MBSLAVE_MUSICBRAINZ_TOKEN=... ./scripts/musicbrainz-sync.sh >>/var/log/mbslave-sync.log 2>&1
 ```
 
-After large schema changes, re-run `./scripts/musicbrainz-reindex.sh`.
+After large schema changes, re-run `MUSICBRAINZ_REINDEX=1 ./scripts/musicbrainz-reindex.sh` if you still rely on Meilisearch.
 
 ## Artwork
 

@@ -138,6 +138,8 @@ services:
         condition: service_healthy
 
   music-indexer:
+    # Manual only (profile music-tools). Not started by deploy or cron.
+    # Run with MUSICBRAINZ_REINDEX=1 ./scripts/musicbrainz-reindex.sh when needed.
     build:
       context: ./apps/backend
       target: indexer

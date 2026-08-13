@@ -95,6 +95,10 @@ jobs:
             # Caddyfile is bind-mounted; force recreate so /backend routing reloads.
             docker compose up -d --force-recreate --no-deps caddy
 
+            echo "== Stop Meilisearch indexer one-offs (reindex disabled) =="
+            docker ps -aq --filter name=music-indexer-run | xargs -r docker stop || true
+            docker ps -aq --filter name=music-indexer-run | xargs -r docker rm || true
+
             # Reclaim layers left behind by the new images.
             docker image prune -af || true
             docker builder prune -af || true
