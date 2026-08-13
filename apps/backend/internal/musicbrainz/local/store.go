@@ -20,7 +20,8 @@ var (
 // preferredRecordingAlbumSQL picks a studio album over singles/bootlegs so
 // tracks like Karma Police get OK Computer cover art instead of a cover-less single.
 const preferredRecordingAlbumSQL = `
-	SELECT rg.gid::text AS album_id, rg.name AS album_name
+	SELECT rg.gid::text AS album_id, rg.name AS album_name,
+		COALESCE(NULLIF(t.length, 0), NULLIF(rec.length, 0), 0) AS length
 	FROM musicbrainz.track t
 	JOIN musicbrainz.medium m ON m.id = t.medium
 	JOIN musicbrainz.release r ON r.id = m.release
@@ -83,7 +84,13 @@ func Open(databaseURL string) (*Store, error) {
 		}
 		return nil, fmt.Errorf("%w: musicbrainz schema missing — run scripts/musicbrainz-import.sh", ErrNotConfigured)
 	}
-	return &Store{db: db}, nil
+	store := &Store{db: db}
+	schemaCtx, schemaCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer schemaCancel()
+	if err := EnsureArtworkSchema(schemaCtx, db); err != nil {
+		fmt.Printf("jedflix artwork schema unavailable: %v\n", err)
+	}
+	return store, nil
 }
 
 func (s *Store) Close() error {
@@ -528,7 +535,7 @@ func (s *Store) GetRecording(ctx context.Context, recordingGID string) (*musicca
 	)
 	err := s.db.QueryRowContext(ctx, `
 		SELECT rec.name,
-			COALESCE(rec.length, 0),
+			COALESCE(NULLIF(album.length, 0), rec.length, 0),
 			COALESCE((
 				SELECT array_agg(acn.name ORDER BY acn.position)
 				FROM musicbrainz.artist_credit_name acn
@@ -617,6 +624,37 @@ func (s *Store) ResolveRecordingByName(ctx context.Context, name, artist string)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("%w: resolve recording: %v", musiccatalog.ErrFetchFailed, err)
+	}
+	return s.GetRecording(ctx, gid)
+}
+
+// ResolveRecordingForArtist finds a recording by title for a known artist MBID.
+// Starting from artist.gid avoids a full-table lower(name) scan.
+func (s *Store) ResolveRecordingForArtist(ctx context.Context, artistGID, name string) (*musiccatalog.TopTrack, error) {
+	if !s.Configured() {
+		return nil, ErrNotConfigured
+	}
+	artistGID = strings.ToLower(strings.TrimSpace(artistGID))
+	name = strings.TrimSpace(name)
+	if artistGID == "" || name == "" {
+		return nil, musiccatalog.ErrBadRequest
+	}
+	var gid string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT rec.gid::text
+		FROM musicbrainz.artist a
+		JOIN musicbrainz.artist_credit_name acn
+			ON acn.artist = a.id AND acn.position = 0
+		JOIN musicbrainz.recording rec ON rec.artist_credit = acn.artist_credit
+		WHERE a.gid = $1::uuid AND rec.name = $2
+		ORDER BY rec.length DESC NULLS LAST, rec.id
+		LIMIT 1
+	`, artistGID, name).Scan(&gid)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, musiccatalog.ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("%w: resolve recording for artist: %v", musiccatalog.ErrFetchFailed, err)
 	}
 	return s.GetRecording(ctx, gid)
 }

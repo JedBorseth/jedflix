@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jedborseth/jeds-movies/backend/internal/musicbrainz/local"
 	"github.com/jedborseth/jeds-movies/backend/internal/musiccatalog"
 	xdraw "golang.org/x/image/draw"
 )
@@ -77,6 +78,7 @@ func (c *Client) getOrFetchArtwork(ctx context.Context, mbid string) ([]byte, st
 		fmt.Printf("music artwork disk write failed for %s: %v\n", mbid, err)
 	}
 	c.storeArtworkMem(mbid, data, contentType)
+	c.rememberArtworkURL(ctx, mbid, local.ArtworkKindReleaseGroup, c.caaFrontURL(mbid), "")
 	return data, contentType, nil
 }
 
@@ -318,8 +320,8 @@ func (c *Client) evictArtworkMem() {
 	}
 }
 
-// WarmArtworkAsync prefetches release-group covers in the background (browse/search).
-func (c *Client) WarmArtworkAsync(parent context.Context, albums []musiccatalog.Album, tracks []musiccatalog.TopTrack) {
+// WarmArtworkAsync prefetches release-group and artist covers in the background.
+func (c *Client) WarmArtworkAsync(parent context.Context, albums []musiccatalog.Album, tracks []musiccatalog.TopTrack, artists []musiccatalog.Artist) {
 	ids := make([]string, 0, len(albums)+len(tracks))
 	seen := map[string]struct{}{}
 	add := func(id string) {
@@ -339,7 +341,20 @@ func (c *Client) WarmArtworkAsync(parent context.Context, albums []musiccatalog.
 	for _, t := range tracks {
 		add(t.AlbumID)
 	}
-	if len(ids) == 0 {
+	artistIDs := make([]string, 0, len(artists))
+	artistSeen := map[string]struct{}{}
+	for _, artist := range artists {
+		id := NormalizeMBID(artist.ID)
+		if id == "" {
+			continue
+		}
+		if _, ok := artistSeen[id]; ok {
+			continue
+		}
+		artistSeen[id] = struct{}{}
+		artistIDs = append(artistIDs, id)
+	}
+	if len(ids) == 0 && len(artistIDs) == 0 {
 		return
 	}
 	go func() {
@@ -358,6 +373,19 @@ func (c *Client) WarmArtworkAsync(parent context.Context, albums []musiccatalog.
 				defer wg.Done()
 				defer func() { <-sem }()
 				_, _, _ = c.getOrFetchArtwork(ctx, id)
+			}()
+		}
+		for _, id := range artistIDs {
+			if ctx.Err() != nil {
+				break
+			}
+			id := id
+			wg.Add(1)
+			sem <- struct{}{}
+			go func() {
+				defer wg.Done()
+				defer func() { <-sem }()
+				_, _, _ = c.GetArtistCover(ctx, id)
 			}()
 		}
 		wg.Wait()
@@ -444,14 +472,23 @@ func (c *Client) GetArtistCover(ctx context.Context, artistID string) ([]byte, s
 
 func (c *Client) resolveArtistArtwork(ctx context.Context, artistID string) ([]byte, string, error) {
 	if c.useLocalStore() {
-		if raw, err := c.local.ArtistImageURL(ctx, artistID); err == nil && strings.TrimSpace(raw) != "" {
-			data, contentType, fetchErr := c.fetchAndShrinkArtwork(ctx, wikimediaFilePath(raw))
+		if stored, err := c.local.GetArtwork(ctx, artistID); err == nil && stored != nil && strings.TrimSpace(stored.SourceURL) != "" {
+			data, contentType, fetchErr := c.fetchAndShrinkArtwork(ctx, wikimediaFilePath(stored.SourceURL))
 			if fetchErr == nil {
 				return data, contentType, nil
 			}
 		}
+		if raw, err := c.local.ArtistImageURL(ctx, artistID); err == nil && strings.TrimSpace(raw) != "" {
+			source := wikimediaFilePath(raw)
+			data, contentType, fetchErr := c.fetchAndShrinkArtwork(ctx, source)
+			if fetchErr == nil {
+				c.rememberArtworkURL(ctx, artistID, local.ArtworkKindArtist, source, "")
+				return data, contentType, nil
+			}
+		}
 		if albums, err := c.local.PreferredArtistAlbums(ctx, artistID, 5); err == nil {
-			if data, contentType, ok := c.firstAlbumArtwork(ctx, albums); ok {
+			if data, contentType, albumID, ok := c.firstAlbumArtwork(ctx, albums); ok {
+				c.rememberArtworkURL(ctx, artistID, local.ArtworkKindArtist, c.caaFrontURL(albumID), albumID)
 				return data, contentType, nil
 			}
 		}
@@ -460,7 +497,8 @@ func (c *Client) resolveArtistArtwork(ctx context.Context, artistID string) ([]b
 	if c.useLocalSearch() {
 		albums, err := c.search.PreferredAlbumsForArtist(ctx, artistID, 5)
 		if err == nil {
-			if data, contentType, ok := c.firstAlbumArtwork(ctx, albums); ok {
+			if data, contentType, albumID, ok := c.firstAlbumArtwork(ctx, albums); ok {
+				c.rememberArtworkURL(ctx, artistID, local.ArtworkKindArtist, c.caaFrontURL(albumID), albumID)
 				return data, contentType, nil
 			}
 		}
@@ -469,10 +507,32 @@ func (c *Client) resolveArtistArtwork(ctx context.Context, artistID string) ([]b
 	return nil, "", musiccatalog.ErrNotFound
 }
 
-func (c *Client) firstAlbumArtwork(ctx context.Context, albumIDs []string) ([]byte, string, bool) {
+func (c *Client) rememberArtworkURL(ctx context.Context, mbid, kind, sourceURL, albumMBID string) {
+	if !c.useLocalStore() || strings.TrimSpace(sourceURL) == "" {
+		return
+	}
+	if err := c.local.UpsertArtwork(ctx, local.Artwork{
+		MBID:      mbid,
+		Kind:      kind,
+		SourceURL: sourceURL,
+		AlbumMBID: albumMBID,
+	}); err != nil {
+		fmt.Printf("jedflix artwork store failed for %s: %v\n", mbid, err)
+	}
+}
+
+func (c *Client) caaFrontURL(releaseGroupID string) string {
+	releaseGroupID = NormalizeMBID(releaseGroupID)
+	if releaseGroupID == "" {
+		return ""
+	}
+	return strings.TrimRight(c.coverBase, "/") + "/release-group/" + releaseGroupID + "/front-500"
+}
+
+func (c *Client) firstAlbumArtwork(ctx context.Context, albumIDs []string) ([]byte, string, string, bool) {
 	for _, id := range albumIDs {
 		if ctx.Err() != nil {
-			return nil, "", false
+			return nil, "", "", false
 		}
 		id = NormalizeMBID(id)
 		if id == "" {
@@ -480,10 +540,11 @@ func (c *Client) firstAlbumArtwork(ctx context.Context, albumIDs []string) ([]by
 		}
 		data, contentType, err := c.getOrFetchArtwork(ctx, id)
 		if err == nil && len(data) > 0 {
-			return data, contentType, true
+			c.rememberArtworkURL(ctx, id, local.ArtworkKindReleaseGroup, c.caaFrontURL(id), "")
+			return data, contentType, id, true
 		}
 	}
-	return nil, "", false
+	return nil, "", "", false
 }
 
 // wikimediaFilePath turns a Commons File: page into a direct image URL.

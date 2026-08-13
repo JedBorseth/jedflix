@@ -39,13 +39,13 @@ func (c *Client) withTrackCoverURLs(ctx context.Context, tracks []musiccatalog.T
 }
 
 func (c *Client) enrichTrackArtwork(ctx context.Context, track musiccatalog.TopTrack) musiccatalog.TopTrack {
+	if track.AlbumID != "" && track.DurationMs > 0 {
+		track.ImageURL = c.coverURL(track.AlbumID)
+		return track
+	}
 	if c.useLocalStore() {
 		if id := NormalizeMBID(track.ID); id != "" {
 			if detailed, err := c.local.GetRecording(ctx, id); err == nil && detailed != nil {
-				track = mergeRecordingAlbum(track, detailed)
-			}
-		} else if track.AlbumID == "" && len(track.Artists) > 0 && track.Name != "" {
-			if detailed, err := c.local.ResolveRecordingByName(ctx, track.Name, track.Artists[0]); err == nil && detailed != nil {
 				track = mergeRecordingAlbum(track, detailed)
 			}
 		}
@@ -83,7 +83,6 @@ func (c *Client) fetchArtistDetailsLocal(ctx context.Context, artistID string) (
 	details.Albums = c.withCoverURLs(details.Albums)
 	details.Discography = c.withCoverURLs(details.Discography)
 	details.TopTracks = c.fetchTopTracks(ctx, details.Artist)
-	details.TopTracks = c.withTrackCoverURLs(ctx, details.TopTracks)
 	return details, nil
 }
 

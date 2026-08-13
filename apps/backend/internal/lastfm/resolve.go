@@ -86,11 +86,6 @@ func (s *Service) SimilarArtists(ctx context.Context, artist string, limit int) 
 			continue
 		}
 		seen[resolved.ID] = struct{}{}
-		if resolved.ImageURL == "" || strings.Contains(resolved.ImageURL, "placehold.co") {
-			if item.ImageURL != "" {
-				resolved.ImageURL = item.ImageURL
-			}
-		}
 		out = append(out, *resolved)
 		if len(out) >= limit {
 			break
@@ -133,9 +128,6 @@ func (s *Service) SimilarTracks(ctx context.Context, artist, track string, limit
 			continue
 		}
 		seen[resolved.ID] = struct{}{}
-		if (resolved.ImageURL == "" || strings.Contains(resolved.ImageURL, "placehold.co")) && item.ImageURL != "" {
-			resolved.ImageURL = item.ImageURL
-		}
 		out = append(out, *resolved)
 		if len(out) >= limit {
 			break

@@ -66,6 +66,9 @@ func main() {
 			log.Printf("warning: Meilisearch unavailable: %v", err)
 		} else {
 			musicClient.SetSearch(searchClient)
+			if err := searchClient.EnsureIndexes(ctx); err != nil {
+				log.Printf("warning: Meilisearch index setup: %v", err)
+			}
 			log.Printf("Music search: Meilisearch at %s", cfg.MeiliURL)
 		}
 	}
@@ -80,7 +83,7 @@ func main() {
 	lastfmClient := lastfm.NewClient(cfg)
 	if lastfmClient.Configured() {
 		musicClient.SetEnricher(lastfm.NewEnricher(lastfmClient))
-		log.Println("Last.fm API key configured (charts, top tracks, artist images)")
+		log.Println("Last.fm API key configured (charts, top tracks, recommendations)")
 	} else {
 		log.Println("warning: LASTFM_API_KEY not set; catalog shelves use MusicBrainz seeds only")
 	}

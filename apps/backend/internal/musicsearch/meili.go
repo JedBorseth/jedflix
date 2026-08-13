@@ -78,7 +78,7 @@ func (c *Client) EnsureIndexes(ctx context.Context) error {
 		{
 			uid: indexRecordings, primaryKey: "id",
 			searchable: []string{"title", "aliases", "artistCredit", "artists"},
-			filterable: []string{"releaseGroupId"},
+			filterable: []string{"releaseGroupId", "artistIds"},
 			sortable:   []string{"title"},
 		},
 	}
@@ -376,7 +376,25 @@ func (c *Client) PreferredAlbumsForArtist(ctx context.Context, artistID string, 
 }
 
 func (c *Client) SearchRecordings(ctx context.Context, query string, limit int) ([]musiccatalog.TopTrack, error) {
-	res, err := c.searchIndex(ctx, indexRecordings, query, limit, "")
+	return c.searchRecordingsFiltered(ctx, query, "", limit)
+}
+
+// SearchRecordingsForArtist prefers recordings credited to artistID.
+func (c *Client) SearchRecordingsForArtist(ctx context.Context, query, artistID string, limit int) ([]musiccatalog.TopTrack, error) {
+	artistID = strings.ToLower(strings.TrimSpace(artistID))
+	filter := ""
+	if artistID != "" {
+		filter = fmt.Sprintf(`artistIds = "%s"`, artistID)
+	}
+	tracks, err := c.searchRecordingsFiltered(ctx, query, filter, limit)
+	if err != nil && filter != "" {
+		return c.searchRecordingsFiltered(ctx, query, "", limit)
+	}
+	return tracks, err
+}
+
+func (c *Client) searchRecordingsFiltered(ctx context.Context, query, filter string, limit int) ([]musiccatalog.TopTrack, error) {
+	res, err := c.searchIndex(ctx, indexRecordings, query, limit, filter)
 	if err != nil {
 		return nil, err
 	}

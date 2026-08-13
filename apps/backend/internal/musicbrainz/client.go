@@ -310,7 +310,7 @@ func (c *Client) Search(ctx context.Context, query string) (*musiccatalog.Search
 	for _, a := range albums {
 		c.rememberAlbumSummary(a)
 	}
-	c.WarmArtworkAsync(ctx, albums, tracks)
+	c.WarmArtworkAsync(ctx, albums, tracks, artists)
 	return &result, nil
 }
 
@@ -355,7 +355,7 @@ func (c *Client) GetAlbumWithHints(ctx context.Context, albumID string, hints mu
 	c.trimAlbumCache()
 	c.albumCache.Store(albumID, cachedAlbum{album: *album, cachedAt: c.now()})
 	c.rememberAlbumSummary(*album)
-	c.WarmArtworkAsync(ctx, []musiccatalog.Album{*album}, nil)
+	c.WarmArtworkAsync(ctx, []musiccatalog.Album{*album}, nil, nil)
 	return album, nil
 }
 
@@ -399,7 +399,7 @@ func (c *Client) GetArtistWithHints(ctx context.Context, artistID string, hints 
 	c.trimArtistCache()
 	c.artistCache.Store(artistID, cachedArtist{artist: *details, cachedAt: c.now()})
 	c.rememberArtistSummary(details.Artist)
-	c.WarmArtworkAsync(ctx, details.Albums, details.TopTracks)
+	c.WarmArtworkAsync(ctx, details.Albums, details.TopTracks, []musiccatalog.Artist{details.Artist})
 	return details, nil
 }
 

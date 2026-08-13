@@ -503,10 +503,12 @@ func (s *Server) handleSpotifyBrowse(w http.ResponseWriter, r *http.Request) {
 	}
 	if result != nil {
 		albums := append([]musiccatalog.Album{}, result.NewReleases...)
+		artists := make([]musiccatalog.Artist, 0)
 		for _, row := range result.Rows {
 			albums = append(albums, row.Albums...)
+			artists = append(artists, row.Artists...)
 		}
-		s.music.WarmArtworkAsync(ctx, albums, nil)
+		s.music.WarmArtworkAsync(ctx, albums, nil, artists)
 	}
 	writeJSON(w, http.StatusOK, result)
 }

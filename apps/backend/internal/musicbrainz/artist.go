@@ -7,8 +7,15 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/jedborseth/jeds-movies/backend/internal/musiccatalog"
+)
+
+const (
+	lastFMTopTracksTimeout     = 2500 * time.Millisecond
+	topTrackResolveConcurrency = 6
 )
 
 func (c *Client) fetchArtistDetails(ctx context.Context, artistID string) (*musiccatalog.ArtistDetails, error) {
@@ -65,85 +72,169 @@ func (c *Client) browseArtistReleaseGroups(ctx context.Context, artistID string,
 }
 
 func (c *Client) fetchTopTracks(ctx context.Context, artist musiccatalog.Artist) []musiccatalog.TopTrack {
+	var hints []musiccatalog.TopTrack
 	if c.enricher != nil && c.enricher.Configured() {
-		tracks, err := c.enricher.ArtistTopTracks(ctx, artist.Name, 10)
+		lfmCtx, cancel := context.WithTimeout(ctx, lastFMTopTracksTimeout)
+		tracks, err := c.enricher.ArtistTopTracks(lfmCtx, artist.Name, 10)
+		cancel()
 		if err == nil && len(tracks) > 0 {
-			out := make([]musiccatalog.TopTrack, 0, len(tracks))
-			for _, track := range tracks {
-				resolved := c.resolveTopTrack(ctx, artist, track)
-				if resolved != nil {
-					out = append(out, *resolved)
-				}
-			}
-			if len(out) > 0 {
-				return out
-			}
+			hints = tracks
 		}
 	}
 
-	// Fallback: search popular-sounding recordings for the artist.
-	query := artist.Name
-	if !c.useLocalSearch() {
-		query = fmt.Sprintf(`artist:"%s"`, luceneEscape(artist.Name))
-	}
-	tracks, err := c.searchRecordingsLocalOrRemote(ctx, query, 10)
-	if err != nil {
-		return nil
-	}
-	for i := range tracks {
-		if len(tracks[i].ArtistIDs) == 0 {
-			tracks[i].ArtistIDs = []string{artist.ID}
+	if len(hints) == 0 {
+		query := artist.Name
+		if !c.useLocalSearch() {
+			query = fmt.Sprintf(`artist:"%s"`, luceneEscape(artist.Name))
 		}
-		if len(tracks[i].Artists) == 0 {
-			tracks[i].Artists = []string{artist.Name}
+		tracks, err := c.searchRecordingsLocalOrRemote(ctx, query, 10)
+		if err != nil {
+			return nil
 		}
+		for i := range tracks {
+			if len(tracks[i].ArtistIDs) == 0 {
+				tracks[i].ArtistIDs = []string{artist.ID}
+			}
+			if len(tracks[i].Artists) == 0 {
+				tracks[i].Artists = []string{artist.Name}
+			}
+			tracks[i] = *c.finalizeTopTrack(artist, &tracks[i])
+		}
+		return tracks
 	}
-	return tracks
+
+	return c.resolveTopTrackHints(ctx, artist, hints)
+}
+
+func (c *Client) resolveTopTrackHints(ctx context.Context, artist musiccatalog.Artist, hints []musiccatalog.TopTrack) []musiccatalog.TopTrack {
+	out := make([]musiccatalog.TopTrack, len(hints))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, topTrackResolveConcurrency)
+	for i, hint := range hints {
+		if ctx.Err() != nil {
+			break
+		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int, hint musiccatalog.TopTrack) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			if resolved := c.resolveTopTrack(ctx, artist, hint); resolved != nil {
+				out[i] = *resolved
+			}
+		}(i, hint)
+	}
+	wg.Wait()
+
+	compact := make([]musiccatalog.TopTrack, 0, len(out))
+	seen := map[string]struct{}{}
+	for _, track := range out {
+		if track.ID == "" || track.Name == "" {
+			continue
+		}
+		if _, ok := seen[track.ID]; ok {
+			continue
+		}
+		seen[track.ID] = struct{}{}
+		compact = append(compact, track)
+	}
+	return compact
 }
 
 func (c *Client) resolveTopTrack(ctx context.Context, artist musiccatalog.Artist, hint musiccatalog.TopTrack) *musiccatalog.TopTrack {
+	applyHint := func(resolved *musiccatalog.TopTrack) *musiccatalog.TopTrack {
+		if resolved == nil {
+			return nil
+		}
+		if resolved.DurationMs <= 0 && hint.DurationMs > 0 {
+			resolved.DurationMs = hint.DurationMs
+		}
+		if resolved.AlbumName == "" {
+			resolved.AlbumName = hint.AlbumName
+		}
+		return c.finalizeTopTrack(artist, resolved)
+	}
+
 	if c.useLocalStore() {
 		if id := NormalizeMBID(hint.ID); id != "" {
 			if rec, err := c.local.GetRecording(ctx, id); err == nil && rec != nil {
-				return c.finalizeTopTrack(artist, rec)
+				return applyHint(rec)
 			}
-		}
-		if rec, err := c.local.ResolveRecordingByName(ctx, hint.Name, artist.Name); err == nil && rec != nil {
-			return c.finalizeTopTrack(artist, rec)
 		}
 	}
 
-	var tracks []musiccatalog.TopTrack
-	var err error
 	if c.useLocalSearch() {
-		tracks, err = c.search.SearchRecordings(ctx, hint.Name+" "+artist.Name, 3)
-	} else {
-		query := fmt.Sprintf(`recording:"%s" AND artist:"%s"`, luceneEscape(hint.Name), luceneEscape(artist.Name))
-		tracks, err = c.searchRecordings(ctx, query, 3)
+		tracks, err := c.search.SearchRecordingsForArtist(ctx, hint.Name, artist.ID, 5)
+		if err != nil || len(tracks) == 0 {
+			tracks, err = c.search.SearchRecordings(ctx, hint.Name+" "+artist.Name, 5)
+		}
+		if err == nil {
+			if best := pickResolvedTrack(hint, tracks); best != nil {
+				if c.useLocalStore() && (best.DurationMs <= 0 || best.AlbumID == "") {
+					if rec, err := c.local.GetRecording(ctx, best.ID); err == nil && rec != nil {
+						return applyHint(rec)
+					}
+				}
+				return applyHint(best)
+			}
+		}
 	}
-	if err != nil || len(tracks) == 0 {
-		// Keep Last.fm hint with a synthetic-but-stable id when MB misses.
-		if hint.ID == "" {
-			hint.ID = "lfm:" + strings.ToLower(strings.ReplaceAll(artist.Name+"|"+hint.Name, " ", "-"))
+
+	if c.useLocalStore() {
+		if rec, err := c.local.ResolveRecordingForArtist(ctx, artist.ID, hint.Name); err == nil && rec != nil {
+			return applyHint(rec)
 		}
-		if len(hint.Artists) == 0 {
-			hint.Artists = []string{artist.Name}
-		}
-		if len(hint.ArtistIDs) == 0 {
-			hint.ArtistIDs = []string{artist.ID}
-		}
-		enriched := c.enrichTrackArtwork(ctx, hint)
-		if !usableImageURL(enriched.ImageURL) {
-			enriched.ImageURL = artist.ImageURL
-		}
-		return &enriched
 	}
-	best := tracks[0]
-	best = c.enrichTrackArtwork(ctx, best)
-	if best.AlbumName == "" {
-		best.AlbumName = hint.AlbumName
+
+	if hint.ID == "" {
+		hint.ID = "lfm:" + strings.ToLower(strings.ReplaceAll(artist.Name+"|"+hint.Name, " ", "-"))
 	}
-	return c.finalizeTopTrack(artist, &best)
+	if len(hint.Artists) == 0 {
+		hint.Artists = []string{artist.Name}
+	}
+	if len(hint.ArtistIDs) == 0 {
+		hint.ArtistIDs = []string{artist.ID}
+	}
+	return c.finalizeTopTrack(artist, &hint)
+}
+
+func pickResolvedTrack(hint musiccatalog.TopTrack, candidates []musiccatalog.TopTrack) *musiccatalog.TopTrack {
+	target := strings.ToLower(strings.TrimSpace(hint.Name))
+	if target == "" {
+		return nil
+	}
+	var best *musiccatalog.TopTrack
+	bestScore := -1
+	for i := range candidates {
+		candidate := &candidates[i]
+		name := strings.ToLower(strings.TrimSpace(candidate.Name))
+		score := 0
+		switch {
+		case name == target:
+			score = 100
+		case strings.HasPrefix(name, target) || strings.HasPrefix(target, name):
+			score = 80
+		case strings.Contains(name, target) || strings.Contains(target, name):
+			score = 50
+		default:
+			continue
+		}
+		if candidate.AlbumID != "" {
+			score += 10
+		}
+		if candidate.DurationMs > 0 {
+			score += 5
+		}
+		if score > bestScore {
+			bestScore = score
+			best = candidate
+		}
+	}
+	if best == nil || bestScore < 50 {
+		return nil
+	}
+	copy := *best
+	return &copy
 }
 
 func (c *Client) finalizeTopTrack(artist musiccatalog.Artist, track *musiccatalog.TopTrack) *musiccatalog.TopTrack {
@@ -159,8 +250,8 @@ func (c *Client) finalizeTopTrack(artist musiccatalog.Artist, track *musiccatalo
 	}
 	if out.AlbumID != "" {
 		out.ImageURL = c.coverURL(out.AlbumID)
-	} else if !usableImageURL(out.ImageURL) {
-		out.ImageURL = artist.ImageURL
+	} else {
+		out.ImageURL = fallbackImage
 	}
 	return &out
 }

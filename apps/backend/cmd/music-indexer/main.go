@@ -14,6 +14,7 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/jedborseth/jeds-movies/backend/internal/config"
+	"github.com/jedborseth/jeds-movies/backend/internal/musicbrainz/local"
 	"github.com/jedborseth/jeds-movies/backend/internal/musicsearch"
 )
 
@@ -62,6 +63,9 @@ func main() {
 
 	start := time.Now()
 	if wanted["artists"] {
+		if err := indexArtistArtwork(ctx, db); err != nil {
+			log.Printf("warning: artist artwork URLs: %v", err)
+		}
 		if err := indexArtists(ctx, db, search, *batchSize); err != nil {
 			log.Fatal(err)
 		}
@@ -82,6 +86,35 @@ func main() {
 		}
 	}
 	log.Printf("music indexer finished in %s", time.Since(start).Round(time.Second))
+}
+
+func indexArtistArtwork(ctx context.Context, db *sql.DB) error {
+	log.Println("storing MusicBrainz artist image URLs…")
+	if err := local.EnsureArtworkSchema(ctx, db); err != nil {
+		return err
+	}
+	res, err := db.ExecContext(ctx, `
+		INSERT INTO jedflix.artwork (mbid, kind, source_url, updated_at)
+		SELECT DISTINCT ON (a.gid) a.gid, 'artist', url.url, now()
+		FROM musicbrainz.artist a
+		JOIN musicbrainz.l_artist_url lau ON lau.entity0 = a.id
+		JOIN musicbrainz.link l ON l.id = lau.link
+		JOIN musicbrainz.link_type lt ON lt.id = l.link_type
+		JOIN musicbrainz.url url ON url.id = lau.entity1
+		WHERE lt.name = 'image' AND COALESCE(url.url, '') <> ''
+		ORDER BY a.gid, lau.id DESC
+		ON CONFLICT (mbid) DO UPDATE SET
+			kind = EXCLUDED.kind,
+			source_url = EXCLUDED.source_url,
+			updated_at = now()
+		WHERE jedflix.artwork.source_url IS DISTINCT FROM EXCLUDED.source_url
+	`)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	log.Printf("  artist image URLs stored: %d", n)
+	return nil
 }
 
 func indexArtists(ctx context.Context, db *sql.DB, search *musicsearch.Client, batch int) error {
