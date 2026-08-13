@@ -3,13 +3,18 @@
 # index/locale breakage on the replica.
 FROM postgres:16-alpine
 
+# pgxs compiles LLVM bitcode with the clang version Postgres was built with
+# (currently clang-21 on postgres:16-alpine). Symlink whatever apk clang is.
 RUN set -eux; \
-	apk add --no-cache --virtual .build-deps git build-base; \
-	if apk add --no-cache --virtual .clang-deps clang19 llvm19-dev; then :; \
-	elif apk add --no-cache --virtual .clang-deps clang18 llvm18-dev; then :; \
-	else apk add --no-cache --virtual .clang-deps clang llvm-dev; fi; \
+	apk add --no-cache --virtual .build-deps git build-base clang llvm-dev; \
+	clang_bin="$(command -v clang)"; \
+	wanted="$(awk '/^CLANG[[:space:]]*=/{print $3; exit}' /usr/local/lib/postgresql/pgxs/src/Makefile.global)"; \
+	if [ -n "$wanted" ] && [ ! -x "$(command -v "$wanted")" ]; then \
+		ln -sf "$clang_bin" "/usr/local/bin/$(basename "$wanted")"; \
+		ln -sf "$clang_bin" "/usr/bin/$(basename "$wanted")"; \
+	fi; \
 	git clone --branch v0.8.0 --depth 1 https://github.com/pgvector/pgvector.git /tmp/pgvector; \
 	make -C /tmp/pgvector OPTFLAGS=""; \
 	make -C /tmp/pgvector install; \
-	apk del .build-deps .clang-deps; \
+	apk del .build-deps; \
 	rm -rf /tmp/pgvector
