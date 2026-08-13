@@ -79,7 +79,10 @@ export async function generateInfiniteQueueTracks(options: {
     // Fall through to Last.fm-only refill.
   }
 
-  const primary = seeds[0]!;
+  const primary = seeds[0];
+  if (!primary) {
+    return [];
+  }
   const primaryArtist = primary.artists[0] ?? "";
 
   // One Spotify-backed resolve path only — do not also call /lastfm/related.
@@ -180,16 +183,16 @@ function interleavePools(
   // 3 similar : 2 explore cadence for gradual exploration.
   while (i < similar.length || j < explore.length) {
     for (let n = 0; n < 3 && i < similar.length; n += 1, i += 1) {
-      const track = similar[i]!;
-      if (seen.has(track.id)) {
+      const track = similar[i];
+      if (!track || seen.has(track.id)) {
         continue;
       }
       seen.add(track.id);
       out.push(track);
     }
     for (let n = 0; n < 2 && j < explore.length; n += 1, j += 1) {
-      const track = explore[j]!;
-      if (seen.has(track.id)) {
+      const track = explore[j];
+      if (!track || seen.has(track.id)) {
         continue;
       }
       seen.add(track.id);
@@ -206,9 +209,13 @@ function softShuffle<T>(items: T[], intensity: number): T[] {
   for (let n = 0; n < swaps; n += 1) {
     const i = Math.floor(Math.random() * out.length);
     const j = Math.min(out.length - 1, i + 1 + Math.floor(Math.random() * 3));
-    const tmp = out[i]!;
-    out[i] = out[j]!;
-    out[j] = tmp;
+    const left = out[i];
+    const right = out[j];
+    if (left === undefined || right === undefined) {
+      continue;
+    }
+    out[i] = right;
+    out[j] = left;
   }
   return out;
 }
