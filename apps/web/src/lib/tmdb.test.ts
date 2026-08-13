@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import {
   clearTmdbSessionCache,
+  configureTmdb,
   discoverMedia,
   getMediaCredits,
   getMediaDetailPath,
@@ -13,7 +14,7 @@ import {
   peekTrendingMedia,
   searchAll,
   searchMedia,
-} from "./tmdb";
+} from "@jedflix/tmdb";
 
 function mockFetch(body: unknown, status = 200) {
   return mock(() =>
@@ -31,6 +32,7 @@ describe("tmdb", () => {
 
   beforeEach(() => {
     originalFetch = globalThis.fetch;
+    configureTmdb({ backendBaseUrl: "/backend" });
     clearTmdbSessionCache();
   });
 
