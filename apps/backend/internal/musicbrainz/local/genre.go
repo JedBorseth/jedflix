@@ -239,6 +239,101 @@ func (s *Store) PopularRecordingsByTags(ctx context.Context, tags []string, limi
 	return out, nil
 }
 
+func (s *Store) RecentAlbumsByYear(ctx context.Context, year, limit int) ([]musiccatalog.Album, error) {
+	if !s.Configured() {
+		return nil, ErrNotConfigured
+	}
+	if year <= 0 {
+		return nil, musiccatalog.ErrBadRequest
+	}
+	if limit <= 0 {
+		limit = 10
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT rg.gid::text,
+			rg.name,
+			COALESCE(rpt.name, 'Album') AS primary_type,
+			COALESCE(
+				CASE
+					WHEN rgm.first_release_date_year IS NULL THEN NULL
+					WHEN rgm.first_release_date_month IS NULL THEN rgm.first_release_date_year::text
+					WHEN rgm.first_release_date_day IS NULL THEN
+						rgm.first_release_date_year::text || '-' || lpad(rgm.first_release_date_month::text, 2, '0')
+					ELSE
+						rgm.first_release_date_year::text || '-' ||
+						lpad(rgm.first_release_date_month::text, 2, '0') || '-' ||
+						lpad(rgm.first_release_date_day::text, 2, '0')
+				END,
+				''
+			) AS first_release_date,
+			COALESCE((
+				SELECT array_agg(a.gid::text ORDER BY acn.position)
+				FROM musicbrainz.artist_credit_name acn
+				JOIN musicbrainz.artist a ON a.id = acn.artist
+				WHERE acn.artist_credit = rg.artist_credit
+			), '{}') AS artist_ids,
+			COALESCE((
+				SELECT array_agg(acn.name ORDER BY acn.position)
+				FROM musicbrainz.artist_credit_name acn
+				WHERE acn.artist_credit = rg.artist_credit
+			), '{}') AS artist_names,
+			COALESCE((
+				SELECT array_agg(name)
+				FROM (
+					SELECT t2.name
+					FROM musicbrainz.release_group_tag rgt2
+					JOIN musicbrainz.tag t2 ON t2.id = rgt2.tag
+					WHERE rgt2.release_group = rg.id
+					ORDER BY rgt2.count DESC
+					LIMIT 5
+				) top_tags
+			), '{}') AS genres,
+			LEAST(COALESCE(rgm.rating_count, 0), 100)
+		FROM musicbrainz.release_group rg
+		LEFT JOIN musicbrainz.release_group_meta rgm ON rgm.id = rg.id
+		LEFT JOIN musicbrainz.release_group_primary_type rpt ON rpt.id = rg.type
+		WHERE rgm.first_release_date_year = $1
+			AND lower(COALESCE(rpt.name, 'album')) = 'album'
+		ORDER BY rgm.first_release_date_month DESC NULLS LAST,
+			rgm.first_release_date_day DESC NULLS LAST,
+			COALESCE(rgm.rating_count, 0) DESC,
+			rg.name
+		LIMIT $2
+	`, year, limit)
+	if err != nil {
+		return nil, fmt.Errorf("%w: recent albums by year: %v", musiccatalog.ErrFetchFailed, err)
+	}
+	defer rows.Close()
+
+	out := make([]musiccatalog.Album, 0, limit)
+	for rows.Next() {
+		var (
+			album              musiccatalog.Album
+			primary, date      string
+			artistIDs, artists pqStringArray
+			genres             pqStringArray
+		)
+		if err := rows.Scan(
+			&album.ID, &album.Name, &primary, &date,
+			&artistIDs, &artists, &genres, &album.Popularity,
+		); err != nil {
+			return nil, fmt.Errorf("%w: scan recent albums by year: %v", musiccatalog.ErrFetchFailed, err)
+		}
+		album.ArtistIDs = []string(artistIDs)
+		album.Artists = []string(artists)
+		album.ReleaseDate = date
+		album.Year = parseYear(date)
+		album.AlbumType = mapPrimaryType(primary)
+		album.Genres = []string(genres)
+		out = append(out, album)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("%w: recent albums by year: %v", musiccatalog.ErrFetchFailed, err)
+	}
+	return out, nil
+}
+
 func normalizeTagArgs(tags []string) []string {
 	out := make([]string, 0, len(tags))
 	seen := map[string]struct{}{}

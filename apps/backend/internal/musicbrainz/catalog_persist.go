@@ -10,7 +10,10 @@ import (
 	"github.com/jedborseth/jeds-movies/backend/internal/musiccatalog"
 )
 
-const catalogFileVersion = 4
+const (
+	catalogFileVersion    = 4
+	minCatalogFileVersion = 2
+)
 
 type persistedCatalog struct {
 	Version  int                         `json:"version"`
@@ -32,7 +35,7 @@ func (c *Client) loadPersistedCatalog() bool {
 	if err := json.Unmarshal(data, &file); err != nil {
 		return false
 	}
-	if file.Version != catalogFileVersion || file.Provider != "musicbrainz" {
+	if file.Version < minCatalogFileVersion || file.Version > catalogFileVersion || file.Provider != "musicbrainz" {
 		return false
 	}
 	if len(file.Browse.Rows) == 0 && len(file.Browse.NewReleases) == 0 {

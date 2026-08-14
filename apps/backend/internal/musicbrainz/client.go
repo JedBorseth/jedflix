@@ -249,9 +249,15 @@ func (c *Client) Browse(ctx context.Context) (*musiccatalog.BrowseResponse, erro
 	c.catalogMu.RUnlock()
 	if cached != nil {
 		copy := *cached
+		if c.catalogAge() >= c.refreshTTL {
+			go c.refreshCatalog(context.Background())
+		}
 		return &copy, nil
 	}
-	c.refreshCatalog(ctx)
+
+	go c.refreshCatalog(context.Background())
+	c.waitForRefresh(ctx)
+
 	c.catalogMu.RLock()
 	cached = c.catalog
 	err := c.refreshErr

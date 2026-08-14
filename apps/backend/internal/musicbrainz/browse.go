@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jedborseth/jeds-movies/backend/internal/musiccatalog"
@@ -62,17 +63,30 @@ func (c *Client) waitForRefresh(ctx context.Context) {
 }
 
 func (c *Client) buildCatalog(ctx context.Context) (*musiccatalog.BrowseResponse, error) {
-	rows := make([]musiccatalog.CatalogRow, 0, len(c.genres)*3)
+	type genreResult struct {
+		rows []musiccatalog.CatalogRow
+	}
+	results := make(chan genreResult, len(c.genres))
+	var wg sync.WaitGroup
 	for _, genre := range c.genres {
-		if ctx.Err() != nil {
-			break
-		}
-		genreRows, err := c.fetchGenreRows(ctx, genre)
-		if err != nil {
-			log.Printf("music catalog genre %s: %v", genre.Key, err)
-			continue
-		}
-		rows = append(rows, genreRows...)
+		wg.Add(1)
+		go func(genre musiccatalog.GenreConfig) {
+			defer wg.Done()
+			rows, err := c.fetchGenreRows(ctx, genre)
+			if err != nil {
+				log.Printf("music catalog genre %s: %v", genre.Key, err)
+				results <- genreResult{}
+				return
+			}
+			results <- genreResult{rows: rows}
+		}(genre)
+	}
+	wg.Wait()
+	close(results)
+
+	rows := make([]musiccatalog.CatalogRow, 0, len(c.genres)*3)
+	for result := range results {
+		rows = append(rows, result.rows...)
 	}
 
 	newReleases, err := c.fetchNewReleases(ctx)
@@ -224,11 +238,11 @@ func (c *Client) genreAlbums(ctx context.Context, genre musiccatalog.GenreConfig
 func (c *Client) fetchNewReleases(ctx context.Context) ([]musiccatalog.Album, error) {
 	year := c.now().Year()
 	if c.useLocalStore() {
-		albums, err := c.searchAlbumsLocalOrRemote(ctx, fmt.Sprintf("%d", year), catalogShelfLimit, "Album")
+		albums, err := c.local.RecentAlbumsByYear(ctx, year, catalogShelfLimit)
 		if err != nil {
 			return nil, err
 		}
-		return albums, nil
+		return c.withCoverURLs(albums), nil
 	}
 	query := fmt.Sprintf(`primarytype:Album AND firstreleasedate:[%d-01-01 TO %d-12-31]`, year, year)
 	albums, err := c.searchAlbums(ctx, query, catalogShelfLimit)
@@ -272,7 +286,6 @@ func (c *Client) albumsFromHints(ctx context.Context, hints []TagAlbumHint, limi
 			break
 		}
 		id := NormalizeMBID(hint.MBID)
-		image := strings.TrimSpace(hint.ImageURL)
 		artistID := NormalizeMBID(hint.ArtistMBID)
 		artists := []string{}
 		artistIDs := []string{}
@@ -284,34 +297,18 @@ func (c *Client) albumsFromHints(ctx context.Context, hints []TagAlbumHint, limi
 		}
 
 		if id == "" {
-			// No album MBID — try a single MusicBrainz resolve (best effort).
-			resolved, err := c.resolveAlbumByName(ctx, hint.Name, hint.Artist)
-			if err != nil || resolved == nil || resolved.ID == "" {
-				continue
-			}
-			id = resolved.ID
-			if image == "" || strings.Contains(image, "placehold.co") {
-				image = resolved.ImageURL
-			}
-			if len(artists) == 0 {
-				artists = resolved.Artists
-			}
-			if len(artistIDs) == 0 {
-				artistIDs = resolved.ArtistIDs
-			}
+			continue
 		}
 		if _, ok := seen[id]; ok {
 			continue
 		}
 		seen[id] = struct{}{}
-		// Always use the local CAA proxy cache for album art (homepage shelves included).
-		image = c.coverURL(id)
 		out = append(out, musiccatalog.Album{
 			ID:        id,
 			Name:      hint.Name,
 			Artists:   artists,
 			ArtistIDs: artistIDs,
-			ImageURL:  image,
+			ImageURL:  c.coverURL(id),
 			AlbumType: "album",
 			Genres:    []string{},
 		})
@@ -333,11 +330,6 @@ func (c *Client) albumsFromTopTracks(ctx context.Context, tracks []musiccatalog.
 		if c.useLocalStore() {
 			if id := NormalizeMBID(track.ID); id != "" {
 				if found, err := c.local.GetRecording(ctx, id); err == nil && found != nil {
-					resolved = *found
-				}
-			}
-			if resolved.AlbumID == "" && track.Name != "" && len(track.Artists) > 0 {
-				if found, err := c.local.ResolveRecordingByName(ctx, track.Name, track.Artists[0]); err == nil && found != nil {
 					resolved = *found
 				}
 			}
