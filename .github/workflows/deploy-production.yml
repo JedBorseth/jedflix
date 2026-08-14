@@ -5,6 +5,11 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      full_stack:
+        description: Rebuild every Compose service, including music-ai and musicbrainz-db images
+        type: boolean
+        default: false
 
 # Prefer a fresh runner if GitHub fails to acquire one for a long time.
 concurrency:
@@ -46,10 +51,20 @@ jobs:
       - name: Deploy Convex backend
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+          BEFORE_SHA: ${{ github.event.before }}
         run: |
           if [ -z "${CONVEX_DEPLOY_KEY}" ]; then
             echo "CONVEX_DEPLOY_KEY is required to deploy Convex schema and functions."
             exit 1
+          fi
+          if [ -n "${BEFORE_SHA}" ] && [ "${BEFORE_SHA}" != "0000000000000000000000000000000000000000" ]; then
+            git fetch --depth=50 origin "${BEFORE_SHA}" 2>/dev/null || true
+            if git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
+              if ! git diff --name-only "${BEFORE_SHA}" "${GITHUB_SHA}" | grep -Eq '^(convex/|package.json|bun.lock)'; then
+                echo "Skipping Convex deploy; no convex/lockfile changes."
+                exit 0
+              fi
+            fi
           fi
           bunx convex deploy
 
@@ -57,12 +72,13 @@ jobs:
         uses: appleboy/ssh-action@v1.2.0
         env:
           PROD_APP_DIR: ${{ vars.PROD_APP_DIR || '/home/jedborseth/jedflix' }}
+          FULL_STACK: ${{ github.event.inputs.full_stack || 'false' }}
         with:
           host: ${{ secrets.PROD_SSH_HOST }}
           username: ${{ secrets.PROD_SSH_USER }}
           key: ${{ secrets.PROD_SSH_KEY }}
-          envs: PROD_APP_DIR
-          # CUDA image + torch + first pgvector postgres build can exceed 20m.
+          envs: PROD_APP_DIR,FULL_STACK
+          # Full music-ai CUDA rebuilds can still exceed 20m when those files change.
           command_timeout: 70m
           script: |
             set -euo pipefail
@@ -80,7 +96,7 @@ jobs:
 
             # Free dangling containers/images only. Keep the BuildKit cache so
             # the CUDA/torch music-ai image does not rebuild from scratch.
-            # Do NOT prune volumes — caddy_data holds TLS certs.
+            # Do NOT prune volumes — caddy_data holds TLS certs; pgdata is on disk1.
             docker container prune -f || true
             docker image prune -f || true
             avail_kb="$(df -P / | awk 'NR==2 { print $4 }')"
@@ -92,14 +108,17 @@ jobs:
             echo "== Disk after cleanup =="
             df -h / || true
 
+            before="$(git rev-parse HEAD)"
             git fetch origin main
             git reset --hard origin/main
-            # --remove-orphans drops renamed services (e.g. stream-server → backend).
-            docker compose up -d --build --remove-orphans
-            # Caddyfile is bind-mounted; force recreate so /backend routing reloads.
-            docker compose up -d --force-recreate --no-deps caddy
+            chmod +x scripts/deploy-compose.sh
 
-            # Reclaim replaced image layers, but keep BuildKit cache.
+            if [ "${FULL_STACK:-false}" = "true" ]; then
+              ./scripts/deploy-compose.sh --full
+            else
+              ./scripts/deploy-compose.sh --since "${before}"
+            fi
+
             docker image prune -f || true
 
             echo "== Disk after deploy =="

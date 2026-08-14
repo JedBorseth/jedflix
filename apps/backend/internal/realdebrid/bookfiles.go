@@ -36,7 +36,7 @@ var (
 )
 
 // FilterMediaFiles returns torrent files matching the requested book media kind,
-// sorted in natural filename order (so chapter packs play in sequence).
+// sorted in playback order (natural full-path comparison).
 func FilterMediaFiles(files []TorrentFile, kind MediaKind) []TorrentFile {
 	out := make([]TorrentFile, 0, len(files))
 	for _, file := range files {
@@ -44,10 +44,67 @@ func FilterMediaFiles(files []TorrentFile, kind MediaKind) []TorrentFile {
 			out = append(out, file)
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		return naturalLess(filepath.Base(out[i].Path), filepath.Base(out[j].Path))
-	})
+	SortPlaybackOrder(out)
 	return out
+}
+
+// SortPlaybackOrder sorts chapter/disc packs into listening order.
+//
+// Natural comparison of the full path is the conservative choice: it does not
+// guess which number in a name is the chapter (titles often include a book
+// number, year, or bitrate). Numeric runs compare as integers so "Chapter 2"
+// precedes "Chapter 10", and folder names keep Disc 1 before Disc 2.
+func SortPlaybackOrder(files []TorrentFile) {
+	sort.SliceStable(files, func(i, j int) bool {
+		return playbackPathLess(files[i].Path, files[j].Path)
+	})
+}
+
+// AlignSelectedWithLinks returns selected files in torrent file-list order.
+// Real Debrid's unrestricted links are aligned with that order, not with any
+// prior sort of the selected slice.
+func AlignSelectedWithLinks(allFiles, selected []TorrentFile) []TorrentFile {
+	selectedSet := make(map[int]TorrentFile, len(selected))
+	for _, file := range selected {
+		selectedSet[file.ID] = file
+	}
+	out := make([]TorrentFile, 0, len(selected))
+	for _, file := range allFiles {
+		if _, ok := selectedSet[file.ID]; ok {
+			out = append(out, file)
+		}
+	}
+	if len(out) == 0 {
+		return selected
+	}
+	return out
+}
+
+// SortPlaybackLinks keeps each torrent file attached to its Real Debrid link
+// while sorting into listening order.
+func SortPlaybackLinks(files []TorrentFile, links []string) ([]TorrentFile, []string) {
+	n := len(files)
+	if len(links) < n {
+		n = len(links)
+	}
+	type pair struct {
+		file TorrentFile
+		link string
+	}
+	pairs := make([]pair, n)
+	for i := 0; i < n; i++ {
+		pairs[i] = pair{file: files[i], link: links[i]}
+	}
+	sort.SliceStable(pairs, func(i, j int) bool {
+		return playbackPathLess(pairs[i].file.Path, pairs[j].file.Path)
+	})
+	outFiles := make([]TorrentFile, n)
+	outLinks := make([]string, n)
+	for i, p := range pairs {
+		outFiles[i] = p.file
+		outLinks[i] = p.link
+	}
+	return outFiles, outLinks
 }
 
 func MatchesMediaKind(path string, kind MediaKind) bool {
@@ -139,6 +196,10 @@ func looksLikeChapter(name string) bool {
 		return true
 	}
 	return leadingNumRE.MatchString(base)
+}
+
+func playbackPathLess(a, b string) bool {
+	return naturalLess(filepath.ToSlash(a), filepath.ToSlash(b))
 }
 
 func naturalLess(a, b string) bool {

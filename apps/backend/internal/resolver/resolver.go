@@ -599,20 +599,9 @@ func (s *Service) resolveBook(
 		return nil, &ResolveError{Code: "no_links", Message: "Real Debrid returned no links."}
 	}
 
-	// RD returns links for selected files in torrent file-list order.
-	selectedOrdered := make([]realdebrid.TorrentFile, 0, len(mediaFiles))
-	selectedSet := map[int]realdebrid.TorrentFile{}
-	for _, file := range mediaFiles {
-		selectedSet[file.ID] = file
-	}
-	for _, file := range info.Files {
-		if _, ok := selectedSet[file.ID]; ok {
-			selectedOrdered = append(selectedOrdered, file)
-		}
-	}
-	if len(selectedOrdered) == 0 {
-		selectedOrdered = mediaFiles
-	}
+	// RD returns links for selected files in torrent file-list order, which is
+	// often not listening order. Pair first, then sort by path.
+	selectedOrdered := realdebrid.AlignSelectedWithLinks(info.Files, mediaFiles)
 
 	if len(info.Links) < len(selectedOrdered) {
 		return nil, &ResolveError{
@@ -621,10 +610,12 @@ func (s *Service) resolveBook(
 		}
 	}
 
+	selectedOrdered, playbackLinks := realdebrid.SortPlaybackLinks(selectedOrdered, info.Links)
+
 	report(fmt.Sprintf("Unrestricting %d Real Debrid link(s)…", len(selectedOrdered)))
 	streamFiles := make([]StreamFile, 0, len(selectedOrdered))
 	for index, file := range selectedOrdered {
-		unrestricted, unrestrictErr := rd.UnrestrictLink(resolveCtx, info.Links[index])
+		unrestricted, unrestrictErr := rd.UnrestrictLink(resolveCtx, playbackLinks[index])
 		if unrestrictErr != nil {
 			return nil, mapRDError(unrestrictErr)
 		}

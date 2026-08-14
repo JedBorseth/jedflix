@@ -18,6 +18,73 @@ func TestFilterMediaFilesNaturalOrder(t *testing.T) {
 	}
 }
 
+func TestSortPlaybackOrderHarryPotterStyle(t *testing.T) {
+	files := []TorrentFile{
+		{ID: 16, Path: "/HP1/J.K. Rowling - Harry Potter 1 - 16 Through the Trapdoor.mp3"},
+		{ID: 5, Path: "/HP1/J.K. Rowling - Harry Potter 1 - 05 Diagon Alley.mp3"},
+		{ID: 6, Path: "/HP1/J.K. Rowling - Harry Potter 1 - 06 The Journey from Platform Nine and Three-Quarters.mp3"},
+	}
+	SortPlaybackOrder(files)
+	if files[0].ID != 5 || files[1].ID != 6 || files[2].ID != 16 {
+		t.Fatalf("expected chapters 5,6,16 got %#v", files)
+	}
+}
+
+func TestSortPlaybackOrderDiscFolders(t *testing.T) {
+	files := []TorrentFile{
+		{ID: 1, Path: `Book\CD2\01.mp3`},
+		{ID: 2, Path: `Book\CD1\02.mp3`},
+		{ID: 3, Path: `Book\CD1\01.mp3`},
+		{ID: 4, Path: `Book\CD2\02.mp3`},
+	}
+	SortPlaybackOrder(files)
+	want := []int{3, 2, 1, 4}
+	for i, id := range want {
+		if files[i].ID != id {
+			t.Fatalf("disc order[%d]: got id %d want %d (%#v)", i, files[i].ID, id, files)
+		}
+	}
+}
+
+func TestSortPlaybackLinksKeepsLinkAttached(t *testing.T) {
+	files := []TorrentFile{
+		{ID: 5, Path: "/book/Chapter 05.mp3"},
+		{ID: 16, Path: "/book/Chapter 16.mp3"},
+		{ID: 6, Path: "/book/Chapter 06.mp3"},
+	}
+	links := []string{"rd://05", "rd://16", "rd://06"}
+	outFiles, outLinks := SortPlaybackLinks(files, links)
+	if outFiles[0].ID != 5 || outFiles[1].ID != 6 || outFiles[2].ID != 16 {
+		t.Fatalf("bad file order: %#v", outFiles)
+	}
+	if outLinks[0] != "rd://05" || outLinks[1] != "rd://06" || outLinks[2] != "rd://16" {
+		t.Fatalf("links detached from files: %#v", outLinks)
+	}
+}
+
+func TestAlignThenSortMatchesListeningOrder(t *testing.T) {
+	all := []TorrentFile{
+		{ID: 1, Path: "/HP1/05 Diagon Alley.mp3"},
+		{ID: 2, Path: "/HP1/16 Through the Trapdoor.mp3"},
+		{ID: 3, Path: "/HP1/16b Through the Trapdoor.mp3"},
+		{ID: 4, Path: "/HP1/06 Platform Nine.mp3"},
+		{ID: 99, Path: "/HP1/readme.txt"},
+	}
+	selected := FilterMediaFiles(all, MediaKindAudiobook)
+	aligned := AlignSelectedWithLinks(all, selected)
+	if aligned[0].ID != 1 || aligned[1].ID != 2 || aligned[2].ID != 3 || aligned[3].ID != 4 {
+		t.Fatalf("RD link order should follow torrent list, got %#v", aligned)
+	}
+	links := []string{"rd://05", "rd://16a", "rd://16b", "rd://06"}
+	out, outLinks := SortPlaybackLinks(aligned, links)
+	if out[0].ID != 1 || out[1].ID != 4 || out[2].ID != 2 || out[3].ID != 3 {
+		t.Fatalf("listening order %#v", out)
+	}
+	if outLinks[0] != "rd://05" || outLinks[1] != "rd://06" || outLinks[2] != "rd://16a" || outLinks[3] != "rd://16b" {
+		t.Fatalf("links %#v", outLinks)
+	}
+}
+
 func TestClassifyPack(t *testing.T) {
 	single := ClassifyPack([]TorrentFile{{ID: 1, Path: "book.m4b", Bytes: 200_000_000}})
 	if single != PackSingle {
