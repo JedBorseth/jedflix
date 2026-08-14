@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   dropIndexFromDrag,
+  promoteRecommendationToQueue,
   remapIndexAfterReorder,
   reorderItems,
 } from "@/lib/musicQueue";
@@ -22,6 +23,27 @@ describe("musicQueue helpers", () => {
     expect(remapIndexAfterReorder(1, 3, 0)).toBe(2);
     // Unrelated move
     expect(remapIndexAfterReorder(0, 2, 3)).toBe(0);
+  });
+
+  test("promoteRecommendationToQueue appends to the playable queue", () => {
+    const result = promoteRecommendationToQueue(
+      [{ id: "a" }, { id: "b" }],
+      [{ id: "c" }, { id: "d" }],
+      "c",
+    );
+    expect(result.queue.map((track) => track.id)).toEqual(["a", "b", "c"]);
+    expect(result.recommendations.map((track) => track.id)).toEqual(["d"]);
+    expect(result.promoted?.id).toBe("c");
+  });
+
+  test("promoteRecommendationToQueue skips duplicates already in the queue", () => {
+    const result = promoteRecommendationToQueue(
+      [{ id: "a" }, { id: "c" }],
+      [{ id: "c" }, { id: "d" }],
+      "c",
+    );
+    expect(result.queue.map((track) => track.id)).toEqual(["a", "c"]);
+    expect(result.recommendations.map((track) => track.id)).toEqual(["d"]);
   });
 
   test("dropIndexFromDrag snaps by row height", () => {

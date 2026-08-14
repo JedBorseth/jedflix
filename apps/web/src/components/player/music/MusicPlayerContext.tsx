@@ -12,7 +12,11 @@ import {
 import { useMediaSession } from "@/hooks/useMediaSession";
 import { resolveStreamServerAudioError } from "@/components/player/shared/playbackErrors";
 import { playMediaElement } from "@/lib/mediaSession";
-import { remapIndexAfterReorder, reorderItems } from "@/lib/musicQueue";
+import {
+  promoteRecommendationToQueue,
+  remapIndexAfterReorder,
+  reorderItems,
+} from "@/lib/musicQueue";
 import {
   planQueueSourceSync,
   stripQueueArtwork,
@@ -85,6 +89,8 @@ type MusicPlayerContextValue = {
   ) => void;
   playQueueIndex: (index: number) => void;
   addToQueue: (track: MusicQueueTrack) => void;
+  /** Append an Infinite Queue preview track to the end of the playable queue. */
+  addUpcomingToQueue: (track: MusicQueueTrack) => void;
   /**
    * When a playlist is still paginating, replace the queue with `next` only if
    * `generation` matches this session and the user has not manually edited the queue.
@@ -500,6 +506,39 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       });
     },
     [playTrack, queue.length],
+  );
+
+  const addUpcomingToQueue = useCallback(
+    (track: MusicQueueTrack) => {
+      const currentQueue = queueRef.current;
+      const currentPreview = upcomingRecommendationsRef.current;
+      const result = promoteRecommendationToQueue(
+        currentQueue,
+        currentPreview,
+        track.id,
+      );
+      if (!result.promoted) {
+        return;
+      }
+      upcomingRecommendationsRef.current = result.recommendations;
+      setUpcomingRecommendations(result.recommendations);
+      if (currentQueue.length === 0) {
+        playTrack({ ...result.promoted, autoQueued: false });
+        return;
+      }
+      if (result.queue === currentQueue) {
+        return;
+      }
+      queueDirtyRef.current = true;
+      setQueue(
+        result.queue.map((item) =>
+          item.id === result.promoted?.id
+            ? { ...item, autoQueued: false }
+            : item,
+        ),
+      );
+    },
+    [playTrack],
   );
 
   const reorderQueue = useCallback((fromIndex: number, toIndex: number) => {
@@ -1026,6 +1065,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       playAlbumTracks,
       playQueueIndex,
       addToQueue,
+      addUpcomingToQueue,
       extendQueueFromSource,
       reorderQueue,
       removeFromQueue,
@@ -1045,6 +1085,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     }),
     [
       addToQueue,
+      addUpcomingToQueue,
       clear,
       clearUpcoming,
       current,

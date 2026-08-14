@@ -42,6 +42,27 @@ export function remapIndexAfterReorder(
   return currentIndex;
 }
 
+/**
+ * Move a previewed Infinite Queue track onto the playable queue (end)
+ * and drop it from the recommendation list.
+ */
+export function promoteRecommendationToQueue<T extends { id: string }>(
+  queue: T[],
+  recommendations: T[],
+  trackId: string,
+): { queue: T[]; recommendations: T[]; promoted: T | null } {
+  const promoted = recommendations.find((track) => track.id === trackId) ?? null;
+  if (!promoted) {
+    return { queue, recommendations, promoted: null };
+  }
+  const alreadyQueued = queue.some((track) => track.id === trackId);
+  return {
+    queue: alreadyQueued ? queue : [...queue, promoted],
+    recommendations: recommendations.filter((track) => track.id !== trackId),
+    promoted,
+  };
+}
+
 /** Compute drop index from vertical drag distance and fixed row height. */
 export function dropIndexFromDrag(
   fromIndex: number,

@@ -1,4 +1,4 @@
-import { DragHandleDots2Icon, Cross2Icon } from "@radix-ui/react-icons";
+import { DragHandleDots2Icon, Cross2Icon, PlusIcon } from "@radix-ui/react-icons";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useDrag } from "@use-gesture/react";
 import { useRef, useState } from "react";
@@ -13,6 +13,7 @@ import { dropIndexFromDrag } from "@/lib/musicQueue";
 import { cn } from "@/lib/utils";
 
 const ROW_HEIGHT = 64;
+const DESKTOP_ROW_HEIGHT = 56;
 const DISMISS_DISTANCE = 80;
 const DISMISS_VELOCITY = 0.4;
 
@@ -22,6 +23,7 @@ type QueueRowProps = {
   isCurrent: boolean;
   isDragging: boolean;
   dragOffsetY: number;
+  compact?: boolean;
   onDragStart: (index: number) => void;
   onDragMove: (index: number, movementY: number) => void;
   onDragEnd: (index: number, movementY: number) => void;
@@ -35,6 +37,7 @@ function QueueRow({
   isCurrent,
   isDragging,
   dragOffsetY,
+  compact = false,
   onDragStart,
   onDragMove,
   onDragEnd,
@@ -43,6 +46,7 @@ function QueueRow({
 }: QueueRowProps) {
   const artist = track.artists.filter(Boolean).join(", ");
   const imageUrl = track.imageUrl || artworkForTrack(track.id);
+  const artSize = compact ? "h-10 w-10" : "h-11 w-11";
 
   const bindHandle = useDrag(
     ({ active, movement: [, my], first, last, event }) => {
@@ -68,7 +72,8 @@ function QueueRow({
   return (
     <li
       className={cn(
-        "relative flex h-16 items-center gap-2 border-b border-zinc-800/80 px-3",
+        "relative flex items-center gap-2 border-b border-zinc-800/80 px-3",
+        compact ? "h-14" : "h-16",
         isCurrent && "bg-zinc-900/80",
         isDragging && "z-20 bg-zinc-800 shadow-lg",
       )}
@@ -98,10 +103,10 @@ function QueueRow({
             alt=""
             loading="lazy"
             decoding="async"
-            className="h-11 w-11 shrink-0 rounded object-cover"
+            className={cn("shrink-0 rounded object-cover", artSize)}
           />
         ) : (
-          <div className="h-11 w-11 shrink-0 rounded bg-zinc-800" aria-hidden />
+          <div className={cn("shrink-0 rounded bg-zinc-800", artSize)} aria-hidden />
         )}
         <div className="min-w-0 flex-1">
           <p
@@ -131,11 +136,137 @@ function QueueRow({
   );
 }
 
+function UpcomingRow({
+  track,
+  compact = false,
+  onAdd,
+}: {
+  track: MusicQueueTrack;
+  compact?: boolean;
+  onAdd: (track: MusicQueueTrack) => void;
+}) {
+  const artist = track.artists.filter(Boolean).join(", ");
+  const imageUrl = track.imageUrl || artworkForTrack(track.id);
+  const artSize = compact ? "h-8 w-8" : "h-10 w-10";
+
+  return (
+    <li>
+      <button
+        type="button"
+        className={cn(
+          "flex w-full items-center gap-2.5 text-left hover:bg-zinc-900/80",
+          compact ? "h-10 px-4" : "h-14 px-3",
+        )}
+        onClick={() => onAdd(track)}
+        aria-label={`Add ${track.title} to queue`}
+      >
+        {imageUrl ? (
+          <ProgressiveCoverImage
+            src={imageUrl}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            className={cn("shrink-0 rounded object-cover", artSize)}
+          />
+        ) : (
+          <div className={cn("shrink-0 rounded bg-zinc-800", artSize)} aria-hidden />
+        )}
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-zinc-200">{track.title}</p>
+          <p className="truncate text-xs text-zinc-500">{artist}</p>
+        </div>
+        <PlusIcon className="h-3.5 w-3.5 shrink-0 text-zinc-500" aria-hidden />
+      </button>
+    </li>
+  );
+}
+
+function InfiniteQueueToggle({
+  enabled,
+  onToggle,
+}: {
+  enabled: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={enabled}
+      aria-label="Infinite Queue"
+      className={cn(
+        "rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
+        enabled
+          ? "bg-red-600/20 text-red-400 hover:bg-red-600/30"
+          : "text-zinc-300 hover:bg-zinc-800 hover:text-white",
+      )}
+      onClick={(event) => {
+        event.stopPropagation();
+        onToggle();
+      }}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      Infinite Queue
+    </button>
+  );
+}
+
+function useQueueDrag() {
+  const [draggingVisualIndex, setDraggingVisualIndex] = useState<number | null>(
+    null,
+  );
+  const [dragOffsetY, setDragOffsetY] = useState(0);
+  const [dropVisualIndex, setDropVisualIndex] = useState<number | null>(null);
+
+  return {
+    draggingVisualIndex,
+    dragOffsetY,
+    dropVisualIndex,
+    onDragStart: (from: number) => {
+      setDraggingVisualIndex(from);
+      setDropVisualIndex(from);
+      setDragOffsetY(0);
+    },
+    onDragMove: (from: number, movementY: number, rowHeight: number, count: number) => {
+      setDragOffsetY(movementY);
+      setDropVisualIndex(dropIndexFromDrag(from, movementY, rowHeight, count));
+    },
+    onDragEnd: (
+      from: number,
+      movementY: number,
+      rowHeight: number,
+      count: number,
+      commit: (from: number, to: number) => void,
+    ) => {
+      const to = dropIndexFromDrag(from, movementY, rowHeight, count);
+      if (to !== from) {
+        commit(from, to);
+      }
+      setDraggingVisualIndex(null);
+      setDropVisualIndex(null);
+      setDragOffsetY(0);
+    },
+  };
+}
+
 export function MusicQueuePanel() {
+  const player = useMusicPlayer();
+  const { queueOpen } = player;
+
+  return (
+    <>
+      {queueOpen ? <MobileQueueSheet player={player} /> : null}
+      <DesktopQueueSidebar player={player} />
+    </>
+  );
+}
+
+type PlayerBag = ReturnType<typeof useMusicPlayer>;
+
+function MobileQueueSheet({ player }: { player: PlayerBag }) {
   const {
     queue,
     queueIndex,
-    queueOpen,
     setQueueOpen,
     reorderQueue,
     playQueueIndex,
@@ -144,14 +275,12 @@ export function MusicQueuePanel() {
     infiniteQueue,
     setInfiniteQueue,
     upcomingRecommendations,
-  } = useMusicPlayer();
+    addUpcomingToQueue,
+  } = player;
   const listRef = useRef<HTMLDivElement>(null);
-  const [draggingVisualIndex, setDraggingVisualIndex] = useState<number | null>(null);
-  const [dragOffsetY, setDragOffsetY] = useState(0);
-  const [dropVisualIndex, setDropVisualIndex] = useState<number | null>(null);
+  const drag = useQueueDrag();
   const [sheetOffsetY, setSheetOffsetY] = useState(0);
 
-  // Show current + upcoming only; keep earlier tracks in queue for Previous.
   const visibleQueue = queue.slice(queueIndex);
   const visibleCount = visibleQueue.length;
 
@@ -186,15 +315,11 @@ export function MusicQueuePanel() {
     },
   );
 
-  if (!queueOpen) {
-    return null;
-  }
-
   const virtualItems = virtualizer.getVirtualItems();
   const headerOffset = 48;
 
   return (
-    <div className="fixed inset-0 z-[70] flex flex-col justify-end">
+    <div className="fixed inset-0 z-[70] flex flex-col justify-end md:hidden">
       <button
         type="button"
         className="absolute inset-0 bg-black/50"
@@ -224,25 +349,10 @@ export function MusicQueuePanel() {
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              <button
-                type="button"
-                role="switch"
-                aria-checked={infiniteQueue}
-                aria-label="Infinite Queue"
-                className={cn(
-                  "rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
-                  infiniteQueue
-                    ? "bg-red-600/20 text-red-400 hover:bg-red-600/30"
-                    : "text-zinc-300 hover:bg-zinc-800 hover:text-white",
-                )}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setInfiniteQueue(!infiniteQueue);
-                }}
-                onPointerDown={(event) => event.stopPropagation()}
-              >
-                Infinite Queue
-              </button>
+              <InfiniteQueueToggle
+                enabled={infiniteQueue}
+                onToggle={() => setInfiniteQueue(!infiniteQueue)}
+              />
               {visibleCount > 1 ? (
                 <button
                   type="button"
@@ -260,13 +370,13 @@ export function MusicQueuePanel() {
           </div>
         </div>
 
-        {draggingVisualIndex !== null &&
-        dropVisualIndex !== null &&
-        dropVisualIndex !== draggingVisualIndex ? (
+        {drag.draggingVisualIndex !== null &&
+        drag.dropVisualIndex !== null &&
+        drag.dropVisualIndex !== drag.draggingVisualIndex ? (
           <div
             className="pointer-events-none absolute left-3 right-3 z-10 h-0.5 bg-red-500"
             style={{
-              top: `${headerOffset + dropVisualIndex * ROW_HEIGHT - (listRef.current?.scrollTop ?? 0)}px`,
+              top: `${headerOffset + drag.dropVisualIndex * ROW_HEIGHT - (listRef.current?.scrollTop ?? 0)}px`,
             }}
             aria-hidden
           />
@@ -300,35 +410,23 @@ export function MusicQueuePanel() {
                     track={track}
                     index={visualIndex}
                     isCurrent={visualIndex === 0}
-                    isDragging={draggingVisualIndex === visualIndex}
+                    isDragging={drag.draggingVisualIndex === visualIndex}
                     dragOffsetY={
-                      draggingVisualIndex === visualIndex ? dragOffsetY : 0
+                      drag.draggingVisualIndex === visualIndex ? drag.dragOffsetY : 0
                     }
-                    onDragStart={(from) => {
-                      setDraggingVisualIndex(from);
-                      setDropVisualIndex(from);
-                      setDragOffsetY(0);
-                    }}
-                    onDragMove={(from, movementY) => {
-                      setDragOffsetY(movementY);
-                      setDropVisualIndex(
-                        dropIndexFromDrag(from, movementY, ROW_HEIGHT, visibleCount),
-                      );
-                    }}
-                    onDragEnd={(from, movementY) => {
-                      const to = dropIndexFromDrag(
+                    onDragStart={drag.onDragStart}
+                    onDragMove={(from, movementY) =>
+                      drag.onDragMove(from, movementY, ROW_HEIGHT, visibleCount)
+                    }
+                    onDragEnd={(from, movementY) =>
+                      drag.onDragEnd(
                         from,
                         movementY,
                         ROW_HEIGHT,
                         visibleCount,
-                      );
-                      if (to !== from) {
-                        reorderQueue(toQueueIndex(from), toQueueIndex(to));
-                      }
-                      setDraggingVisualIndex(null);
-                      setDropVisualIndex(null);
-                      setDragOffsetY(0);
-                    }}
+                        (a, b) => reorderQueue(toQueueIndex(a), toQueueIndex(b)),
+                      )
+                    }
                     onPlay={(from) => playQueueIndex(toQueueIndex(from))}
                     onRemove={(from) => removeFromQueue(toQueueIndex(from))}
                   />
@@ -339,48 +437,22 @@ export function MusicQueuePanel() {
         </div>
 
         {infiniteQueue && upcomingRecommendations.length > 0 ? (
-          <div className="shrink-0 border-t border-zinc-800 pb-[env(safe-area-inset-bottom)]">
-            <div className="px-4 pb-2 pt-3">
-              <p className="text-sm font-medium text-white">Coming up</p>
-              <p className="text-xs text-zinc-500">
-                Next {upcomingRecommendations.length}{" "}
-                {upcomingRecommendations.length === 1 ? "song" : "songs"} added
-                automatically when the queue runs low
+          <div className="flex max-h-[8.5rem] shrink-0 flex-col border-t border-zinc-800 pb-[env(safe-area-inset-bottom)]">
+            <div className="flex items-baseline justify-between px-4 pb-1 pt-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-zinc-400">
+                Auto queue
               </p>
+              <p className="text-[11px] text-zinc-600">Tap to add</p>
             </div>
-            <ul>
-              {upcomingRecommendations.slice(0, 5).map((track) => {
-                const artist = track.artists.filter(Boolean).join(", ");
-                const imageUrl = track.imageUrl || artworkForTrack(track.id);
-                return (
-                  <li
-                    key={`upcoming-${track.id}`}
-                    className="flex h-16 items-center gap-3 border-b border-zinc-800/80 px-4 last:border-b-0"
-                  >
-                    {imageUrl ? (
-                      <ProgressiveCoverImage
-                        src={imageUrl}
-                        alt=""
-                        loading="lazy"
-                        decoding="async"
-                        className="h-11 w-11 shrink-0 rounded object-cover"
-                      />
-                    ) : (
-                      <div className="h-11 w-11 shrink-0 rounded bg-zinc-800" aria-hidden />
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-zinc-200">{track.title}</p>
-                      <p className="truncate text-xs text-zinc-500">{artist}</p>
-                    </div>
-                    <span className="shrink-0 rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-400">
-                      Auto
-                    </span>
-                    <span className="shrink-0 text-xs tabular-nums text-zinc-500">
-                      {formatTrackDuration(track.durationMs)}
-                    </span>
-                  </li>
-                );
-              })}
+            <ul className="min-h-0 overflow-y-auto overscroll-contain">
+              {upcomingRecommendations.map((track) => (
+                <UpcomingRow
+                  key={`upcoming-${track.id}`}
+                  track={track}
+                  compact
+                  onAdd={addUpcomingToQueue}
+                />
+              ))}
             </ul>
           </div>
         ) : (
@@ -388,5 +460,195 @@ export function MusicQueuePanel() {
         )}
       </div>
     </div>
+  );
+}
+
+function DesktopQueueSidebar({ player }: { player: PlayerBag }) {
+  const {
+    queue,
+    queueIndex,
+    queueOpen,
+    setQueueOpen,
+    reorderQueue,
+    playQueueIndex,
+    removeFromQueue,
+    clearUpcoming,
+    infiniteQueue,
+    setInfiniteQueue,
+    upcomingRecommendations,
+    addUpcomingToQueue,
+    current,
+  } = player;
+  const listRef = useRef<HTMLDivElement>(null);
+  const drag = useQueueDrag();
+
+  const upcomingQueue = queue.slice(queueIndex + 1);
+  const upcomingCount = upcomingQueue.length;
+  const currentTrack = current ?? queue[queueIndex] ?? null;
+
+  const virtualizer = useVirtualizer({
+    count: upcomingCount,
+    getScrollElement: () => listRef.current,
+    estimateSize: () => DESKTOP_ROW_HEIGHT,
+    overscan: 10,
+  });
+
+  const toQueueIndex = (visualIndex: number) => queueIndex + 1 + visualIndex;
+  const virtualItems = virtualizer.getVirtualItems();
+  const currentArtist = currentTrack?.artists.filter(Boolean).join(", ") ?? "";
+  const currentImage =
+    currentTrack?.imageUrl || (currentTrack ? artworkForTrack(currentTrack.id) : "");
+
+  return (
+    <aside
+      className={cn(
+        "fixed bottom-[4.75rem] right-0 top-0 z-40 hidden w-[22rem] flex-col border-l border-zinc-800 bg-zinc-950 pt-16 shadow-2xl transition-transform duration-200 ease-out md:flex",
+        queueOpen ? "translate-x-0" : "pointer-events-none translate-x-full",
+      )}
+      aria-hidden={!queueOpen}
+      aria-label="Play queue"
+    >
+      <div className="flex shrink-0 items-center justify-between border-b border-zinc-800 px-4 py-3">
+        <p className="text-sm font-semibold text-white">Now playing</p>
+        <button
+          type="button"
+          className="rounded-full p-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-white"
+          onClick={() => setQueueOpen(false)}
+          aria-label="Close queue"
+        >
+          <Cross2Icon className="h-4 w-4" />
+        </button>
+      </div>
+
+      {currentTrack ? (
+        <div className="flex shrink-0 items-center gap-3 border-b border-zinc-800 px-4 py-3">
+          {currentImage ? (
+            <ProgressiveCoverImage
+              src={currentImage}
+              alt=""
+              className="h-14 w-14 shrink-0 rounded object-cover"
+            />
+          ) : (
+            <div className="h-14 w-14 shrink-0 rounded bg-zinc-800" aria-hidden />
+          )}
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium text-red-400">{currentTrack.title}</p>
+            <p className="truncate text-xs text-zinc-400">{currentArtist}</p>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="flex shrink-0 items-center justify-between px-4 pb-2 pt-3">
+        <div>
+          <p className="text-sm font-semibold text-white">Queue</p>
+          <p className="text-xs text-zinc-500">
+            {upcomingCount} {upcomingCount === 1 ? "song" : "songs"}
+          </p>
+        </div>
+        {upcomingCount > 0 ? (
+          <button
+            type="button"
+            className="rounded-full px-2.5 py-1 text-xs font-medium text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-white"
+            onClick={() => clearUpcoming()}
+          >
+            Clear
+          </button>
+        ) : null}
+      </div>
+
+      <div ref={listRef} className="relative min-h-0 flex-1 overflow-y-auto">
+        {upcomingCount === 0 ? (
+          <p className="px-4 py-6 text-sm text-zinc-500">No upcoming songs</p>
+        ) : (
+          <ul
+            className="relative w-full"
+            style={{ height: `${virtualizer.getTotalSize()}px` }}
+          >
+            {virtualItems.map((virtualRow) => {
+              const visualIndex = virtualRow.index;
+              const track = upcomingQueue[visualIndex];
+              if (!track) {
+                return null;
+              }
+              const queueIdx = toQueueIndex(visualIndex);
+              return (
+                <div
+                  key={`${track.id}-${queueIdx}`}
+                  className="absolute left-0 top-0 w-full"
+                  style={{
+                    height: `${virtualRow.size}px`,
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                >
+                  <QueueRow
+                    track={track}
+                    index={visualIndex}
+                    isCurrent={false}
+                    compact
+                    isDragging={drag.draggingVisualIndex === visualIndex}
+                    dragOffsetY={
+                      drag.draggingVisualIndex === visualIndex ? drag.dragOffsetY : 0
+                    }
+                    onDragStart={drag.onDragStart}
+                    onDragMove={(from, movementY) =>
+                      drag.onDragMove(from, movementY, DESKTOP_ROW_HEIGHT, upcomingCount)
+                    }
+                    onDragEnd={(from, movementY) =>
+                      drag.onDragEnd(
+                        from,
+                        movementY,
+                        DESKTOP_ROW_HEIGHT,
+                        upcomingCount,
+                        (a, b) => reorderQueue(toQueueIndex(a), toQueueIndex(b)),
+                      )
+                    }
+                    onPlay={(from) => playQueueIndex(toQueueIndex(from))}
+                    onRemove={(from) => removeFromQueue(toQueueIndex(from))}
+                  />
+                </div>
+              );
+            })}
+          </ul>
+        )}
+        {drag.draggingVisualIndex !== null &&
+        drag.dropVisualIndex !== null &&
+        drag.dropVisualIndex !== drag.draggingVisualIndex ? (
+          <div
+            className="pointer-events-none absolute left-3 right-3 z-10 h-0.5 bg-red-500"
+            style={{
+              top: `${drag.dropVisualIndex * DESKTOP_ROW_HEIGHT - (listRef.current?.scrollTop ?? 0)}px`,
+            }}
+            aria-hidden
+          />
+        ) : null}
+      </div>
+
+      <div className="mt-auto shrink-0 border-t border-zinc-800">
+        <div className="flex items-center justify-between px-4 pb-1.5 pt-3">
+          <p className="text-sm font-semibold text-white">Auto queue</p>
+          <InfiniteQueueToggle
+            enabled={infiniteQueue}
+            onToggle={() => setInfiniteQueue(!infiniteQueue)}
+          />
+        </div>
+        {infiniteQueue && upcomingRecommendations.length > 0 ? (
+          <ul className="max-h-56 overflow-y-auto pb-2">
+            {upcomingRecommendations.map((track) => (
+              <UpcomingRow
+                key={`upcoming-${track.id}`}
+                track={track}
+                onAdd={addUpcomingToQueue}
+              />
+            ))}
+          </ul>
+        ) : (
+          <p className="px-4 pb-4 pt-1 text-xs text-zinc-500">
+            {infiniteQueue
+              ? "Finding similar songs…"
+              : "Turn on Infinite Queue to keep similar songs coming"}
+          </p>
+        )}
+      </div>
+    </aside>
   );
 }
