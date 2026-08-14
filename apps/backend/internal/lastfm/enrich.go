@@ -97,6 +97,35 @@ func (e *Enricher) TagTopAlbums(ctx context.Context, tag string, limit int) ([]m
 	return out, nil
 }
 
+func (e *Enricher) TagTopTracks(ctx context.Context, tag string, limit int) ([]musiccatalog.TopTrack, error) {
+	if !e.Configured() {
+		return nil, ErrNotConfigured
+	}
+	raw, err := e.client.GetTagTopTracks(ctx, tag, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]musiccatalog.TopTrack, 0, len(raw))
+	for _, item := range raw {
+		artists := []string{}
+		if item.Artist != "" {
+			artists = []string{item.Artist}
+		}
+		artistIDs := []string{}
+		if item.ArtistMBID != "" {
+			artistIDs = []string{item.ArtistMBID}
+		}
+		out = append(out, musiccatalog.TopTrack{
+			ID:        strings.TrimSpace(item.MBID),
+			Name:      item.Name,
+			Artists:   artists,
+			ArtistIDs: artistIDs,
+			ImageURL:  item.ImageURL,
+		})
+	}
+	return out, nil
+}
+
 func (e *Enricher) SearchArtists(ctx context.Context, query string, limit int) ([]musicbrainz.TagArtistHint, error) {
 	if !e.Configured() {
 		return nil, ErrNotConfigured
@@ -189,6 +218,14 @@ type TagArtist struct {
 }
 
 type TagAlbum struct {
+	Name       string
+	Artist     string
+	MBID       string
+	ArtistMBID string
+	ImageURL   string
+}
+
+type TagTrack struct {
 	Name       string
 	Artist     string
 	MBID       string
@@ -373,14 +410,63 @@ func (c *Client) GetTagTopAlbums(ctx context.Context, tag string, limit int) ([]
 		return nil, mapAPIError(payload.Error, payload.Message)
 	}
 
-	out := make([]TagAlbum, 0, len(payload.TopAlbums.Album))
-	for _, item := range payload.TopAlbums.Album {
+	albums := payload.albums()
+	out := make([]TagAlbum, 0, len(albums))
+	for _, item := range albums {
 		name := strings.TrimSpace(item.Name)
 		artist := strings.TrimSpace(item.Artist.Name)
 		if name == "" || artist == "" {
 			continue
 		}
 		out = append(out, TagAlbum{
+			Name:       name,
+			Artist:     artist,
+			MBID:       strings.TrimSpace(item.MBID),
+			ArtistMBID: strings.TrimSpace(item.Artist.MBID),
+			ImageURL:   pickImage(item.Image),
+		})
+	}
+	c.putCache(cacheKey, out)
+	return out, nil
+}
+
+func (c *Client) GetTagTopTracks(ctx context.Context, tag string, limit int) ([]TagTrack, error) {
+	if !c.Configured() {
+		return nil, ErrNotConfigured
+	}
+	tag = strings.TrimSpace(tag)
+	if tag == "" {
+		return nil, fmt.Errorf("%w: tag is required", ErrBadRequest)
+	}
+	limit = clampLimit(limit)
+	cacheKey := fmt.Sprintf("tag-top-tracks-rich:%s:%d", strings.ToLower(tag), limit)
+	if cached, ok := c.getCache(cacheKey); ok {
+		if tracks, ok := cached.([]TagTrack); ok {
+			return tracks, nil
+		}
+	}
+
+	params := url.Values{}
+	params.Set("method", "tag.getTopTracks")
+	params.Set("tag", tag)
+	params.Set("limit", strconv.Itoa(limit))
+
+	var payload tagTopTracksResponse
+	if err := c.getJSON(ctx, params, &payload); err != nil {
+		return nil, err
+	}
+	if payload.Error != 0 {
+		return nil, mapAPIError(payload.Error, payload.Message)
+	}
+
+	out := make([]TagTrack, 0, len(payload.TopTracks.Track))
+	for _, item := range payload.TopTracks.Track {
+		name := strings.TrimSpace(item.Name)
+		artist := strings.TrimSpace(item.Artist.Name)
+		if name == "" || artist == "" {
+			continue
+		}
+		out = append(out, TagTrack{
 			Name:       name,
 			Artist:     artist,
 			MBID:       strings.TrimSpace(item.MBID),
@@ -520,10 +606,10 @@ func (c *Client) SearchTracks(ctx context.Context, query string, limit int) ([]S
 			continue
 		}
 		out = append(out, SearchTrack{
-			Name:       name,
-			MBID:       strings.TrimSpace(item.MBID),
-			Artist:     strings.TrimSpace(item.Artist),
-			ImageURL:   pickImage(item.Image),
+			Name:     name,
+			MBID:     strings.TrimSpace(item.MBID),
+			Artist:   strings.TrimSpace(item.Artist),
+			ImageURL: pickImage(item.Image),
 		})
 	}
 	c.putCache(cacheKey, out)
@@ -568,11 +654,40 @@ type tagTopArtistsResponse struct {
 	} `json:"topartists"`
 }
 
+type tagAlbumItem struct {
+	Name   string `json:"name"`
+	MBID   string `json:"mbid"`
+	Artist struct {
+		Name string `json:"name"`
+		MBID string `json:"mbid"`
+	} `json:"artist"`
+	Image []lfmImage `json:"image"`
+}
+
+type tagAlbumList struct {
+	Album []tagAlbumItem `json:"album"`
+}
+
+// Last.fm JSON uses "albums" here; official XML/docs say "topalbums".
 type tagTopAlbumsResponse struct {
+	Error     int          `json:"error"`
+	Message   string       `json:"message"`
+	Albums    tagAlbumList `json:"albums"`
+	TopAlbums tagAlbumList `json:"topalbums"`
+}
+
+func (p tagTopAlbumsResponse) albums() []tagAlbumItem {
+	if len(p.Albums.Album) > 0 {
+		return p.Albums.Album
+	}
+	return p.TopAlbums.Album
+}
+
+type tagTopTracksResponse struct {
 	Error     int    `json:"error"`
 	Message   string `json:"message"`
-	TopAlbums struct {
-		Album []struct {
+	TopTracks struct {
+		Track []struct {
 			Name   string `json:"name"`
 			MBID   string `json:"mbid"`
 			Artist struct {
@@ -580,8 +695,8 @@ type tagTopAlbumsResponse struct {
 				MBID string `json:"mbid"`
 			} `json:"artist"`
 			Image []lfmImage `json:"image"`
-		} `json:"album"`
-	} `json:"topalbums"`
+		} `json:"track"`
+	} `json:"tracks"`
 }
 
 type artistSearchResponse struct {

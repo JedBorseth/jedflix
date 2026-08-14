@@ -46,6 +46,30 @@ func TestClientSimilarArtistsAndTracks(t *testing.T) {
 					]
 				}
 			}`))
+		case "tag.gettoptracks":
+			_, _ = w.Write([]byte(`{
+				"tracks": {
+					"track": [
+						{"name":"Genre Hit","mbid":"track-mbid","artist":{"name":"Artist A","mbid":"artist-mbid"},"image":[{"#text":"https://img/hit","size":"large"}]}
+					]
+				}
+			}`))
+		case "tag.gettopalbums":
+			_, _ = w.Write([]byte(`{
+				"albums": {
+					"album": [
+						{"name":"Thriller","mbid":"album-mbid","artist":{"name":"Michael Jackson","mbid":"artist-mbid"},"image":[{"#text":"https://img/thriller","size":"large"}]}
+					]
+				}
+			}`))
+		case "tag.gettopartists":
+			_, _ = w.Write([]byte(`{
+				"topartists": {
+					"artist": [
+						{"name":"Ariana Grande","mbid":"artist-mbid","image":[{"#text":"https://img/ariana","size":"large"}]}
+					]
+				}
+			}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -90,6 +114,59 @@ func TestClientSimilarArtistsAndTracks(t *testing.T) {
 	}
 	if len(tags) != 2 || tags[0].Name != "indie" {
 		t.Fatalf("tags = %#v", tags)
+	}
+
+	tagTracks, err := client.GetTagTopTracks(context.Background(), "pop", 10)
+	if err != nil {
+		t.Fatalf("GetTagTopTracks: %v", err)
+	}
+	if len(tagTracks) != 1 || tagTracks[0].Name != "Genre Hit" || tagTracks[0].Artist != "Artist A" {
+		t.Fatalf("tag tracks = %#v", tagTracks)
+	}
+
+	tagAlbums, err := client.GetTagTopAlbums(context.Background(), "pop", 10)
+	if err != nil {
+		t.Fatalf("GetTagTopAlbums: %v", err)
+	}
+	if len(tagAlbums) != 1 || tagAlbums[0].Name != "Thriller" || tagAlbums[0].Artist != "Michael Jackson" {
+		t.Fatalf("tag albums = %#v", tagAlbums)
+	}
+
+	tagArtists, err := client.GetTagTopArtists(context.Background(), "pop", 10)
+	if err != nil {
+		t.Fatalf("GetTagTopArtists: %v", err)
+	}
+	if len(tagArtists) != 1 || tagArtists[0].Name != "Ariana Grande" {
+		t.Fatalf("tag artists = %#v", tagArtists)
+	}
+}
+
+func TestGetTagTopAlbumsAcceptsTopalbumsKey(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"topalbums": {
+				"album": [
+					{"name":"Overpowered","mbid":"","artist":{"name":"Róisín Murphy","mbid":"mbid-1"},"image":[]}
+				]
+			}
+		}`))
+	}))
+	defer upstream.Close()
+
+	client := NewClient(config.Config{
+		LastFMAPIKey:     "test-key",
+		LastFMAPIBaseURL: upstream.URL,
+		LastFMCacheTTL:   time.Hour,
+	})
+	client.http = upstream.Client()
+
+	albums, err := client.GetTagTopAlbums(context.Background(), "disco", 10)
+	if err != nil {
+		t.Fatalf("GetTagTopAlbums: %v", err)
+	}
+	if len(albums) != 1 || albums[0].Name != "Overpowered" {
+		t.Fatalf("albums = %#v", albums)
 	}
 }
 

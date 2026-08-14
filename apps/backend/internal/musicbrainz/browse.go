@@ -142,7 +142,11 @@ func (c *Client) genreArtists(ctx context.Context, genre musiccatalog.GenreConfi
 		}
 	}
 
-	if searched, err := c.searchArtistsLocalOrRemote(ctx, tag, catalogShelfLimit); err == nil && len(searched) > 0 {
+	if c.useLocalStore() {
+		if artists, err := c.local.PopularArtistsByTags(ctx, genreTagAliases(genre, tag), catalogShelfLimit); err == nil && len(artists) > 0 {
+			return c.withArtistImageURLs(artists)
+		}
+	} else if searched, err := c.searchArtists(ctx, fmt.Sprintf(`tag:%s`, luceneEscape(tag)), catalogShelfLimit); err == nil && len(searched) > 0 {
 		return searched
 	}
 
@@ -168,12 +172,23 @@ func (c *Client) genreArtists(ctx context.Context, genre musiccatalog.GenreConfi
 
 func (c *Client) genreAlbums(ctx context.Context, genre musiccatalog.GenreConfig, tag string, singles bool) []musiccatalog.Album {
 	if singles {
-		if c.useLocalStore() {
-			albums, err := c.searchAlbumsLocalOrRemote(ctx, tag, catalogShelfLimit, "Single")
-			if err != nil {
-				return nil
+		if c.enricher != nil && c.enricher.Configured() {
+			if tracks, err := c.enricher.TagTopTracks(ctx, tag, catalogShelfLimit); err == nil && len(tracks) > 0 {
+				out := c.albumsFromTopTracks(ctx, tracks, catalogShelfLimit)
+				if len(out) > 0 {
+					return out
+				}
 			}
-			return albums
+		}
+
+		if c.useLocalStore() {
+			if albums, err := c.local.PopularReleaseGroupsByTags(ctx, genreTagAliases(genre, tag), "single", catalogShelfLimit); err == nil && len(albums) > 0 {
+				return c.withCoverURLs(albums)
+			}
+			if tracks, err := c.local.PopularRecordingsByTags(ctx, genreTagAliases(genre, tag), catalogShelfLimit); err == nil && len(tracks) > 0 {
+				return c.albumsFromTopTracks(ctx, tracks, catalogShelfLimit)
+			}
+			return nil
 		}
 		query := fmt.Sprintf(`tag:%s AND primarytype:Single`, luceneEscape(tag))
 		albums, err := c.searchAlbums(ctx, query, catalogShelfLimit)
@@ -193,11 +208,10 @@ func (c *Client) genreAlbums(ctx context.Context, genre musiccatalog.GenreConfig
 	}
 
 	if c.useLocalStore() {
-		albums, err := c.searchAlbumsLocalOrRemote(ctx, tag, catalogShelfLimit, "Album")
-		if err != nil {
-			return nil
+		if albums, err := c.local.PopularReleaseGroupsByTags(ctx, genreTagAliases(genre, tag), "album", catalogShelfLimit); err == nil && len(albums) > 0 {
+			return c.withCoverURLs(albums)
 		}
-		return albums
+		return nil
 	}
 	query := fmt.Sprintf(`tag:%s AND primarytype:Album`, luceneEscape(tag))
 	albums, err := c.searchAlbums(ctx, query, catalogShelfLimit)
@@ -304,6 +318,93 @@ func (c *Client) albumsFromHints(ctx context.Context, hints []TagAlbumHint, limi
 		if len(out) >= limit {
 			break
 		}
+	}
+	return out
+}
+
+func (c *Client) albumsFromTopTracks(ctx context.Context, tracks []musiccatalog.TopTrack, limit int) []musiccatalog.Album {
+	out := make([]musiccatalog.Album, 0, limit)
+	seen := map[string]struct{}{}
+	for _, track := range tracks {
+		if ctx.Err() != nil || len(out) >= limit {
+			break
+		}
+		resolved := track
+		if c.useLocalStore() {
+			if id := NormalizeMBID(track.ID); id != "" {
+				if found, err := c.local.GetRecording(ctx, id); err == nil && found != nil {
+					resolved = *found
+				}
+			}
+			if resolved.AlbumID == "" && track.Name != "" && len(track.Artists) > 0 {
+				if found, err := c.local.ResolveRecordingByName(ctx, track.Name, track.Artists[0]); err == nil && found != nil {
+					resolved = *found
+				}
+			}
+		}
+		albumID := NormalizeMBID(resolved.AlbumID)
+		if albumID == "" {
+			continue
+		}
+		if _, ok := seen[albumID]; ok {
+			continue
+		}
+		seen[albumID] = struct{}{}
+		name := strings.TrimSpace(track.Name)
+		if name == "" {
+			name = strings.TrimSpace(resolved.AlbumName)
+		}
+		if name == "" {
+			continue
+		}
+		artists := resolved.Artists
+		if len(artists) == 0 {
+			artists = track.Artists
+		}
+		artistIDs := resolved.ArtistIDs
+		if len(artistIDs) == 0 {
+			artistIDs = track.ArtistIDs
+		}
+		out = append(out, musiccatalog.Album{
+			ID:        albumID,
+			Name:      name,
+			Artists:   artists,
+			ArtistIDs: artistIDs,
+			ImageURL:  c.coverURL(albumID),
+			AlbumType: "single",
+			Genres:    []string{},
+		})
+	}
+	return out
+}
+
+func genreTagAliases(genre musiccatalog.GenreConfig, tag string) []string {
+	values := []string{tag, genre.SearchQuery, genre.Title, genre.Key}
+	normalized := strings.ToLower(strings.TrimSpace(tag))
+	switch normalized {
+	case "r&b", "rnb", "r b":
+		values = append(values, "rhythm and blues", "rnb", "r&b")
+	case "hip hop", "hip-hop", "hiphop":
+		values = append(values, "hip hop", "hip-hop", "hiphop")
+	}
+	if strings.EqualFold(genre.Key, "rnb") {
+		values = append(values, "rhythm and blues", "rnb", "r&b")
+	}
+	if strings.EqualFold(genre.Key, "hipHop") {
+		values = append(values, "hip hop", "hip-hop", "hiphop")
+	}
+	out := make([]string, 0, len(values))
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		value = strings.ToLower(strings.TrimSpace(value))
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
 	}
 	return out
 }

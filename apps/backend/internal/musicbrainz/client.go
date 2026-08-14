@@ -18,6 +18,7 @@ import (
 	"github.com/jedborseth/jeds-movies/backend/internal/musicai"
 	"github.com/jedborseth/jeds-movies/backend/internal/musicbrainz/local"
 	"github.com/jedborseth/jeds-movies/backend/internal/musiccatalog"
+	"golang.org/x/sync/singleflight"
 )
 
 const (
@@ -46,6 +47,7 @@ type Enricher interface {
 	ArtistTopTracks(ctx context.Context, name string, limit int) ([]musiccatalog.TopTrack, error)
 	TagTopArtists(ctx context.Context, tag string, limit int) ([]TagArtistHint, error)
 	TagTopAlbums(ctx context.Context, tag string, limit int) ([]TagAlbumHint, error)
+	TagTopTracks(ctx context.Context, tag string, limit int) ([]musiccatalog.TopTrack, error)
 	SearchArtists(ctx context.Context, query string, limit int) ([]TagArtistHint, error)
 	SearchAlbums(ctx context.Context, query string, limit int) ([]TagAlbumHint, error)
 	SearchTracks(ctx context.Context, query string, limit int) ([]musiccatalog.TopTrack, error)
@@ -95,6 +97,9 @@ type Client struct {
 
 	artworkMem    sync.Map
 	artworkDiskMu sync.Mutex
+	artworkFetch  singleflight.Group
+	coverRateMu   sync.Mutex
+	lastCoverReq  time.Time
 }
 
 type cachedSearch struct {

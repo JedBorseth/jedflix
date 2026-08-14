@@ -194,7 +194,7 @@ export function MusicQueuePanel() {
   const headerOffset = 48;
 
   return (
-    <div className="absolute inset-0 z-30 flex flex-col justify-end">
+    <div className="fixed inset-0 z-[70] flex flex-col justify-end">
       <button
         type="button"
         className="absolute inset-0 bg-black/50"

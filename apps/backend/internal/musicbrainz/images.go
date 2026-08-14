@@ -26,12 +26,13 @@ import (
 )
 
 const (
-	artworkPixelScale    = 0.316227766 // ~10% pixels (matches Open Library)
-	artworkJPEGQuality   = 80
-	maxUpstreamArtworkMB = 8
-	artworkMissingTTL    = 30 * 24 * time.Hour
-	maxArtworkMemCache   = 400
-	artworkWarmTimeout   = 10 * time.Minute
+	artworkPixelScale     = 0.316227766 // ~10% pixels (matches Open Library)
+	artworkJPEGQuality    = 80
+	maxUpstreamArtworkMB  = 8
+	artworkMissingTTL     = 6 * time.Hour
+	maxArtworkMemCache    = 400
+	artworkWarmTimeout    = 10 * time.Minute
+	minCoverFetchInterval = 600 * time.Millisecond
 )
 
 type cachedArtwork struct {
@@ -65,24 +66,46 @@ func (c *Client) getOrFetchArtwork(ctx context.Context, mbid string) ([]byte, st
 		return nil, "", musiccatalog.ErrNotFound
 	}
 
-	upstream := strings.TrimRight(c.coverBase, "/") + "/release-group/" + mbid + "/front-500"
-	data, contentType, err := c.fetchAndShrinkArtwork(ctx, upstream)
-	if err != nil {
-		if errors.Is(err, musiccatalog.ErrNotFound) {
-			c.markArtworkMissing(mbid)
+	value, err, _ := c.artworkFetch.Do("release:"+mbid, func() (any, error) {
+		if cached, ok := c.artworkMem.Load(mbid); ok {
+			return cached.(cachedArtwork), nil
 		}
+		if data, contentType, ok := c.readArtworkFromDisk(mbid); ok {
+			entry := cachedArtwork{data: data, contentType: contentType, cachedAt: c.now()}
+			c.storeArtworkMem(mbid, data, contentType)
+			return entry, nil
+		}
+		if c.isArtworkMissing(mbid) {
+			return nil, musiccatalog.ErrNotFound
+		}
+
+		upstream := strings.TrimRight(c.coverBase, "/") + "/release-group/" + mbid + "/front-500"
+		data, contentType, err := c.fetchAndShrinkArtwork(ctx, upstream)
+		if err != nil {
+			if errors.Is(err, musiccatalog.ErrNotFound) {
+				c.markArtworkMissing(mbid)
+			}
+			return nil, err
+		}
+		if err := c.writeArtworkToDisk(mbid, data); err != nil {
+			// Still serve the shrunk image even if disk write fails.
+			fmt.Printf("music artwork disk write failed for %s: %v\n", mbid, err)
+		}
+		c.storeArtworkMem(mbid, data, contentType)
+		c.rememberArtworkURL(ctx, mbid, local.ArtworkKindReleaseGroup, c.caaFrontURL(mbid), "")
+		return cachedArtwork{data: data, contentType: contentType, cachedAt: c.now()}, nil
+	})
+	if err != nil {
 		return nil, "", err
 	}
-	if err := c.writeArtworkToDisk(mbid, data); err != nil {
-		// Still serve the shrunk image even if disk write fails.
-		fmt.Printf("music artwork disk write failed for %s: %v\n", mbid, err)
-	}
-	c.storeArtworkMem(mbid, data, contentType)
-	c.rememberArtworkURL(ctx, mbid, local.ArtworkKindReleaseGroup, c.caaFrontURL(mbid), "")
-	return data, contentType, nil
+	entry := value.(cachedArtwork)
+	return entry.data, entry.contentType, nil
 }
 
 func (c *Client) fetchAndShrinkArtwork(ctx context.Context, upstreamURL string) ([]byte, string, error) {
+	if err := c.waitCoverFetch(ctx, upstreamURL); err != nil {
+		return nil, "", err
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, upstreamURL, nil)
 	if err != nil {
 		return nil, "", fmt.Errorf("%w: %v", musiccatalog.ErrFetchFailed, err)
@@ -99,13 +122,11 @@ func (c *Client) fetchAndShrinkArtwork(ctx context.Context, upstreamURL string) 
 	switch res.StatusCode {
 	case http.StatusOK:
 		// continue
-	case http.StatusNotFound, http.StatusBadRequest:
+	case http.StatusNotFound:
 		return nil, "", musiccatalog.ErrNotFound
+	case http.StatusTooManyRequests, http.StatusServiceUnavailable:
+		return nil, "", musiccatalog.ErrRateLimited
 	default:
-		// CAA returns 404-ish via redirects sometimes; treat other errors as fetch failures.
-		if res.StatusCode >= 400 && res.StatusCode < 500 {
-			return nil, "", musiccatalog.ErrNotFound
-		}
 		return nil, "", fmt.Errorf("%w: status %d", musiccatalog.ErrFetchFailed, res.StatusCode)
 	}
 
@@ -122,6 +143,38 @@ func (c *Client) fetchAndShrinkArtwork(ctx context.Context, upstreamURL string) 
 		return nil, "", fmt.Errorf("%w: %v", musiccatalog.ErrFetchFailed, err)
 	}
 	return shrunk, "image/jpeg", nil
+}
+
+func (c *Client) waitCoverFetch(ctx context.Context, upstreamURL string) error {
+	if !c.isCoverArchiveURL(upstreamURL) {
+		return nil
+	}
+	c.coverRateMu.Lock()
+	defer c.coverRateMu.Unlock()
+	elapsed := c.now().Sub(c.lastCoverReq)
+	if elapsed < minCoverFetchInterval {
+		timer := time.NewTimer(minCoverFetchInterval - elapsed)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+	c.lastCoverReq = c.now()
+	return nil
+}
+
+func (c *Client) isCoverArchiveURL(raw string) bool {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Host == "" {
+		return false
+	}
+	coverBase, err := url.Parse(strings.TrimRight(c.coverBase, "/"))
+	if err == nil && coverBase.Host != "" && strings.EqualFold(parsed.Host, coverBase.Host) {
+		return true
+	}
+	return strings.Contains(strings.ToLower(parsed.Host), "coverartarchive.org")
 }
 
 func shrinkArtwork(raw []byte) ([]byte, error) {
@@ -361,7 +414,7 @@ func (c *Client) WarmArtworkAsync(parent context.Context, albums []musiccatalog.
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), artworkWarmTimeout)
 		defer cancel()
 		var wg sync.WaitGroup
-		sem := make(chan struct{}, 4)
+		sem := make(chan struct{}, 2)
 		for _, id := range ids {
 			if ctx.Err() != nil {
 				break
@@ -456,18 +509,37 @@ func (c *Client) GetArtistCover(ctx context.Context, artistID string) ([]byte, s
 		return nil, "", musiccatalog.ErrNotFound
 	}
 
-	data, contentType, err := c.resolveArtistArtwork(ctx, artistID)
-	if err != nil {
-		if errors.Is(err, musiccatalog.ErrNotFound) {
-			c.markArtworkMissing(key)
+	value, err, _ := c.artworkFetch.Do(key, func() (any, error) {
+		if cached, ok := c.artworkMem.Load(key); ok {
+			return cached.(cachedArtwork), nil
 		}
+		if data, contentType, ok := c.readArtworkFromDisk(key); ok {
+			entry := cachedArtwork{data: data, contentType: contentType, cachedAt: c.now()}
+			c.storeArtworkMem(key, data, contentType)
+			return entry, nil
+		}
+		if c.isArtworkMissing(key) {
+			return nil, musiccatalog.ErrNotFound
+		}
+
+		data, contentType, err := c.resolveArtistArtwork(ctx, artistID)
+		if err != nil {
+			if errors.Is(err, musiccatalog.ErrNotFound) {
+				c.markArtworkMissing(key)
+			}
+			return nil, err
+		}
+		if err := c.writeArtworkToDisk(key, data); err != nil {
+			fmt.Printf("music artist artwork disk write failed for %s: %v\n", artistID, err)
+		}
+		c.storeArtworkMem(key, data, contentType)
+		return cachedArtwork{data: data, contentType: contentType, cachedAt: c.now()}, nil
+	})
+	if err != nil {
 		return nil, "", err
 	}
-	if err := c.writeArtworkToDisk(key, data); err != nil {
-		fmt.Printf("music artist artwork disk write failed for %s: %v\n", artistID, err)
-	}
-	c.storeArtworkMem(key, data, contentType)
-	return data, contentType, nil
+	entry := value.(cachedArtwork)
+	return entry.data, entry.contentType, nil
 }
 
 func (c *Client) resolveArtistArtwork(ctx context.Context, artistID string) ([]byte, string, error) {

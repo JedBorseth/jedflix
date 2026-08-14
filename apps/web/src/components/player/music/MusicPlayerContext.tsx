@@ -64,6 +64,8 @@ type MusicPlayerContextValue = {
   upcomingRecommendations: MusicQueueTrack[];
   currentTime: number;
   duration: number;
+  volume: number;
+  muted: boolean;
   error: string | null;
   /**
    * Start playback. Returns a generation token so playlist pages can append
@@ -99,6 +101,8 @@ type MusicPlayerContextValue = {
   next: () => void;
   previous: () => void;
   seek: (timeSec: number) => void;
+  setVolume: (volume: number) => void;
+  setMuted: (muted: boolean) => void;
   setExpanded: (expanded: boolean) => void;
   setQueueOpen: (open: boolean) => void;
   /** Stop playback and dismiss the player entirely. */
@@ -116,8 +120,35 @@ const MusicPlayerContext =
   (musicPlayerGlobal[MUSIC_PLAYER_CONTEXT_KEY] =
     createContext<MusicPlayerContextValue | null>(null));
 
+const MUSIC_VOLUME_STORAGE_KEY = "jedflix.music.volume";
+const MUSIC_MUTED_STORAGE_KEY = "jedflix.music.muted";
+
 function artistLabel(artists: string[]): string {
   return artists.filter(Boolean).join(", ") || "Unknown artist";
+}
+
+function storedMusicVolume(): number {
+  const raw = window.localStorage.getItem(MUSIC_VOLUME_STORAGE_KEY);
+  if (raw === null) {
+    return 1;
+  }
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? Math.min(1, Math.max(0, parsed)) : 1;
+}
+
+function storedMusicMuted(): boolean {
+  return window.localStorage.getItem(MUSIC_MUTED_STORAGE_KEY) === "true";
+}
+
+function isTextEntryTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  if (target.isContentEditable) {
+    return true;
+  }
+  const tagName = target.tagName.toLowerCase();
+  return tagName === "input" || tagName === "textarea" || tagName === "select";
 }
 
 function toQueueTrack(
@@ -178,6 +209,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   >([]);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [volume, setVolumeState] = useState(storedMusicVolume);
+  const [muted, setMutedState] = useState(storedMusicMuted);
   const [error, setError] = useState<string | null>(null);
   const queueIndexRef = useRef(0);
   queueIndexRef.current = queueIndex;
@@ -836,6 +869,56 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     [duration],
   );
 
+  const setVolume = useCallback((nextVolume: number) => {
+    const clamped = Math.min(1, Math.max(0, nextVolume));
+    setVolumeState(clamped);
+    window.localStorage.setItem(MUSIC_VOLUME_STORAGE_KEY, String(clamped));
+    if (clamped > 0) {
+      setMutedState(false);
+      window.localStorage.setItem(MUSIC_MUTED_STORAGE_KEY, "false");
+    }
+    const audio = audioRef.current;
+    if (audio) {
+      audio.volume = clamped;
+      if (clamped > 0) {
+        audio.muted = false;
+      }
+    }
+  }, []);
+
+  const setMuted = useCallback((nextMuted: boolean) => {
+    setMutedState(nextMuted);
+    window.localStorage.setItem(MUSIC_MUTED_STORAGE_KEY, String(nextMuted));
+    const audio = audioRef.current;
+    if (audio) {
+      audio.muted = nextMuted;
+    }
+  }, []);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) {
+      return;
+    }
+    audio.volume = volume;
+    audio.muted = muted;
+  }, [muted, volume]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.code !== "Space" || event.defaultPrevented || !current) {
+        return;
+      }
+      if (isTextEntryTarget(event.target)) {
+        return;
+      }
+      event.preventDefault();
+      toggle();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [current, toggle]);
+
   const clear = useCallback(() => {
     playIntentRef.current = false;
     loadGenerationRef.current += 1;
@@ -936,6 +1019,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       upcomingRecommendations,
       currentTime,
       duration,
+      volume,
+      muted,
       error,
       playTrack,
       playAlbumTracks,
@@ -952,6 +1037,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       next,
       previous,
       seek,
+      setVolume,
+      setMuted,
       setExpanded: handleSetExpanded,
       setQueueOpen,
       clear,
@@ -970,6 +1057,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       infiniteQueue,
       upcomingRecommendations,
       loading,
+      muted,
       next,
       pause,
       play,
@@ -984,8 +1072,11 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       removeFromQueue,
       reorderQueue,
       seek,
+      setMuted,
+      setVolume,
       setInfiniteQueue,
       toggle,
+      volume,
     ],
   );
 

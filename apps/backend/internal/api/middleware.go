@@ -91,6 +91,10 @@ func clientIP(r *http.Request) string {
 
 func (s *Server) rateLimitMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isPublicCoverRoute(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		ip := clientIP(r)
 		if !s.limiter.allow(ip) {
 			w.Header().Set("Retry-After", "1")
@@ -99,6 +103,11 @@ func (s *Server) rateLimitMiddleware(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func isPublicCoverRoute(path string) bool {
+	return strings.HasPrefix(path, "/api/v1/music/covers/") ||
+		strings.HasPrefix(path, "/api/v1/openlibrary/covers/")
 }
 
 // redactLogger wraps chi's logger to strip secrets from request URIs.

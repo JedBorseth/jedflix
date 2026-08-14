@@ -6,6 +6,9 @@ import {
   PersonIcon,
   PlayIcon,
   PlusIcon,
+  SpeakerLoudIcon,
+  SpeakerModerateIcon,
+  SpeakerOffIcon,
   TrackNextIcon,
   TrackPreviousIcon,
 } from "@radix-ui/react-icons";
@@ -55,11 +58,15 @@ export function MusicPlayerBar() {
     queueOpen,
     currentTime,
     duration,
+    volume,
+    muted,
     error,
     toggle,
     next,
     previous,
     seek,
+    setVolume,
+    setMuted,
     setExpanded,
     setQueueOpen,
     queue,
@@ -71,6 +78,21 @@ export function MusicPlayerBar() {
 
   const [swipeOffset, setSwipeOffset] = useState({ x: 0, y: 0 });
   const [miniSwipeX, setMiniSwipeX] = useState(0);
+  const [isDesktop, setIsDesktop] = useState(false);
+
+  useEffect(() => {
+    const query = window.matchMedia("(min-width: 768px)");
+    const sync = () => {
+      const desktop = query.matches;
+      setIsDesktop(desktop);
+      if (desktop) {
+        setExpanded(false);
+      }
+    };
+    sync();
+    query.addEventListener("change", sync);
+    return () => query.removeEventListener("change", sync);
+  }, [setExpanded]);
 
   // Expanded player: swipe on cover/handle — never the full overlay (blocks iOS taps).
   const bindExpandedSwipe = useDrag(
@@ -119,7 +141,9 @@ export function MusicPlayerBar() {
     ({ down, movement: [mx, my], velocity: [vx], last, tap, event }) => {
       if (tap) {
         setMiniSwipeX(0);
-        setExpanded(true);
+        if (!isDesktop) {
+          setExpanded(true);
+        }
         return;
       }
 
@@ -161,6 +185,8 @@ export function MusicPlayerBar() {
 
   const artist = current.artists.filter(Boolean).join(", ");
   const progressMax = duration > 0 ? duration : 1;
+  const progressValue = Math.min(currentTime, progressMax);
+  const progressPercent = progressMax > 0 ? Math.min(100, (progressValue / progressMax) * 100) : 0;
   const swipeOpacity = Math.max(0.35, 1 - swipeOffset.y / 320);
   const albumPath = current.albumId ? getAlbumDetailPath({ id: current.albumId }) : null;
   const artistEntries = current.artists
@@ -193,7 +219,7 @@ export function MusicPlayerBar() {
         role="region"
         aria-label="Now playing"
       >
-        <div className="mx-auto flex max-w-5xl items-center gap-3 px-3 py-2 md:px-6">
+        <div className="mx-auto flex max-w-5xl items-center gap-3 px-3 py-2 md:hidden">
           <div
             className="flex min-w-0 flex-1 touch-pan-y items-center gap-3 text-left"
             style={{
@@ -205,7 +231,7 @@ export function MusicPlayerBar() {
             tabIndex={0}
             aria-label="Open now playing. Swipe left or right to change track."
             onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
+              if (event.key === "Enter") {
                 event.preventDefault();
                 setExpanded(true);
               }
@@ -286,15 +312,145 @@ export function MusicPlayerBar() {
             ) : null}
           </div>
         </div>
-        <div className="h-0.5 bg-zinc-900">
+        <div className="h-0.5 bg-zinc-900 md:hidden">
           <div
             className="h-full bg-red-600 transition-[width] duration-150"
-            style={{ width: `${Math.min(100, (currentTime / progressMax) * 100)}%` }}
+            style={{ width: `${progressPercent}%` }}
           />
+        </div>
+        <div className="mx-auto hidden max-w-6xl grid-cols-[minmax(0,1fr)_22rem_minmax(0,1fr)] items-center gap-4 px-6 py-3 md:grid">
+          <div className="flex min-w-0 items-center gap-3 text-left">
+            <ProgressiveCoverImage
+              src={current.imageUrl}
+              alt=""
+              className="h-12 w-12 shrink-0 rounded object-cover"
+            />
+            <div className="min-w-0">
+              {albumPath ? (
+                <button
+                  type="button"
+                  className="block w-full truncate text-left text-sm font-medium text-white hover:underline"
+                  onClick={openAlbum}
+                >
+                  {current.title}
+                </button>
+              ) : (
+                <p className="truncate text-sm font-medium text-white">{current.title}</p>
+              )}
+              <p className="truncate text-xs text-zinc-400">
+                {loading ? "Finding stream..." : error ? error : artist}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-col items-center gap-2">
+            <div className="flex items-center justify-center gap-4">
+              <button
+                type="button"
+                className="rounded-full p-2 text-zinc-300 hover:bg-zinc-800 hover:text-white"
+                onClick={previous}
+                aria-label="Previous track"
+              >
+                <TrackPreviousIcon className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                className="rounded-full bg-white p-2.5 text-black hover:bg-zinc-200"
+                onClick={toggle}
+                aria-label={playing ? "Pause" : "Play"}
+              >
+                {playing ? <PauseIcon className="h-5 w-5" /> : <PlayIcon className="h-5 w-5" />}
+              </button>
+              <button
+                type="button"
+                className="rounded-full p-2 text-zinc-300 hover:bg-zinc-800 hover:text-white disabled:opacity-40"
+                onClick={next}
+                aria-label="Next track"
+                disabled={queueIndex >= queue.length - 1}
+              >
+                <TrackNextIcon className="h-5 w-5" />
+              </button>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={progressMax}
+              step={0.5}
+              value={progressValue}
+              onChange={(event) => seek(Number(event.target.value))}
+              className="h-1 w-80 cursor-pointer appearance-none rounded-full bg-zinc-700 accent-red-600"
+              style={{
+                background: `linear-gradient(to right, #dc2626 0%, #dc2626 ${progressPercent}%, rgb(63 63 70) ${progressPercent}%, rgb(63 63 70) 100%)`,
+              }}
+              aria-label="Seek"
+            />
+          </div>
+
+          <div className="flex min-w-0 items-center justify-end gap-1">
+            <button
+              type="button"
+              className={cn(
+                "relative rounded-full p-2 text-zinc-300 hover:bg-zinc-800 hover:text-white",
+                queueOpen && "text-red-300",
+              )}
+              onClick={() => setQueueOpen(!queueOpen)}
+              aria-label={queueOpen ? "Close queue" : "Open queue"}
+              aria-expanded={queueOpen}
+            >
+              <ListBulletIcon className="h-5 w-5" />
+              {queue.length - queueIndex > 1 ? (
+                <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-medium text-white">
+                  {queue.length - queueIndex}
+                </span>
+              ) : null}
+            </button>
+            <button
+              type="button"
+              className="rounded-full p-2 text-zinc-300 hover:bg-zinc-800 hover:text-white"
+              onClick={() => setPlaylistDialogOpen(true)}
+              aria-label="Add to playlist"
+            >
+              <PlusIcon className="h-5 w-5" />
+            </button>
+            {party ? (
+              <button
+                type="button"
+                className={cn(
+                  "relative rounded-full p-2 text-zinc-300 hover:bg-zinc-800 hover:text-white",
+                  party.party && "text-emerald-400",
+                )}
+                onClick={() => party.setPanelOpen(true)}
+                aria-label={party.party ? "Party mode settings" : "Start party mode"}
+              >
+                <PersonIcon className="h-5 w-5" />
+                {party.party ? (
+                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-medium text-black">
+                    {party.party.members.length}
+                  </span>
+                ) : null}
+              </button>
+            ) : null}
+            <MusicVolumeControl
+              volume={volume}
+              muted={muted}
+              onVolumeChange={setVolume}
+              onMutedChange={setMuted}
+            />
+            {showKillPlayer ? (
+              <button
+                type="button"
+                className="rounded-full p-2 text-zinc-400 hover:bg-zinc-800 hover:text-white"
+                onClick={clear}
+                aria-label="Close player"
+              >
+                <Cross2Icon className="h-5 w-5" />
+              </button>
+            ) : null}
+          </div>
         </div>
       </div>
 
-      {expanded ? (
+      {expanded && !isDesktop ? (
         <div
           className="fixed inset-0 z-[60] flex flex-col overflow-hidden overscroll-none bg-zinc-950 text-white"
           style={{
@@ -475,10 +631,10 @@ export function MusicPlayerBar() {
               </div>
             </div>
           </div>
-
-          <MusicQueuePanel />
         </div>
       ) : null}
+
+      <MusicQueuePanel />
 
       <AddToPlaylistDialog
         open={playlistDialogOpen}
@@ -486,6 +642,82 @@ export function MusicPlayerBar() {
         track={current}
       />
     </>
+  );
+}
+
+function MusicVolumeIcon({ volume, muted }: { volume: number; muted: boolean }) {
+  if (muted || volume === 0) {
+    return <SpeakerOffIcon className="h-5 w-5" />;
+  }
+  if (volume < 0.5) {
+    return <SpeakerModerateIcon className="h-5 w-5" />;
+  }
+  return <SpeakerLoudIcon className="h-5 w-5" />;
+}
+
+function MusicVolumeControl({
+  volume,
+  muted,
+  onVolumeChange,
+  onMutedChange,
+}: {
+  volume: number;
+  muted: boolean;
+  onVolumeChange: (volume: number) => void;
+  onMutedChange: (muted: boolean) => void;
+}) {
+  const [volumePinned, setVolumePinned] = useState(false);
+  const displayVolume = muted ? 0 : volume;
+  const volumePercent = Math.round(displayVolume * 100);
+
+  return (
+    <div
+      className={cn(
+        "group flex items-center gap-2 rounded-full text-zinc-300",
+        volumePinned && "bg-zinc-900",
+      )}
+      onMouseLeave={() => setVolumePinned(false)}
+    >
+      <button
+        type="button"
+        className="rounded-full p-2 hover:bg-zinc-800 hover:text-white"
+        aria-label={muted || volume === 0 ? "Unmute" : "Mute"}
+        aria-expanded={volumePinned}
+        onClick={() => {
+          if (muted || volume === 0) {
+            if (volume === 0) {
+              onVolumeChange(1);
+            }
+            onMutedChange(false);
+          } else {
+            onMutedChange(true);
+          }
+          setVolumePinned(true);
+        }}
+      >
+        <MusicVolumeIcon volume={volume} muted={muted} />
+      </button>
+      <input
+        type="range"
+        min={0}
+        max={1}
+        step={0.01}
+        value={displayVolume}
+        aria-label="Volume"
+        className={cn(
+          "h-1 w-0 cursor-pointer appearance-none rounded-full opacity-0 transition-all duration-150 group-hover:w-24 group-hover:opacity-100",
+          volumePinned && "w-24 opacity-100",
+        )}
+        style={{
+          background: `linear-gradient(to right, #fff 0%, #fff ${volumePercent}%, rgba(255, 255, 255, 0.25) ${volumePercent}%, rgba(255, 255, 255, 0.25) 100%)`,
+        }}
+        onChange={(event) => {
+          onVolumeChange(Number(event.target.value));
+          setVolumePinned(true);
+        }}
+        onPointerDown={() => setVolumePinned(true)}
+      />
+    </div>
   );
 }
 

@@ -3,6 +3,7 @@ package musicbrainz
 import (
 	"bytes"
 	"context"
+	"errors"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -83,6 +84,30 @@ func TestArtworkDiskCacheDedupAndMissing(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "missing", missingID)); err != nil {
 		t.Fatalf("expected missing marker: %v", err)
+	}
+}
+
+func TestArtworkRateLimitDoesNotMarkMissing(t *testing.T) {
+	dir := t.TempDir()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer upstream.Close()
+
+	client := NewClient(config.Config{
+		CoverArtArchiveBaseURL: upstream.URL,
+		MusicArtworkPath:       dir,
+		MusicCatalogCacheTTL:   time.Hour,
+	})
+	client.http = upstream.Client()
+
+	mbid := "b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d"
+	_, _, err := client.GetReleaseGroupCover(context.Background(), mbid)
+	if !errors.Is(err, musiccatalog.ErrRateLimited) {
+		t.Fatalf("err=%v want rate limited", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "missing", mbid)); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("rate-limited cover should not create missing marker: %v", statErr)
 	}
 }
 

@@ -10,7 +10,7 @@ import (
 	"github.com/jedborseth/jeds-movies/backend/internal/musiccatalog"
 )
 
-const catalogFileVersion = 2
+const catalogFileVersion = 4
 
 type persistedCatalog struct {
 	Version  int                         `json:"version"`
