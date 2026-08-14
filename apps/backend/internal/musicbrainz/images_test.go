@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -82,7 +83,7 @@ func TestArtworkDiskCacheDedupAndMissing(t *testing.T) {
 	if _, _, err := client.GetReleaseGroupCover(context.Background(), missingID); err == nil {
 		t.Fatal("expected not found for missing cover")
 	}
-	if _, err := os.Stat(filepath.Join(dir, "missing", missingID)); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, "missing", missingID+".v2")); err != nil {
 		t.Fatalf("expected missing marker: %v", err)
 	}
 }
@@ -106,8 +107,49 @@ func TestArtworkRateLimitDoesNotMarkMissing(t *testing.T) {
 	if !errors.Is(err, musiccatalog.ErrRateLimited) {
 		t.Fatalf("err=%v want rate limited", err)
 	}
-	if _, statErr := os.Stat(filepath.Join(dir, "missing", mbid)); !errors.Is(statErr, os.ErrNotExist) {
+	if _, statErr := os.Stat(filepath.Join(dir, "missing", mbid+".v2")); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("rate-limited cover should not create missing marker: %v", statErr)
+	}
+}
+
+func TestReleaseGroupCoverFallsBackToReleaseMBID(t *testing.T) {
+	dir := t.TempDir()
+	jpegBytes := mustTinyJPEG(t)
+	mbid := "a74389e4-61c6-4077-84f6-51560299ccdd"
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "/release-group/"+mbid+"/"):
+			w.WriteHeader(http.StatusNotFound)
+		case strings.Contains(r.URL.Path, "/release/"+mbid+"/"):
+			w.Header().Set("Content-Type", "image/jpeg")
+			_, _ = w.Write(jpegBytes)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer upstream.Close()
+
+	client := NewClient(config.Config{
+		CoverArtArchiveBaseURL: upstream.URL,
+		MusicArtworkPath:       dir,
+		MusicCatalogCacheTTL:   time.Hour,
+	})
+	client.http = upstream.Client()
+
+	// Stale v1 missing marker from when we only queried release-group.
+	if err := os.MkdirAll(filepath.Join(dir, "missing"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "missing", mbid), []byte("old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	data, _, err := client.GetReleaseGroupCover(context.Background(), mbid)
+	if err != nil {
+		t.Fatalf("fallback fetch: %v", err)
+	}
+	if len(data) == 0 {
+		t.Fatal("expected image bytes")
 	}
 }
 

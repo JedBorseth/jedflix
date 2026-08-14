@@ -299,6 +299,11 @@ func (c *Client) albumsFromHints(ctx context.Context, hints []TagAlbumHint, limi
 		if id == "" {
 			continue
 		}
+		if c.useLocalStore() {
+			if rgID, err := c.local.CanonicalReleaseGroupID(ctx, id); err == nil && rgID != "" {
+				id = rgID
+			}
+		}
 		if _, ok := seen[id]; ok {
 			continue
 		}

@@ -93,6 +93,7 @@ func (c *Client) applyCatalog(response *musiccatalog.BrowseResponse) {
 	c.catalog = response
 	c.refreshErr = nil
 	c.catalogMu.Unlock()
+	c.scheduleHomepageArtistWarm(response)
 }
 
 func (c *Client) catalogAge() time.Duration {

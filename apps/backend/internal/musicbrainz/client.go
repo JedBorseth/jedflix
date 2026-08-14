@@ -22,19 +22,21 @@ import (
 )
 
 const (
-	defaultAPIBaseURL  = "https://musicbrainz.org/ws/2"
-	defaultCoverBase   = "https://coverartarchive.org"
-	fallbackImage      = "https://placehold.co/640x640/18181b/a1a1aa?text=No+Cover"
-	userAgent          = "JedFlix/1.0 (https://github.com/JedBorseth/jedflix)"
-	defaultLimit       = 10
-	catalogShelfLimit  = 10
-	discographyLimit   = 25
-	maxDetailCacheSize = 400
-	maxArtistCacheSize = 200
-	maxSearchCacheSize = 500
-	searchCacheTTL     = 30 * time.Minute
-	minRequestInterval = 1100 * time.Millisecond // MusicBrainz asks for ≤1 req/s
-	maxHTTPRetries     = 4
+	defaultAPIBaseURL         = "https://musicbrainz.org/ws/2"
+	defaultCoverBase          = "https://coverartarchive.org"
+	fallbackImage             = "https://placehold.co/640x640/18181b/a1a1aa?text=No+Cover"
+	userAgent                 = "JedFlix/1.0 (https://github.com/JedBorseth/jedflix)"
+	defaultLimit              = 10
+	catalogShelfLimit         = 10
+	discographyLimit          = 25
+	maxDetailCacheSize        = 400
+	maxArtistCacheSize        = 800
+	homepageArtistWarmGap     = 2 * time.Second
+	homepageArtistWarmTimeout = 45 * time.Second
+	maxSearchCacheSize        = 500
+	searchCacheTTL            = 30 * time.Minute
+	minRequestInterval        = 1100 * time.Millisecond // MusicBrainz asks for ≤1 req/s
+	maxHTTPRetries            = 4
 )
 
 var mbidPattern = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
@@ -84,10 +86,11 @@ type Client struct {
 	lastReq time.Time
 	now     func() time.Time
 
-	catalogMu  sync.RWMutex
-	catalog    *musiccatalog.BrowseResponse
-	refreshing bool
-	refreshErr error
+	catalogMu     sync.RWMutex
+	catalog       *musiccatalog.BrowseResponse
+	refreshing    bool
+	refreshErr    error
+	artistWarming bool
 
 	albumCache      sync.Map
 	artistCache     sync.Map
@@ -376,7 +379,8 @@ func (c *Client) GetAlbumWithHints(ctx context.Context, albumID string, hints mu
 		}
 		return nil, fmt.Errorf("%w: album id is required", musiccatalog.ErrBadRequest)
 	}
-	if cached, ok := c.albumCache.Load(albumID); ok {
+	requestedID := albumID
+	if cached, ok := c.albumCache.Load(requestedID); ok {
 		entry := cached.(cachedAlbum)
 		if c.now().Sub(entry.cachedAt) < c.refreshTTL {
 			copy := entry.album
@@ -389,6 +393,19 @@ func (c *Client) GetAlbumWithHints(ctx context.Context, albumID string, hints mu
 		err   error
 	)
 	if c.local != nil && c.local.Configured() {
+		if rgID, canonErr := c.local.CanonicalReleaseGroupID(ctx, requestedID); canonErr == nil && rgID != "" {
+			albumID = rgID
+			if albumID != requestedID {
+				if cached, ok := c.albumCache.Load(albumID); ok {
+					entry := cached.(cachedAlbum)
+					if c.now().Sub(entry.cachedAt) < c.refreshTTL {
+						copy := entry.album
+						c.albumCache.Store(requestedID, entry)
+						return &copy, nil
+					}
+				}
+			}
+		}
 		album, err = c.local.GetReleaseGroupAlbum(ctx, albumID, true)
 		if album != nil {
 			album.ImageURL = c.coverURL(album.ID)
@@ -403,7 +420,11 @@ func (c *Client) GetAlbumWithHints(ctx context.Context, albumID string, hints mu
 		return nil, err
 	}
 	c.trimAlbumCache()
-	c.albumCache.Store(albumID, cachedAlbum{album: *album, cachedAt: c.now()})
+	entry := cachedAlbum{album: *album, cachedAt: c.now()}
+	c.albumCache.Store(albumID, entry)
+	if requestedID != albumID {
+		c.albumCache.Store(requestedID, entry)
+	}
 	c.rememberAlbumSummary(*album)
 	c.WarmArtworkAsync(ctx, []musiccatalog.Album{*album}, nil, nil)
 	return album, nil

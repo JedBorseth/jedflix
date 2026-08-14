@@ -503,6 +503,35 @@ func (s *Store) GetReleaseGroupAlbum(ctx context.Context, releaseGroupGID string
 	return &album, nil
 }
 
+// CanonicalReleaseGroupID maps a release-group or release MBID to the release-group GID.
+func (s *Store) CanonicalReleaseGroupID(ctx context.Context, mbid string) (string, error) {
+	if !s.Configured() {
+		return "", ErrNotConfigured
+	}
+	mbid = strings.ToLower(strings.TrimSpace(mbid))
+	if mbid == "" {
+		return "", musiccatalog.ErrBadRequest
+	}
+	var gid sql.NullString
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COALESCE(
+			(SELECT rg.gid::text FROM musicbrainz.release_group rg WHERE rg.gid = $1::uuid),
+			(SELECT rg.gid::text
+			 FROM musicbrainz.release r
+			 JOIN musicbrainz.release_group rg ON rg.id = r.release_group
+			 WHERE r.gid = $1::uuid
+			 LIMIT 1)
+		)
+	`, mbid).Scan(&gid)
+	if err != nil {
+		return "", fmt.Errorf("%w: canonical release group: %v", musiccatalog.ErrFetchFailed, err)
+	}
+	if !gid.Valid || strings.TrimSpace(gid.String) == "" {
+		return "", musiccatalog.ErrNotFound
+	}
+	return gid.String, nil
+}
+
 func (s *Store) pickOfficialRelease(ctx context.Context, releaseGroupGID string) (string, error) {
 	var gid string
 	err := s.db.QueryRowContext(ctx, `

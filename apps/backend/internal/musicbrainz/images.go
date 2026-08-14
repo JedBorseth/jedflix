@@ -79,8 +79,7 @@ func (c *Client) getOrFetchArtwork(ctx context.Context, mbid string) ([]byte, st
 			return nil, musiccatalog.ErrNotFound
 		}
 
-		upstream := strings.TrimRight(c.coverBase, "/") + "/release-group/" + mbid + "/front-500"
-		data, contentType, err := c.fetchAndShrinkArtwork(ctx, upstream)
+		data, contentType, sourceURL, err := c.fetchReleaseArtwork(ctx, mbid)
 		if err != nil {
 			if errors.Is(err, musiccatalog.ErrNotFound) {
 				c.markArtworkMissing(mbid)
@@ -92,7 +91,7 @@ func (c *Client) getOrFetchArtwork(ctx context.Context, mbid string) ([]byte, st
 			fmt.Printf("music artwork disk write failed for %s: %v\n", mbid, err)
 		}
 		c.storeArtworkMem(mbid, data, contentType)
-		c.rememberArtworkURL(ctx, mbid, local.ArtworkKindReleaseGroup, c.caaFrontURL(mbid), "")
+		c.rememberArtworkURL(ctx, mbid, local.ArtworkKindReleaseGroup, sourceURL, "")
 		return cachedArtwork{data: data, contentType: contentType, cachedAt: c.now()}, nil
 	})
 	if err != nil {
@@ -100,6 +99,34 @@ func (c *Client) getOrFetchArtwork(ctx context.Context, mbid string) ([]byte, st
 	}
 	entry := value.(cachedArtwork)
 	return entry.data, entry.contentType, nil
+}
+
+// Last.fm album MBIDs are often MusicBrainz *release* IDs, while homepage
+// cover URLs always go through /release-group/{mbid}. Try both CAA endpoints.
+func (c *Client) fetchReleaseArtwork(ctx context.Context, mbid string) ([]byte, string, string, error) {
+	base := strings.TrimRight(c.coverBase, "/")
+	urls := []string{
+		base + "/release-group/" + mbid + "/front-500",
+		base + "/release/" + mbid + "/front-500",
+	}
+	var lastErr error
+	for _, upstream := range urls {
+		data, contentType, err := c.fetchAndShrinkArtwork(ctx, upstream)
+		if err == nil {
+			return data, contentType, upstream, nil
+		}
+		lastErr = err
+		if errors.Is(err, musiccatalog.ErrRateLimited) || ctx.Err() != nil {
+			return nil, "", "", err
+		}
+		if !errors.Is(err, musiccatalog.ErrNotFound) {
+			return nil, "", "", err
+		}
+	}
+	if lastErr == nil {
+		lastErr = musiccatalog.ErrNotFound
+	}
+	return nil, "", "", lastErr
 }
 
 func (c *Client) fetchAndShrinkArtwork(ctx context.Context, upstreamURL string) ([]byte, string, error) {
@@ -222,7 +249,9 @@ func (c *Client) mbidPath(mbid string) string {
 }
 
 func (c *Client) missingPath(mbid string) string {
-	return filepath.Join(c.artworkPath, "missing", mbid)
+	// v2: we now try both CAA release-group and release endpoints. Older
+	// markers treated Last.fm release MBIDs as permanently cover-less.
+	return filepath.Join(c.artworkPath, "missing", mbid+".v2")
 }
 
 func (c *Client) hashPath(sum string) string {
