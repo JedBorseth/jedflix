@@ -82,54 +82,54 @@ export function SwipeableTrackRow({
   );
 
   return (
-    <div className={cn("relative flex items-stretch overflow-hidden", className)}>
-      <div className="relative min-w-0 flex-1 overflow-hidden">
-        <div
-          className={cn(
-            "absolute inset-y-0 left-0 flex w-24 items-center gap-1.5 bg-emerald-600 px-3 text-sm font-medium text-white transition-opacity",
-            offsetX > 12 || queuedFlash ? "opacity-100" : "opacity-0",
-          )}
-          aria-hidden
-        >
-          <PlusIcon className="h-4 w-4" />
-          {queuedFlash ? "Added" : "Queue"}
-        </div>
-        <div
-          className={cn(
-            "absolute inset-y-0 right-0 flex w-24 items-center justify-end gap-1.5 bg-rose-600 px-3 text-sm font-medium text-white transition-opacity",
-            offsetX < -12 || likedFlash ? "opacity-100" : "opacity-0",
-          )}
-          aria-hidden
-        >
-          {likedFlash ? (
-            <HeartFilledIcon className="h-4 w-4" />
-          ) : (
-            <HeartIcon className="h-4 w-4" />
-          )}
-          {likedFlash ? "Liked" : "Like"}
-        </div>
-        <div
-          className="relative bg-zinc-950"
-          style={{
-            transform: offsetX !== 0 ? `translateX(${offsetX}px)` : undefined,
-            transition: offsetX === 0 ? "transform 180ms ease" : undefined,
-          }}
-          {...bind()}
-          role="button"
-          tabIndex={0}
-          aria-label="Play track. Swipe right to add to queue. Swipe left to like."
-          onKeyDown={(event) => {
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault();
-              onPlay();
-            }
-          }}
-        >
-          {children}
-        </div>
+    <div className={cn("group relative overflow-hidden", className)}>
+      <div
+        className={cn(
+          "absolute inset-y-0 left-0 flex w-24 items-center gap-1.5 bg-emerald-600 px-3 text-sm font-medium text-white transition-opacity",
+          offsetX > 12 || queuedFlash ? "opacity-100" : "opacity-0",
+        )}
+        aria-hidden
+      >
+        <PlusIcon className="h-4 w-4" />
+        {queuedFlash ? "Added" : "Queue"}
       </div>
-      <div className="relative z-10 hidden shrink-0 items-center pr-1 md:flex md:pr-3">
-        <TrackRowMenu onAddToQueue={onAddToQueue} onPlayNext={onPlayNext} />
+      <div
+        className={cn(
+          "absolute inset-y-0 right-0 flex w-24 items-center justify-end gap-1.5 bg-rose-600 px-3 text-sm font-medium text-white transition-opacity",
+          offsetX < -12 || likedFlash ? "opacity-100" : "opacity-0",
+        )}
+        aria-hidden
+      >
+        {likedFlash ? (
+          <HeartFilledIcon className="h-4 w-4" />
+        ) : (
+          <HeartIcon className="h-4 w-4" />
+        )}
+        {likedFlash ? "Liked" : "Like"}
+      </div>
+      <div
+        className="relative bg-zinc-950"
+        style={{
+          transform: offsetX !== 0 ? `translateX(${offsetX}px)` : undefined,
+          transition: offsetX === 0 ? "transform 180ms ease" : undefined,
+        }}
+        {...bind()}
+        role="button"
+        tabIndex={0}
+        aria-label="Play track. Swipe right to add to queue. Swipe left to like."
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onPlay();
+          }
+        }}
+      >
+        <div className="md:pr-8">{children}</div>
+        <div className="pointer-events-none absolute inset-y-0 right-2 z-10 hidden items-center md:flex md:right-8">
+          <div className="pointer-events-auto">
+            <TrackRowMenu onAddToQueue={onAddToQueue} onPlayNext={onPlayNext} />
+          </div>
+        </div>
       </div>
     </div>
   );

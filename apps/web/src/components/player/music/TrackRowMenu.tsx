@@ -1,10 +1,12 @@
 import { DotsHorizontalIcon } from "@radix-ui/react-icons";
+import { useState } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
 
 type TrackRowMenuProps = {
   onAddToQueue: () => void;
@@ -13,13 +15,18 @@ type TrackRowMenuProps = {
 
 /** Desktop-only overflow menu for queue actions. Hidden on mobile (swipe instead). */
 export function TrackRowMenu({ onAddToQueue, onPlayNext }: TrackRowMenuProps) {
+  const [open, setOpen] = useState(false);
+
   return (
-    <DropdownMenu>
+    <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
           aria-label="More track actions"
-          className="rounded-full p-2 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
+          className={cn(
+            "hidden p-1 text-zinc-400 transition-opacity hover:text-white md:inline-flex",
+            open ? "opacity-100" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100",
+          )}
           onClick={(event) => event.stopPropagation()}
           onPointerDown={(event) => event.stopPropagation()}
           onKeyDown={(event) => event.stopPropagation()}
