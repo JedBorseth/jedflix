@@ -1,232 +1,192 @@
 # JedFlix
 
-A Netflix-style movie browsing app built with React, TypeScript, Vite, Convex, and Bun.
+JedFlix brings movies, TV shows, audiobooks, ebooks, and music together in a single web experience, with a focus on fast search, direct streaming, and a polished streaming UI.
 
-## Stack
+> 🚧 **JedFlix is actively developed and is not yet intended as a plug-and-play production release.**
 
-- **Frontend:** React 18, TypeScript, Vite, Tailwind CSS, shadcn/ui, React Router
-- **Backend:** Convex (database, queries, mutations, auth)
-- **Auth:** Convex Auth (GitHub and Google OAuth)
-- **Tooling:** Bun (package manager, dev scripts, test runner)
+> 📱 **Built from an iPhone:** A large portion of JedFlix was developed almost entirely from an iPhone using Cursor. As a result, expect bugs, rough edges, questionable decisions, and the occasional "it works on my machine" moment. Contributions and bug reports are welcome!
 
-## Prerequisites
+> 🎵 AI-powered music search — JedFlix maintains a local MusicBrainz dataset and combines vector search with Qwen reranking to make searching a massive music catalog fast and forgiving.
 
-- [Bun](https://bun.sh/)
-- A [Convex](https://convex.dev/) account
 
-## Getting started
 
-```bash
-bun install
-bun run dev
-```
+## ✨ Features
 
-The first run will prompt you to log in to Convex and create a deployment. This writes `.env.local` with `VITE_CONVEX_URL`.
+### 🎬 Movies & TV
 
-Configure OAuth credentials for your Convex deployment:
+* Netflix-style home page with hero banners and genre rows
+* Movie and TV show detail pages
+* TMDB metadata
+* TV season and episode browsing
+* Continue Watching
+* Recently Watched
+* Watch progress tracking
+* My List
+* Star ratings and public reviews
 
-```bash
-node setup.mjs
-```
+### 📺 Streaming
 
-Set `SITE_URL` to your frontend origin (for local dev):
+* Torrentio source discovery
+* Real-Debrid availability checking
+* Source filtering and ranking
+* Size and seeder filtering
+* Browser compatibility filtering
+* Direct Real-Debrid CDN playback
+* Full-screen Stremio-style player
+* TV episode playback
 
-```bash
-bunx convex env set SITE_URL http://localhost:5173
-```
+JedFlix does not store media on the server. Available sources are discovered and resolved through configured services, with playback delivered directly to the client.
 
-OAuth callback URLs use your Convex site URL:
+### 🎧 Audiobooks & Ebooks
 
-- GitHub: `https://<deployment>.convex.site/api/auth/callback/github`
-- Google: `https://<deployment>.convex.site/api/auth/callback/google`
+* AudiobookBay source discovery
+* Real-Debrid resolution
+* Multi-file audiobook and ebook packs
+* Continue Listening
+* Listening progress tracking
+* My List support
 
-Seed demo movie data:
+### 🎵 Music
 
-```bash
-bunx convex run seed:seedMovies
-```
+JedFlix includes a dedicated music catalog backed by a local MusicBrainz dataset.
 
-## Scripts
+* Full MusicBrainz database replica
+* Music search with pgvector
+* Qwen reranking
+* Cover Art Archive integration
+* Lazy cover-art caching
+* Artist pages
+* Album pages
+* Track pages
+* Similar artists
+* Similar tracks
+* Artist images
+* Music shelves
+* Infinite Queue
+* YouTube playback through yt-dlp
+* Optional Last.fm integration
 
-| Command | Description |
-|---------|-------------|
-| `bun run dev` | Start web app, Convex backend, and Go backend |
-| `bun run build` | Build all apps via Turborepo |
-| `bun run test` | Run tests across the monorepo |
-| `bun run lint` | Type-check and lint |
+### 🔎 Search
 
-## Monorepo layout
+JedFlix uses specialized search systems for different types of media.
 
-```
-apps/
-  web/              Vite React frontend
-  backend/    Go stream API (Torrentio + Real Debrid)
-  mobile/           Expo React Native app (in progress)
-packages/
-  shared/           Shared types, validators, and helpers
-  stream-client/    Stream API HTTP client
-  tmdb/             TMDB API client
-convex/             Convex backend (schema, auth, user data)
-deploy/             Caddy, nginx, and MusicBrainz local-replica configs
-```
+Movie and TV metadata comes from TMDB, while the music catalog is backed by a local MusicBrainz replica.
 
-## Local MusicBrainz (music catalog)
+Music search combines vector search with Qwen reranking to provide relevant results across a large music catalog.
 
-Production music search/detail uses a full MusicBrainz Postgres replica plus
-pgvector embeddings and a Qwen reranker on `/mnt/disk1/jedflix/` (not the root
-disk). Cover art is cached lazily under `/mnt/disk1/jedflix/music-artwork/`.
+### 🔐 Authentication & User Data
 
-See [deploy/musicbrainz/README.md](deploy/musicbrainz/README.md) for import,
-replication (`mbslave sync`), and embedding backfill.
+Authentication and user data are handled through Convex.
 
-## Features
+Supported authentication providers:
 
-- Netflix-style browse page with hero banner and genre rows
-- Movie detail pages with synopsis and metadata
-- Stremio-style full-screen player with Real Debrid streaming (via Go backend)
-- Direct Real Debrid stream delivery (no proxy)
-- TV season/episode picker and playback routes
-- Audiobook and ebook streaming via AudiobookBay + Real Debrid (multi-file chapter/series packs)
-- Convex Auth sign-in with GitHub or Google
-- My List for saved titles (movies, shows, and books)
-- Star ratings and public reviews on title pages
-- Continue Watching / Continue Listening and Recently Watched rows on the home page
-- Watch/listen progress saved while signed in
+* GitHub
+* Google
 
-## Streaming
+User data includes:
 
-Playback uses Torrentio for source discovery and Real Debrid for resolving playable links.
-The app supports two delivery modes:
+* My List
+* Watch history
+* Listening history
+* Playback progress
+* Ratings
+* Reviews
+* Settings
 
-Playback is **direct-only**: the browser (or mobile app) calls the Real Debrid API with the API key saved in Settings and plays the RD CDN URL directly.
+### 📱 Mobile
 
-The Go service in [`apps/backend/`](apps/backend/) still:
+JedFlix is designed around a responsive web experience and includes an Expo-based mobile application.
 
-1. Searches Torrentio for magnets by IMDb ID
-2. Filters by size (default 50GB max), seeders (default min 3), known Real Debrid infringing filename patterns, and browser-incompatible formats (MKV / Remux / Atmos / TrueHD / DTS) for in-app playback
-3. Checks Real Debrid instant availability for cache badges and ranking
+The web application can also be installed as a PWA for a more native-like experience.
 
-Configure the frontend:
+---
 
-```bash
-# .env.local
-VITE_BACKEND_URL=/backend
-```
+## 🛠️ Tech Stack
 
-Configure the Go backend (see [`apps/backend/.env.example`](apps/backend/.env.example)):
+* **Frontend:** React, TypeScript, Vite, Tailwind CSS, shadcn/ui
+* **Backend:** Go
+* **Database & Backend Services:** Convex
+* **Music Database:** MusicBrainz + PostgreSQL + pgvector
+* **Music Reranking:** Qwen
+* **Music Playback:** yt-dlp / YouTube
+* **Movie & TV Metadata:** TMDB
+* **Streaming:** Torrentio + Real-Debrid
+* **Audiobooks:** AudiobookBay + Real-Debrid
+* **Monorepo:** Turborepo
+* **Package Manager:** Bun
+* **Infrastructure:** Docker, Docker Compose, Caddy
 
-```bash
-TMDB_API_KEY=your_tmdb_key
-CORS_ORIGINS=http://localhost:5173
-LASTFM_API_KEY=  # optional — shelves, artist images, similar artists/tracks + Infinite Queue
-# Spotify only needed on Convex for party mode / playlist sync (not for catalog)
+---
+
+## 📸 Screenshots
+
+> Screenshots coming soon.
+
+<!--
+![Home](docs/screenshots/home.png)
+![Movie](docs/screenshots/movie.png)
+![Music](docs/screenshots/music.png)
+![Player](docs/screenshots/player.png)
+-->
+
+---
+
+## ⚙️ Configuration
+
+JedFlix uses environment variables for server-side configuration and allows users to configure their own service credentials through the application.
+
+Example server configuration:
+
+```env
+TMDB_API_KEY=
+LASTFM_API_KEY=
+
 SPOTIFY_CLIENT_ID=
 SPOTIFY_CLIENT_SECRET=
-ABB_USERNAME=  # optional AudiobookBay account (recommended)
+
+ABB_USERNAME=
 ABB_PASSWORD=
-RD_BLOCKED_FILENAME_REGEX=web-dl|webrip|bdrip|hdrip|dvdrip|BluRay\.x264|HDTV\.x264|HDTV\.XviD|WEB\.x264|WEB\.h264
+
+RD_BLOCKED_FILENAME_REGEX=
 ```
 
-Run locally:
+You should never commit credentials or API keys to the repository.
 
-```bash
-bun run dev
-```
+---
 
-This starts Vite, Convex, and the Go backend.
+## 🎵 Music
 
-### Music playback (local dev)
+The music catalog is designed to operate independently from Spotify's catalog API.
 
-Music catalog metadata comes from **MusicBrainz** (+ Cover Art Archive). Audio still uses **yt-dlp** on the backend (bundled in the production Docker image). Install it locally:
+JedFlix maintains a local MusicBrainz database containing music metadata and uses vector embeddings and Qwen reranking to improve search quality.
 
-```bash
-brew install yt-dlp
-```
+Artwork is retrieved through the Cover Art Archive and cached lazily as it is requested.
 
-If YouTube blocks resolves from your IP, export a Netscape cookie file and set `YTDLP_COOKIES_FILE` in root `.env.local` (same as production).
+Music playback is resolved through YouTube using `yt-dlp`.
 
-## Project structure
+---
 
-See the monorepo layout above. Web UI components under `apps/web/src/components/player/stremio/` are derived from [Stremio Web](https://github.com/Stremio/stremio-web) (GPL-2.0).
+## 📺 Media Sources
 
-Production Docker builds use repo root context with `apps/web/Dockerfile`.
+JedFlix uses external services to discover and resolve media sources.
 
-## Notes
+### Movies & TV
 
-- Direct streaming requires a Real Debrid API key saved in Settings (bring-your-own; never stored as a shared server token)
-- Movie/TV metadata uses TMDB via the Go backend (`TMDB_API_KEY` server-side only)
-- Player components are GPL-2.0 derived from Stremio Web
-- Use `bunx convex deploy` (without `--bun`) for CI/production deploys
-- Convex functions run in Convex's runtime; Bun is used locally for tooling
+**Torrentio → Real-Debrid → Client**
 
-## Production deployment
+Torrentio is used for source discovery while Real-Debrid is used to resolve available releases into playable CDN URLs.
 
-Production runs on a single server with **Docker Compose**: Caddy (TLS + routing), a built frontend container, and the Go backend.
+### Audiobooks & Ebooks
 
-Recommended CD: **GitHub Actions on every push to `main`**.
+**AudiobookBay → Real-Debrid → Client**
 
-| Component | Where it runs | How it deploys |
-|-----------|---------------|----------------|
-| Convex backend | Convex Cloud | `bunx convex deploy` in CI |
-| React frontend | Docker `frontend` service | Rebuilt on the server from `apps/web/Dockerfile` |
-| Go backend | Docker `backend` service | Rebuilt on the server from `apps/backend/` |
-| TLS / routing | Docker `caddy` service | Uses `deploy/Caddyfile` |
+### Music
 
-### Server layout
+**Music catalog → YouTube → Client**
 
-Default path on the production box:
+The server resolves the requested audio using `yt-dlp`, allowing the client to stream the resulting source.
 
-```text
-/home/jedborseth/jedflix
-  .env                 # production secrets (not in git)
-  docker-compose.yml
-  apps/web/Dockerfile
-  deploy/Caddyfile
-```
 
-Copy the example env file once and fill in real values:
+## 👨‍💻
 
-```bash
-cp .env.example .env
-docker compose up -d --build
-```
-
-Set Convex production auth URL once:
-
-```bash
-bunx convex env set SITE_URL https://borseth.ddns.net
-```
-
-### GitHub Actions setup
-
-Add these **repository secrets** (Settings → Secrets and variables → Actions):
-
-| Secret | Value |
-|--------|-------|
-| `PROD_SSH_HOST` | `borseth.ddns.net` |
-| `PROD_SSH_USER` | `jedborseth` |
-| `PROD_SSH_KEY` | Private SSH deploy key (see below) |
-| `CONVEX_DEPLOY_KEY` | Production deploy key from the Convex dashboard |
-
-Optional repository variable:
-
-| Variable | Default |
-|----------|---------|
-| `PROD_APP_DIR` | `/home/jedborseth/jedflix` |
-
-On push to `main`, CI will:
-
-1. Run tests
-2. Deploy Convex (when `CONVEX_DEPLOY_KEY` is set)
-3. SSH to the server, `git pull`, and run `docker compose up -d --build`
-
-Frontend build args (`VITE_*`, Real Debrid, etc.) stay in the server `.env` file and are **not** stored in GitHub.
-
-### Manual deploy on the server
-
-```bash
-cd ~/jedflix
-./scripts/deploy-production.sh --pull
-```
-
-Workflow file: [`.github/workflows/deploy-production.yml`](.github/workflows/deploy-production.yml)
+Built by **Jed Borseth**.
