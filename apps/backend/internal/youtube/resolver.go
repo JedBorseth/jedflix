@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/jedborseth/jeds-movies/backend/internal/livematch"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -24,7 +25,7 @@ var (
 )
 
 const (
-	defaultSearchCount = 8
+	defaultSearchCount = 12
 	urlCacheTTL        = 45 * time.Minute
 	maxURLCacheSize    = 256
 )
@@ -136,10 +137,7 @@ func (r *Resolver) release() {
 }
 
 func (r *Resolver) Resolve(ctx context.Context, req Request) (*StreamInfo, error) {
-	req.Artist = strings.TrimSpace(req.Artist)
-	req.Title = strings.TrimSpace(req.Title)
-	req.Album = strings.TrimSpace(req.Album)
-	req.VideoID = strings.TrimSpace(req.VideoID)
+	req = normalizeRequest(req)
 	if req.VideoID != "" && !isLikelyVideoID(req.VideoID) {
 		return nil, fmt.Errorf("%w: invalid videoId", ErrBadRequest)
 	}
@@ -187,7 +185,7 @@ func (r *Resolver) Resolve(ctx context.Context, req Request) (*StreamInfo, error
 
 // Invalidate drops a cached googlevideo URL so the next Resolve re-runs yt-dlp.
 func (r *Resolver) Invalidate(req Request) {
-	key := cacheKey(req)
+	key := cacheKey(normalizeRequest(req))
 	r.mu.Lock()
 	delete(r.cache, key)
 	r.mu.Unlock()
@@ -270,6 +268,35 @@ func buildSearchQuery(req Request) string {
 	// that often include intros/outros longer than the Spotify track.
 	parts := []string{req.Artist, req.Title, "official audio"}
 	return strings.Join(parts, " ")
+}
+
+func normalizeRequest(req Request) Request {
+	req.Artist = strings.TrimSpace(req.Artist)
+	req.Title = strings.TrimSpace(req.Title)
+	req.Album = strings.TrimSpace(req.Album)
+	req.VideoID = strings.TrimSpace(req.VideoID)
+	return sanitizeResolveRequest(req)
+}
+
+// sanitizeResolveRequest drops live-album hints so concert names/durations
+// cannot steer yt-dlp toward a bootleg that then fails to extract.
+func sanitizeResolveRequest(req Request) Request {
+	if livematch.LooksLikeLiveRecording(req.Album) && !livematch.LooksLikeLiveRecording(req.Title) {
+		req.Album = ""
+		req.DurationMs = 0
+	}
+	return req
+}
+
+func wantsLiveYouTube(req Request) bool {
+	return livematch.LooksLikeLiveRecording(req.Title)
+}
+
+func isUnwantedLiveTitle(entry *searchEntry, req Request) bool {
+	if wantsLiveYouTube(req) {
+		return false
+	}
+	return livematch.LooksLikeLiveRecording(entry.Title)
 }
 
 func (r *Resolver) commonArgs() []string {
@@ -360,11 +387,15 @@ func pickBestEntry(entries []searchEntry, req Request) *searchEntry {
 		return best
 	}
 	// Soft fallback: allow music videos / duration outliers if every candidate was filtered.
+	// Still refuse concert uploads unless the requested track title is itself live.
 	bestScore = -1e9
 	for i := range entries {
 		entry := &entries[i]
 		title := strings.ToLower(entry.Title)
 		if entry.WasLive || strings.Contains(title, "official trailer") {
+			continue
+		}
+		if isUnwantedLiveTitle(entry, req) {
 			continue
 		}
 		score := scoreEntry(entry, req)
@@ -376,7 +407,14 @@ func pickBestEntry(entries []searchEntry, req Request) *searchEntry {
 	if best != nil {
 		return best
 	}
-	if len(entries) > 0 {
+	for i := range entries {
+		entry := &entries[i]
+		if isUnwantedLiveTitle(entry, req) || entry.WasLive {
+			continue
+		}
+		return entry
+	}
+	if wantsLiveYouTube(req) && len(entries) > 0 {
 		return &entries[0]
 	}
 	return nil
@@ -426,10 +464,13 @@ func isLikelyLiveOrNonMusic(entry *searchEntry, req Request) bool {
 		return true
 	}
 	title := strings.ToLower(entry.Title)
-	for _, bad := range []string{"official trailer", "behind the scenes", "interview", "reaction", "live stream", "livestream"} {
+	for _, bad := range []string{"official trailer", "behind the scenes", "interview", "reaction", "live stream", "livestream", "karaoke"} {
 		if strings.Contains(title, bad) {
 			return true
 		}
+	}
+	if isUnwantedLiveTitle(entry, req) {
+		return true
 	}
 	if entry.Duration > 0 && (entry.Duration < 45 || entry.Duration > 20*60) {
 		return true
@@ -477,8 +518,11 @@ func scoreEntry(entry *searchEntry, req Request) float64 {
 			score += tokenOverlap(title+" "+channel, wantArtist) * 20
 		}
 	}
-	if wantAlbum != "" && strings.Contains(title, wantAlbum) {
+	if wantAlbum != "" && !livematch.LooksLikeLiveRecording(req.Album) && strings.Contains(title, wantAlbum) {
 		score += 10
+	}
+	if isUnwantedLiveTitle(entry, req) {
+		score -= 80
 	}
 
 	rawTitle := entry.Title

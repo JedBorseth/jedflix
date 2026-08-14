@@ -17,6 +17,21 @@ var (
 	ErrNotConfigured = errors.New("local musicbrainz database is not configured")
 )
 
+// liveReleaseGroupPenaltySQL ranks studio albums ahead of live/bootleg
+// release groups so popular tracks resolve to the original studio recording.
+const liveReleaseGroupPenaltySQL = `
+		CASE WHEN EXISTS (
+			SELECT 1
+			FROM musicbrainz.release_group_secondary_type_join stj
+			JOIN musicbrainz.release_group_secondary_type st ON st.id = stj.secondary_type
+			WHERE stj.release_group = rg.id
+			  AND lower(st.name) IN ('live', 'bootleg', 'interview', 'audiobook')
+		)
+		OR rg.name ~* '(live at|live from|bootleg|\(live\)|\[live\]| live:|^[0-9]{4}-[0-9]{2}-[0-9]{2})'
+		OR rg.name ~* ' live$'
+		THEN 1 ELSE 0 END,
+`
+
 // preferredRecordingAlbumSQL picks a studio album over singles/bootlegs so
 // tracks like Karma Police get OK Computer cover art instead of a cover-less single.
 const preferredRecordingAlbumSQL = `
@@ -31,6 +46,7 @@ const preferredRecordingAlbumSQL = `
 	LEFT JOIN musicbrainz.release_first_release_date rfrd ON rfrd.release = r.id
 	WHERE t.recording = rec.id
 	ORDER BY
+		` + liveReleaseGroupPenaltySQL + `
 		CASE lower(COALESCE(rpt.name, ''))
 			WHEN 'album' THEN 0
 			WHEN 'ep' THEN 1
@@ -62,6 +78,7 @@ const PreferredRecordingAlbumPickSQL = `
 	LEFT JOIN musicbrainz.release_first_release_date rfrd ON rfrd.release = r.id
 	WHERE t.recording = rec.id
 	ORDER BY
+		` + liveReleaseGroupPenaltySQL + `
 		CASE lower(COALESCE(rpt.name, ''))
 			WHEN 'album' THEN 0
 			WHEN 'ep' THEN 1

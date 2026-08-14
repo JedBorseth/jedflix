@@ -811,6 +811,9 @@ func (s *Server) handleYouTubeAudio(w http.ResponseWriter, r *http.Request) {
 		DurationMs: durationMs,
 		VideoID:    videoID,
 	}
+	if strings.TrimSpace(r.URL.Query().Get("fresh")) == "1" {
+		s.youtube.Invalidate(req)
+	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), youtube.ResolveTimeout)
 	defer cancel()

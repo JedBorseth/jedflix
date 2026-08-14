@@ -16,15 +16,15 @@ func TestParseCatalogTitleTopicChannel(t *testing.T) {
 	}
 }
 
-func TestMapCatalogEntryFiltersTrailer(t *testing.T) {
+func TestMapCatalogEntryFiltersLiveConcert(t *testing.T) {
 	_, ok := mapCatalogEntry(catalogSearchEntry{
-		ID:       "abc123XYZ",
-		Title:    "Movie Official Trailer",
-		Duration: 120,
-		Uploader: "Studio",
+		ID:       "abc123XYZAB",
+		Title:    "Pixies - Bone Machine (Live at Brixton Academy)",
+		Duration: 340,
+		Uploader: "Fan uploads",
 	})
 	if ok {
-		t.Fatal("expected trailer filtered")
+		t.Fatal("expected live concert filtered from catalog search")
 	}
 }
 

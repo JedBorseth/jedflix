@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/jedborseth/jeds-movies/backend/internal/livematch"
 )
 
 // pqStringArray scans Postgres text[] / uuid[] cast to text[].
@@ -135,6 +137,5 @@ func parsePositiveInt(value string) (int, error) {
 }
 
 func looksLiveOrBootleg(title string) bool {
-	lower := strings.ToLower(title)
-	return strings.Contains(lower, "live at") || strings.Contains(lower, "bootleg")
+	return livematch.LooksLikeLiveRecording(title)
 }

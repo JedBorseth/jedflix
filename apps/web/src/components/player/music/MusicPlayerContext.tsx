@@ -27,6 +27,11 @@ import { getYoutubeAudioUrl, type TrackItem } from "@/lib/spotify";
 import { recordRecentlyPlayedMusic } from "@/lib/recentlyPlayedMusic";
 import { useMusicInteractionLog } from "@/lib/musicInteractions";
 import { pickMusicDurationSec } from "@/lib/musicDuration";
+import { youtubeAudioQueryHints } from "@/lib/liveRecording";
+import {
+  AUDIO_RETRY_DELAY_MS,
+  decideAudioErrorAction,
+} from "@/lib/musicPlaybackError";
 import {
   exclusionIdsFromTracks,
   generateInfiniteQueueTracks,
@@ -203,6 +208,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const resolvedDurationSecByIdRef = useRef<Map<string, number>>(new Map());
   const resumeAtSecRef = useRef(0);
   const errorRetryRef = useRef(0);
+  const retryTimerRef = useRef(0);
+  const consecutiveFailSkipRef = useRef(0);
   const metadataAbortRef = useRef<AbortController | null>(null);
   /** Prevents double-advance when catalog end and stream `ended` both fire. */
   const catalogEndedRef = useRef(false);
@@ -257,6 +264,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (result.status === "playing" && !audio.paused) {
+        consecutiveFailSkipRef.current = 0;
         setPlaying(true);
         setLoading(false);
         setError(null);
@@ -330,18 +338,25 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       const videoId =
         playable.youtubeVideoId ||
         (playable.id.startsWith("yt:") ? playable.id.slice(3) : undefined);
+      const hints = youtubeAudioQueryHints({
+        title: playable.title,
+        albumName: playable.albumName,
+        durationMs: playable.durationMs > 0 ? playable.durationMs : undefined,
+      });
       const src = getYoutubeAudioUrl({
         artist: artistLabel(playable.artists),
         title: playable.title,
-        album: playable.albumName,
-        durationMs: playable.durationMs > 0 ? playable.durationMs : undefined,
+        album: hints.album,
+        durationMs: hints.durationMs,
         videoId,
+        fresh: options?.retrying,
       });
       playIntentRef.current = true;
       resumeAtSecRef.current =
         options?.resumeAtSec && options.resumeAtSec > 1
           ? options.resumeAtSec
           : 0;
+      window.clearTimeout(retryTimerRef.current);
       if (!options?.retrying) {
         errorRetryRef.current = 0;
       }
@@ -400,6 +415,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         list = [track, ...list.filter((item) => item.id !== track.id)];
         index = 0;
       }
+      consecutiveFailSkipRef.current = 0;
       const session = ++queueSessionRef.current;
       queueDirtyRef.current = false;
       prefetchedIdsRef.current = new Set([track.id]);
@@ -468,6 +484,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         return;
       }
       queueSessionRef.current += 1;
+      consecutiveFailSkipRef.current = 0;
       queueDirtyRef.current = false;
       prefetchedIdsRef.current = new Set([startTrack.id]);
       playHistoryRef.current = [];
@@ -485,6 +502,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       if (!track) {
         return;
       }
+      consecutiveFailSkipRef.current = 0;
       setQueueIndex(index);
       setQueue((prev) => stripQueueArtwork(prev, index));
       loadAndPlay(track, { immediatePlay: true });
@@ -831,10 +849,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   }, [applyPlayResult, current, loadAndPlay]);
 
   const next = useCallback(() => {
-    if (queueIndex >= queue.length - 1) {
-      return;
+    const list = queueRef.current;
+    const index = queueIndexRef.current;
+    if (index >= list.length - 1) {
+      return false;
     }
-    const currentTrack = queue[queueIndex];
+    const currentTrack = list[index];
     if (currentTrack && !catalogEndedRef.current) {
       const catalogSec = playbackDurationSecRef.current;
       const audio = audioRef.current;
@@ -847,16 +867,17 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         artists: currentTrack.artists,
       });
     }
-    const index = queueIndex + 1;
-    const track = queue[index];
+    const nextIndex = index + 1;
+    const track = list[nextIndex];
     if (!track) {
-      return;
+      return false;
     }
-    setQueueIndex(index);
-    setQueue((prev) => stripQueueArtwork(prev, index));
+    setQueueIndex(nextIndex);
+    setQueue((prev) => stripQueueArtwork(prev, nextIndex));
     // immediatePlay keeps iOS Media Session / Control Center activation.
     loadAndPlay(track, { immediatePlay: true });
-  }, [loadAndPlay, logMusic, queue, queueIndex]);
+    return true;
+  }, [loadAndPlay, logMusic]);
 
   /** Advance on catalog end (Spotify length) or real stream EOF — YouTube often outlasts the song. */
   const handleTrackEnded = useCallback(() => {
@@ -864,7 +885,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       return;
     }
     catalogEndedRef.current = true;
-    const currentTrack = queue[queueIndex];
+    const currentTrack = queueRef.current[queueIndexRef.current];
     if (currentTrack) {
       logMusic({
         kind: "complete",
@@ -873,7 +894,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         artists: currentTrack.artists,
       });
     }
-    if (queueIndex < queue.length - 1) {
+    if (queueIndexRef.current < queueRef.current.length - 1) {
       next();
       return;
     }
@@ -883,7 +904,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     if (audio && !audio.paused) {
       audio.pause();
     }
-  }, [logMusic, next, queue, queueIndex]);
+  }, [logMusic, next]);
 
   const previous = useCallback(() => {
     const audio = audioRef.current;
@@ -1229,24 +1250,50 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         }}
         onError={(event) => {
           const audio = event.currentTarget;
-          const track = queueRef.current[queueIndexRef.current];
-          if (playIntentRef.current && track && errorRetryRef.current < 2) {
-            errorRetryRef.current += 1;
-            const resumeAt = Number.isFinite(audio.currentTime)
-              ? audio.currentTime
-              : 0;
-            loadAndPlay(track, {
-              immediatePlay: true,
-              resumeAtSec: resumeAt,
-              retrying: true,
-            });
+          // Changing src aborts the previous request; that is not a playback failure.
+          if (audio.error?.code === 1) {
             return;
+          }
+          const track = queueRef.current[queueIndexRef.current];
+          const generation = loadGenerationRef.current;
+          const action = decideAudioErrorAction({
+            playIntent: playIntentRef.current,
+            retryCount: errorRetryRef.current,
+            consecutiveFailSkips: consecutiveFailSkipRef.current,
+            hasNextTrack:
+              queueIndexRef.current < queueRef.current.length - 1,
+          });
+          if (action === "retry" && track) {
+            errorRetryRef.current += 1;
+            window.clearTimeout(retryTimerRef.current);
+            retryTimerRef.current = window.setTimeout(() => {
+              if (generation !== loadGenerationRef.current) {
+                return;
+              }
+              if (!playIntentRef.current) {
+                return;
+              }
+              const current = queueRef.current[queueIndexRef.current];
+              if (!current || current.id !== track.id) {
+                return;
+              }
+              loadAndPlay(current, {
+                immediatePlay: true,
+                retrying: true,
+              });
+            }, AUDIO_RETRY_DELAY_MS);
+            return;
+          }
+          if (action === "skip") {
+            consecutiveFailSkipRef.current += 1;
+            if (next()) {
+              return;
+            }
           }
           // Don't clear playIntent — lock-screen Play after a background stream
           // kill must still be able to reload. Only intentional pause clears intent.
           setPlaying(false);
           setLoading(false);
-          const generation = loadGenerationRef.current;
           void resolveStreamServerAudioError(audio).then((message) => {
             if (generation !== loadGenerationRef.current) {
               return;

@@ -118,6 +118,7 @@ export function getYoutubeAudioUrl(params: {
   album?: string;
   durationMs?: number;
   videoId?: string;
+  fresh?: boolean;
 }): string {
   return streamClient.getYoutubeAudioUrl(params);
 }

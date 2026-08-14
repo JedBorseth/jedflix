@@ -1,8 +1,9 @@
-import { getYoutubeAudioUrl } from "@/lib/spotify";
+import { youtubeAudioQueryHints } from "@/lib/liveRecording";
 import {
   AUDIO_EXT_HEADER,
   durationMsFromAudioHeaders,
 } from "@/lib/musicDuration";
+import { getYoutubeAudioUrl } from "@/lib/spotify";
 
 export type PrefetchTrack = {
   id: string;
@@ -31,11 +32,16 @@ function trackUrl(track: PrefetchTrack): string {
   const videoId =
     track.youtubeVideoId ||
     (track.id.startsWith("yt:") ? track.id.slice(3) : undefined);
+  const hints = youtubeAudioQueryHints({
+    title: track.title,
+    albumName: track.albumName,
+    durationMs: track.durationMs,
+  });
   return getYoutubeAudioUrl({
     artist: artistLabel(track.artists),
     title: track.title,
-    album: track.albumName,
-    durationMs: track.durationMs > 0 ? track.durationMs : undefined,
+    album: hints.album,
+    durationMs: hints.durationMs,
     videoId,
   });
 }

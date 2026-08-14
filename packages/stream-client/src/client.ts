@@ -342,6 +342,7 @@ export type StreamClient = {
     album?: string;
     durationMs?: number;
     videoId?: string;
+    fresh?: boolean;
   }) => string;
 };
 
@@ -894,6 +895,7 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
     album?: string;
     durationMs?: number;
     videoId?: string;
+    fresh?: boolean;
   }): string {
     const query = new URLSearchParams();
     if (params.videoId?.trim()) {
@@ -910,6 +912,9 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
     }
     if (params.durationMs && Number.isFinite(params.durationMs) && params.durationMs > 0) {
       query.set("durationMs", String(Math.round(params.durationMs)));
+    }
+    if (params.fresh) {
+      query.set("fresh", "1");
     }
     return `${apiBase}/api/v1/youtube/audio?${query.toString()}`;
   }

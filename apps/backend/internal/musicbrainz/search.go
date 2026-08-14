@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/jedborseth/jeds-movies/backend/internal/livematch"
 	"github.com/jedborseth/jeds-movies/backend/internal/musiccatalog"
 )
 
@@ -372,8 +373,7 @@ func isLiveOrBootleg(item mbReleaseGroup) bool {
 			return true
 		}
 	}
-	title := strings.ToLower(item.Title)
-	return strings.Contains(title, "live at") || strings.Contains(title, "bootleg")
+	return livematch.LooksLikeLiveRecording(item.Title)
 }
 
 func luceneEscape(value string) string {

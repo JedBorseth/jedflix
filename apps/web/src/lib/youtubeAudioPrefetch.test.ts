@@ -51,6 +51,7 @@ describe("youtubeAudioPrefetch", () => {
     expect(first.durationMsByTrackId).toEqual({ "1": 181000, "2": 181000 });
     expect(methods).toEqual(["HEAD", "HEAD"]);
     expect(urls.every((url) => url.includes("/youtube/audio?"))).toBe(true);
+    expect(urls[0]).toContain("album=Album");
 
     const second = await prefetchYoutubeAudioTracks(tracks, {
       fetchImpl,
@@ -89,6 +90,31 @@ describe("youtubeAudioPrefetch", () => {
     );
     expect(result.warmed).toEqual([]);
     expect(calls).toBe(1);
+  });
+
+  test("omits live album names from the YouTube resolve URL", async () => {
+    const urls: string[] = [];
+    const fetchImpl: typeof fetch = async (input) => {
+      urls.push(String(input));
+      return new Response(null, { status: 200 });
+    };
+    await prefetchYoutubeAudioTracks(
+      [
+        {
+          id: "1",
+          title: "Bone Machine",
+          artists: ["Pixies"],
+          albumName:
+            "2009-10-06/09: Doolittle Live: Brixton Academy, London, UK",
+          durationMs: 340_000,
+        },
+      ],
+      { fetchImpl },
+    );
+    expect(urls).toHaveLength(1);
+    expect(urls[0]).toContain("title=Bone+Machine");
+    expect(urls[0]).not.toContain("album=");
+    expect(urls[0]).not.toContain("durationMs=");
   });
 
   test("fetchYoutubeAudioMetadata reads duration from HEAD", async () => {
