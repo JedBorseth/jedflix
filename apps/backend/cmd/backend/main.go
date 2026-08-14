@@ -104,7 +104,7 @@ func main() {
 		log.Println("warning: TMDB_API_KEY not set; movie/TV catalog disabled")
 	}
 
-	youtubeResolver := youtube.NewResolver()
+	youtubeResolver := youtube.NewResolverWithLimit(cfg.MaxConcurrentYoutube)
 	recommender := musicrec.New(musicClient, lastfmService, aiClient)
 	server := api.NewServer(cfg, resolverService, letterboxdClient, openLibraryClient, musicClient, lastfmService, youtubeResolver, tmdbClient)
 	server.SetRecommender(recommender)

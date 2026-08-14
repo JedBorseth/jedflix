@@ -996,6 +996,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (loading) {
+      return;
+    }
     const queued = upcomingTracksForPrefetch(queue, queueIndex, 2);
     const previewNeed = Math.max(0, 2 - queued.length);
     const upcoming = [
@@ -1006,16 +1009,21 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       return;
     }
     const controller = new AbortController();
-    void prefetchYoutubeAudioTracks(upcoming, {
-      signal: controller.signal,
-      alreadyPrefetched: prefetchedIdsRef.current,
-    }).then((result) => {
-      for (const [id, ms] of Object.entries(result.durationMsByTrackId)) {
-        resolvedDurationSecByIdRef.current.set(id, ms / 1000);
-      }
-    });
-    return () => controller.abort();
-  }, [queue, queueIndex, upcomingRecommendations]);
+    const timer = window.setTimeout(() => {
+      void prefetchYoutubeAudioTracks(upcoming, {
+        signal: controller.signal,
+        alreadyPrefetched: prefetchedIdsRef.current,
+      }).then((result) => {
+        for (const [id, ms] of Object.entries(result.durationMsByTrackId)) {
+          resolvedDurationSecByIdRef.current.set(id, ms / 1000);
+        }
+      });
+    }, 400);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [loading, queue, queueIndex, upcomingRecommendations]);
 
   useEffect(() => {
     if (!infiniteQueue) {
@@ -1204,7 +1212,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         onError={(event) => {
           const audio = event.currentTarget;
           const track = queueRef.current[queueIndexRef.current];
-          if (playIntentRef.current && track && errorRetryRef.current < 1) {
+          if (playIntentRef.current && track && errorRetryRef.current < 2) {
             errorRetryRef.current += 1;
             const resumeAt = Number.isFinite(audio.currentTime)
               ? audio.currentTime

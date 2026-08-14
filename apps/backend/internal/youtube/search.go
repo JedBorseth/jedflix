@@ -68,6 +68,10 @@ func (r *Resolver) Search(ctx context.Context, query string) (*SearchResponse, e
 	if n <= 0 {
 		n = defaultCatalogSearchCount
 	}
+	if err := r.acquire(ctx); err != nil {
+		return nil, err
+	}
+	defer r.release()
 	// Bias toward songs / official audio without locking to a single artist.
 	searchQuery := fmt.Sprintf("ytsearch%d:%s", n, query+" audio")
 	args := append(r.commonArgs(),

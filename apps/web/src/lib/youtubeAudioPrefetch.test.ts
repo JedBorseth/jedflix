@@ -60,6 +60,37 @@ describe("youtubeAudioPrefetch", () => {
     expect(methods).toHaveLength(2);
   });
 
+  test("prefetchYoutubeAudioTracks stops after a 429 so playback can use the slot", async () => {
+    const statuses = [429, 200];
+    let calls = 0;
+    const fetchImpl: typeof fetch = async () => {
+      const status = statuses[calls] ?? 200;
+      calls += 1;
+      return new Response(null, { status });
+    };
+    const result = await prefetchYoutubeAudioTracks(
+      [
+        {
+          id: "1",
+          title: "Song One",
+          artists: ["Artist"],
+          albumName: "Album",
+          durationMs: 180_000,
+        },
+        {
+          id: "2",
+          title: "Song Two",
+          artists: ["Artist"],
+          albumName: "Album",
+          durationMs: 200_000,
+        },
+      ],
+      { fetchImpl },
+    );
+    expect(result.warmed).toEqual([]);
+    expect(calls).toBe(1);
+  });
+
   test("fetchYoutubeAudioMetadata reads duration from HEAD", async () => {
     const meta = await fetchYoutubeAudioMetadata("https://example/audio", {
       fetchImpl: async () =>

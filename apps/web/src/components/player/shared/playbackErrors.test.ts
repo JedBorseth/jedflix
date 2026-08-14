@@ -4,6 +4,7 @@ import {
   mapMediaElementError,
   mapMusicAudioError,
   mapVideoJsError,
+  resolveStreamServerAudioError,
 } from "./playbackErrors";
 
 describe("formatStreamFailure", () => {
@@ -51,5 +52,44 @@ describe("mapMusicAudioError", () => {
     expect(mapMusicAudioError(media).toLowerCase()).toContain(
       "not an unsupported format",
     );
+  });
+});
+
+describe("resolveStreamServerAudioError", () => {
+  test("maps youtube busy JSON instead of a format error", async () => {
+    const media = {
+      currentSrc: "https://example/audio",
+      src: "https://example/audio",
+      error: { code: 4, message: "Format error" },
+    } as unknown as HTMLMediaElement;
+    const message = await resolveStreamServerAudioError(
+      media,
+      async () =>
+        new Response(JSON.stringify({ error: "youtube busy" }), {
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    expect(message.toLowerCase()).toContain("busy");
+    expect(message.toLowerCase()).not.toContain("format");
+  });
+
+  test("maps missing browser-compatible formats without calling it unsupported", async () => {
+    const media = {
+      currentSrc: "https://example/audio",
+      src: "https://example/audio",
+      error: { code: 4, message: "Format error" },
+    } as unknown as HTMLMediaElement;
+    const message = await resolveStreamServerAudioError(
+      media,
+      async () =>
+        new Response(
+          JSON.stringify({
+            error: "no matching youtube audio found: no browser-compatible audio format (need m4a/mp3/aac)",
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+    );
+    expect(message.toLowerCase()).toContain("aac/m4a");
+    expect(message.toLowerCase()).not.toContain("not supported");
   });
 });

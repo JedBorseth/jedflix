@@ -143,6 +143,16 @@ export async function resolveStreamServerAudioError(
     if (/yt-dlp is not installed/i.test(payload.error)) {
       return "Music playback requires yt-dlp on the stream-server. Install locally with: brew install yt-dlp";
     }
+    if (/youtube busy/i.test(payload.error)) {
+      return "YouTube is busy resolving another track. Tap play to retry.";
+    }
+    if (
+      /browser-compatible audio format|requested format is not available/i.test(
+        payload.error,
+      )
+    ) {
+      return "Couldn't find a playable AAC/M4A stream for this track. Skip to the next song.";
+    }
     return payload.error;
   } catch {
     return base;

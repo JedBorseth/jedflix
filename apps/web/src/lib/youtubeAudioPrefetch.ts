@@ -82,31 +82,36 @@ export async function prefetchYoutubeAudioTracks(
   const durationMsByTrackId: Record<string, number> = {};
   const seen = options?.alreadyPrefetched ?? new Set<string>();
 
-  await Promise.all(
-    tracks.map(async (track) => {
-      if (seen.has(track.id)) {
-        return;
-      }
-      seen.add(track.id);
-      const url = trackUrl(track);
-      try {
-        const response = await fetchImpl(url, {
-          method: "HEAD",
-          signal: options?.signal,
-        });
-        if (response.ok || response.status === 206) {
-          warmed.push(track.id);
-          const durationMs = durationMsFromAudioHeaders(response.headers);
-          if (durationMs) {
-            durationMsByTrackId[track.id] = durationMs;
-          }
+  // One at a time so prefetch cannot starve the track that is actually playing.
+  for (const track of tracks) {
+    if (options?.signal?.aborted) {
+      break;
+    }
+    if (seen.has(track.id)) {
+      continue;
+    }
+    seen.add(track.id);
+    const url = trackUrl(track);
+    try {
+      const response = await fetchImpl(url, {
+        method: "HEAD",
+        signal: options?.signal,
+      });
+      if (response.ok || response.status === 206) {
+        warmed.push(track.id);
+        const durationMs = durationMsFromAudioHeaders(response.headers);
+        if (durationMs) {
+          durationMsByTrackId[track.id] = durationMs;
         }
-      } catch {
-        // Prefetch is best-effort; ignore network / abort errors.
+      } else if (response.status === 429) {
         seen.delete(track.id);
+        break;
       }
-    }),
-  );
+    } catch {
+      // Prefetch is best-effort; ignore network / abort errors.
+      seen.delete(track.id);
+    }
+  }
 
   return { warmed, durationMsByTrackId };
 }

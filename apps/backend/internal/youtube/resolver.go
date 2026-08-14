@@ -39,6 +39,8 @@ type Resolver struct {
 	mu       sync.Mutex
 	cache    map[string]cachedURL
 	inflight singleflight.Group
+	// sem limits concurrent yt-dlp processes — not audio proxying.
+	sem chan struct{}
 }
 
 type cachedURL struct {
@@ -88,6 +90,15 @@ type formatProbe struct {
 }
 
 func NewResolver() *Resolver {
+	return NewResolverWithLimit(0)
+}
+
+// NewResolverWithLimit caps concurrent yt-dlp work. Cache hits and in-flight
+// duplicates do not consume a slot. Audio proxying happens after release.
+func NewResolverWithLimit(slots int) *Resolver {
+	if slots <= 0 {
+		slots = 3
+	}
 	cookies := strings.TrimSpace(os.Getenv("YTDLP_COOKIES_FILE"))
 	if cookies == "" {
 		cookies = strings.TrimSpace(os.Getenv("YOUTUBE_COOKIES_FILE"))
@@ -98,6 +109,29 @@ func NewResolver() *Resolver {
 		searchN:     defaultSearchCount,
 		now:         time.Now,
 		cache:       make(map[string]cachedURL),
+		sem:         make(chan struct{}, slots),
+	}
+}
+
+func (r *Resolver) acquire(ctx context.Context) error {
+	if r == nil || r.sem == nil {
+		return ctx.Err()
+	}
+	select {
+	case r.sem <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (r *Resolver) release() {
+	if r == nil || r.sem == nil {
+		return
+	}
+	select {
+	case <-r.sem:
+	default:
 	}
 }
 
@@ -163,6 +197,10 @@ func (r *Resolver) resolveUncached(ctx context.Context, req Request) (*StreamInf
 	if _, err := exec.LookPath(r.ytdlpPath); err != nil {
 		return nil, ErrYtdlpMissing
 	}
+	if err := r.acquire(ctx); err != nil {
+		return nil, err
+	}
+	defer r.release()
 
 	var best *searchEntry
 	if req.VideoID != "" {
@@ -508,9 +546,12 @@ func (r *Resolver) extractStream(ctx context.Context, entry *searchEntry) (*Stre
 
 	// Prefer AAC/MP4/MP3 for HTML5 audio (Safari/iOS reject webm/opus).
 	// Avoid bare "bestaudio/best" — that often returns Opus and breaks the player.
+	// --ignore-no-formats-error keeps JSON so we can still pick m4a/mp3 from Formats
+	// when YouTube's advertised format set doesn't match the selector.
 	format := "bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/bestaudio[acodec*=mp4a]/bestaudio[ext=mp4]/bestaudio[ext=mp3]/bestaudio[acodec*=mp3]/bestaudio[acodec*=aac]"
 	args := append(r.commonArgs(),
 		"--no-playlist",
+		"--ignore-no-formats-error",
 		"-f", format,
 		"-J",
 		target,
@@ -519,12 +560,32 @@ func (r *Resolver) extractStream(ctx context.Context, entry *searchEntry) (*Stre
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		msg := strings.TrimSpace(stderr.String())
-		if msg == "" {
-			msg = err.Error()
+	runErr := cmd.Run()
+	if runErr != nil || !json.Valid(stdout.Bytes()) {
+		// Selector missed (YouTube often only advertises webm first). Dump every
+		// format so we can still pick m4a/mp3/aac from the list.
+		fallbackArgs := append(r.commonArgs(),
+			"--no-playlist",
+			"--ignore-no-formats-error",
+			"-J",
+			target,
+		)
+		fallback := exec.CommandContext(ctx, r.ytdlpPath, fallbackArgs...)
+		stdout.Reset()
+		stderr.Reset()
+		fallback.Stdout = &stdout
+		fallback.Stderr = &stderr
+		if err := fallback.Run(); err != nil {
+			msg := strings.TrimSpace(stderr.String())
+			if msg == "" {
+				if runErr != nil {
+					msg = runErr.Error()
+				} else {
+					msg = err.Error()
+				}
+			}
+			return nil, fmt.Errorf("%w: extract: %s", ErrResolveFail, msg)
 		}
-		return nil, fmt.Errorf("%w: extract: %s", ErrResolveFail, msg)
 	}
 
 	var payload struct {

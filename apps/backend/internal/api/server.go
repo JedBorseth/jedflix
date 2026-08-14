@@ -38,7 +38,6 @@ type Server struct {
 	youtube     *youtube.Resolver
 	limiter     *ipRateLimiter
 	resolveSem  chan struct{}
-	youtubeSem  chan struct{}
 }
 
 func NewServer(
@@ -58,10 +57,6 @@ func NewServer(
 	if resolveSlots <= 0 {
 		resolveSlots = 6
 	}
-	youtubeSlots := cfg.MaxConcurrentYoutube
-	if youtubeSlots <= 0 {
-		youtubeSlots = 3
-	}
 	return &Server{
 		cfg:         cfg,
 		resolver:    resolverService,
@@ -74,7 +69,6 @@ func NewServer(
 		youtube:     youtubeResolver,
 		limiter:     newIPRateLimiter(20, 40), // ~20 req/s sustained, burst 40
 		resolveSem:  make(chan struct{}, resolveSlots),
-		youtubeSem:  make(chan struct{}, youtubeSlots),
 	}
 }
 
@@ -782,13 +776,6 @@ func (s *Server) handleMusicRecommend(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleYouTubeSearch(w http.ResponseWriter, r *http.Request) {
-	if !s.tryAcquire(s.youtubeSem) {
-		w.Header().Set("Retry-After", "3")
-		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "youtube busy"})
-		return
-	}
-	defer s.release(s.youtubeSem)
-
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	ctx, cancel := context.WithTimeout(r.Context(), youtube.ResolveTimeout)
 	defer cancel()
@@ -802,13 +789,6 @@ func (s *Server) handleYouTubeSearch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleYouTubeAudio(w http.ResponseWriter, r *http.Request) {
-	if !s.tryAcquire(s.youtubeSem) {
-		w.Header().Set("Retry-After", "3")
-		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "youtube busy"})
-		return
-	}
-	defer s.release(s.youtubeSem)
-
 	artist := strings.TrimSpace(r.URL.Query().Get("artist"))
 	title := strings.TrimSpace(r.URL.Query().Get("title"))
 	album := strings.TrimSpace(r.URL.Query().Get("album"))
