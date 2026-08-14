@@ -393,6 +393,7 @@ export function MusicPlayerBar() {
                 "relative rounded-full p-2 text-zinc-300 hover:bg-zinc-800 hover:text-white",
                 queueOpen && "text-red-300",
               )}
+              data-queue-toggle=""
               onClick={() => setQueueOpen(!queueOpen)}
               aria-label={queueOpen ? "Close queue" : "Open queue"}
               aria-expanded={queueOpen}
@@ -617,6 +618,7 @@ export function MusicPlayerBar() {
                     "absolute right-0 inline-flex h-11 w-11 items-center justify-center rounded-full border border-zinc-700 bg-zinc-900/90 text-white hover:bg-zinc-800",
                     queueOpen && "border-red-500/60 text-red-300",
                   )}
+                  data-queue-toggle=""
                   onClick={() => setQueueOpen(!queueOpen)}
                   aria-label={queueOpen ? "Close queue" : "Open queue"}
                   aria-expanded={queueOpen}

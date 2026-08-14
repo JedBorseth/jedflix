@@ -246,6 +246,7 @@ export function AlbumDetailPage() {
                   key={track.id || `${track.discNumber}-${track.trackNumber}-${track.name}`}
                   onPlay={() => playFrom(index)}
                   onAddToQueue={() => musicPlayer.addToQueue(queueTrack)}
+                  onPlayNext={() => musicPlayer.playNext(queueTrack)}
                   onLike={() => void likeTrack(queueTrack)}
                 >
                   <div
@@ -295,6 +296,7 @@ export function AlbumDetailPage() {
                   key={track.id || `${track.name}-${index}`}
                   onPlay={() => playRecommendedFrom(index)}
                   onAddToQueue={() => musicPlayer.addToQueue(queueTrack)}
+                  onPlayNext={() => musicPlayer.playNext(queueTrack)}
                   onLike={() => void likeTrack(queueTrack)}
                 >
                   <div

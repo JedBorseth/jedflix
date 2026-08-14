@@ -1,7 +1,7 @@
 import { DragHandleDots2Icon, Cross2Icon, PlusIcon } from "@radix-ui/react-icons";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useDrag } from "@use-gesture/react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
 import {
   useMusicPlayer,
@@ -482,6 +482,30 @@ function DesktopQueueSidebar({ player }: { player: PlayerBag }) {
   const listRef = useRef<HTMLDivElement>(null);
   const drag = useQueueDrag();
 
+  useEffect(() => {
+    if (!queueOpen) {
+      return;
+    }
+
+    function onDoubleClick(event: MouseEvent) {
+      if (window.matchMedia("(max-width: 767px)").matches) {
+        return;
+      }
+      const target = event.target;
+      if (!(target instanceof Element)) {
+        setQueueOpen(false);
+        return;
+      }
+      if (target.closest("[data-queue-panel], [data-queue-toggle]")) {
+        return;
+      }
+      setQueueOpen(false);
+    }
+
+    document.addEventListener("dblclick", onDoubleClick);
+    return () => document.removeEventListener("dblclick", onDoubleClick);
+  }, [queueOpen, setQueueOpen]);
+
   const upcomingQueue = queue.slice(queueIndex + 1);
   const upcomingCount = upcomingQueue.length;
   const currentTrack = current ?? queue[queueIndex] ?? null;
@@ -501,8 +525,9 @@ function DesktopQueueSidebar({ player }: { player: PlayerBag }) {
 
   return (
     <aside
+      data-queue-panel=""
       className={cn(
-        "fixed bottom-[4.75rem] right-0 top-0 z-40 hidden w-[22rem] flex-col border-l border-zinc-800 bg-zinc-950 pt-16 shadow-2xl transition-transform duration-200 ease-out md:flex",
+        "fixed bottom-[4.75rem] right-0 top-[var(--navbar-offset)] z-40 hidden w-[var(--desktop-queue-width)] flex-col border-l border-zinc-800 bg-zinc-950 shadow-2xl transition-transform duration-200 ease-out md:flex",
         queueOpen ? "translate-x-0" : "pointer-events-none translate-x-full",
       )}
       aria-hidden={!queueOpen}

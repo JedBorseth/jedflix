@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   dropIndexFromDrag,
+  insertPlayNext,
   promoteRecommendationToQueue,
   remapIndexAfterReorder,
   reorderItems,
@@ -44,6 +45,12 @@ describe("musicQueue helpers", () => {
     );
     expect(result.queue.map((track) => track.id)).toEqual(["a", "c"]);
     expect(result.recommendations.map((track) => track.id)).toEqual(["d"]);
+  });
+
+  test("insertPlayNext places a track in the first upcoming slot", () => {
+    expect(insertPlayNext(["a", "b", "c"], 0, "x")).toEqual(["a", "x", "b", "c"]);
+    expect(insertPlayNext(["a", "b", "c"], 2, "x")).toEqual(["a", "b", "c", "x"]);
+    expect(insertPlayNext([], 0, "x")).toEqual(["x"]);
   });
 
   test("dropIndexFromDrag snaps by row height", () => {

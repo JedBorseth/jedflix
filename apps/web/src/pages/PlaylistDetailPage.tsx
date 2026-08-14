@@ -445,6 +445,7 @@ function PlaylistDetail({ playlistId }: { playlistId: Id<"playlists"> }) {
                   );
                 }}
                 onAddToQueue={() => musicPlayer.addToQueue(queueTrack)}
+                onPlayNext={() => musicPlayer.playNext(queueTrack)}
                 onLike={() => void likeTrack(queueTrack)}
               >
                 <div

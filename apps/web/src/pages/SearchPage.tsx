@@ -286,6 +286,7 @@ export function SearchPage() {
                           key={hit.id}
                           onPlay={() => playSearchTrack(hit.track.id)}
                           onAddToQueue={() => musicPlayer.addToQueue(queueTrack)}
+                          onPlayNext={() => musicPlayer.playNext(queueTrack)}
                           onLike={() => void likeTrack(queueTrack)}
                         >
                           <div

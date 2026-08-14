@@ -153,6 +153,7 @@ export function MusicArtistPage() {
                     key={track.id || `${track.name}-${index}`}
                     onPlay={() => playTopFrom(index)}
                     onAddToQueue={() => musicPlayer.addToQueue(queueTrack)}
+                    onPlayNext={() => musicPlayer.playNext(queueTrack)}
                     onLike={() => void likeTrack(queueTrack)}
                   >
                     <div

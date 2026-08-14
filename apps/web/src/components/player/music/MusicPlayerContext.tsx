@@ -13,6 +13,7 @@ import { useMediaSession } from "@/hooks/useMediaSession";
 import { resolveStreamServerAudioError } from "@/components/player/shared/playbackErrors";
 import { playMediaElement } from "@/lib/mediaSession";
 import {
+  insertPlayNext,
   promoteRecommendationToQueue,
   remapIndexAfterReorder,
   reorderItems,
@@ -89,6 +90,8 @@ type MusicPlayerContextValue = {
   ) => void;
   playQueueIndex: (index: number) => void;
   addToQueue: (track: MusicQueueTrack) => void;
+  /** Insert immediately after the current track (first upcoming slot). */
+  playNext: (track: MusicQueueTrack) => void;
   /** Append an Infinite Queue preview track to the end of the playable queue. */
   addUpcomingToQueue: (track: MusicQueueTrack) => void;
   /**
@@ -504,6 +507,19 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         next.splice(insertAt, 0, manualTrack);
         return next;
       });
+    },
+    [playTrack, queue.length],
+  );
+
+  const playNext = useCallback(
+    (track: MusicQueueTrack) => {
+      if (queue.length === 0) {
+        playTrack(track);
+        return;
+      }
+      queueDirtyRef.current = true;
+      const manualTrack = { ...track, autoQueued: false };
+      setQueue((prev) => insertPlayNext(prev, queueIndexRef.current, manualTrack));
     },
     [playTrack, queue.length],
   );
@@ -1073,6 +1089,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       playAlbumTracks,
       playQueueIndex,
       addToQueue,
+      playNext,
       addUpcomingToQueue,
       extendQueueFromSource,
       reorderQueue,
@@ -1093,6 +1110,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     }),
     [
       addToQueue,
+      playNext,
       addUpcomingToQueue,
       clear,
       clearUpcoming,

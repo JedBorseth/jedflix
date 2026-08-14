@@ -63,6 +63,14 @@ export function promoteRecommendationToQueue<T extends { id: string }>(
   };
 }
 
+/** Insert `track` immediately after the currently playing index. */
+export function insertPlayNext<T>(queue: T[], currentIndex: number, track: T): T[] {
+  const next = queue.slice();
+  const insertAt = Math.min(Math.max(currentIndex + 1, 0), next.length);
+  next.splice(insertAt, 0, track);
+  return next;
+}
+
 /** Compute drop index from vertical drag distance and fixed row height. */
 export function dropIndexFromDrag(
   fromIndex: number,
