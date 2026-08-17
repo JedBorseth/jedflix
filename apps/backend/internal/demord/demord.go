@@ -12,8 +12,6 @@ import (
 )
 
 const (
-	// ClientToken is the API key users enter to use the server-side demo RD account.
-	ClientToken = "121212"
 	// UserHeader identifies a demo client so play counts are per user, not global.
 	UserHeader       = "X-Jedflix-Demo-User"
 	DefaultPlayLimit = 5
@@ -59,10 +57,6 @@ func CountsAsPlay(mediaType string) bool {
 	default:
 		return false
 	}
-}
-
-func IsClientToken(token string) bool {
-	return strings.TrimSpace(token) == ClientToken
 }
 
 func UserID(r *http.Request, fallback string) string {
@@ -161,17 +155,36 @@ func (s *Store) persistLocked() {
 }
 
 type Gate struct {
+	// ClientKey is the API key users enter (REAL_DEBRID_DEMO_CLIENT_KEY); never commit it.
+	ClientKey string
 	ServerKey string
 	Store     *Store
+}
+
+func (g *Gate) IsClientToken(token string) bool {
+	if g == nil {
+		return false
+	}
+	clientKey := strings.TrimSpace(g.ClientKey)
+	if clientKey == "" {
+		return false
+	}
+	return strings.TrimSpace(token) == clientKey
+}
+
+func (g *Gate) Configured() bool {
+	return g != nil &&
+		strings.TrimSpace(g.ClientKey) != "" &&
+		strings.TrimSpace(g.ServerKey) != ""
 }
 
 // Apply swaps the user-facing demo token for the server RD key.
 // When consume is true (resolve), a movie/show/audiobook play is counted.
 func (g *Gate) Apply(token, mediaType, userID string, consume bool) (string, error) {
-	if !IsClientToken(token) {
+	if !g.IsClientToken(token) {
 		return token, nil
 	}
-	if g == nil || strings.TrimSpace(g.ServerKey) == "" {
+	if !g.Configured() {
 		return "", ErrUnavailable
 	}
 	if !CountsAsPlay(mediaType) {

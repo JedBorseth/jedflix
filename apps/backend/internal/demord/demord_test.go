@@ -6,6 +6,16 @@ import (
 	"testing"
 )
 
+const testClientKey = "demo-client-test-key"
+
+func testGate() *Gate {
+	return &Gate{
+		ClientKey: testClientKey,
+		ServerKey: "server-secret",
+		Store:     NewStore("", 5),
+	}
+}
+
 func TestStoreLocksAfterFivePlays(t *testing.T) {
 	store := NewStore("", 5)
 	for i := 0; i < 5; i++ {
@@ -41,8 +51,8 @@ func TestStorePersistsAcrossReload(t *testing.T) {
 }
 
 func TestGateSwapsDemoToken(t *testing.T) {
-	gate := &Gate{ServerKey: "server-secret", Store: NewStore("", 5)}
-	got, err := gate.Apply(ClientToken, "movie", "u1", false)
+	gate := testGate()
+	got, err := gate.Apply(testClientKey, "movie", "u1", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,9 +73,9 @@ func TestGateSwapsDemoToken(t *testing.T) {
 }
 
 func TestGateCountsResolveNotSources(t *testing.T) {
-	gate := &Gate{ServerKey: "server-secret", Store: NewStore("", 5)}
+	gate := testGate()
 	for i := 0; i < 4; i++ {
-		if _, err := gate.Apply(ClientToken, "movie", "u1", false); err != nil {
+		if _, err := gate.Apply(testClientKey, "movie", "u1", false); err != nil {
 			t.Fatalf("sources %d: %v", i, err)
 		}
 	}
@@ -74,21 +84,21 @@ func TestGateCountsResolveNotSources(t *testing.T) {
 	}
 
 	for i := 0; i < 5; i++ {
-		if _, err := gate.Apply(ClientToken, "tv", "u1", true); err != nil {
+		if _, err := gate.Apply(testClientKey, "tv", "u1", true); err != nil {
 			t.Fatalf("resolve %d: %v", i+1, err)
 		}
 	}
-	if _, err := gate.Apply(ClientToken, "audiobook", "u1", true); err != ErrLimitReached {
+	if _, err := gate.Apply(testClientKey, "audiobook", "u1", true); err != ErrLimitReached {
 		t.Fatalf("6th resolve err = %v", err)
 	}
-	if _, err := gate.Apply(ClientToken, "movie", "u1", false); err != ErrLimitReached {
+	if _, err := gate.Apply(testClientKey, "movie", "u1", false); err != ErrLimitReached {
 		t.Fatalf("sources after lockout err = %v", err)
 	}
 }
 
 func TestGateDoesNotCountMusicOrEbook(t *testing.T) {
-	gate := &Gate{ServerKey: "server-secret", Store: NewStore("", 1)}
-	if _, err := gate.Apply(ClientToken, "ebook", "u1", true); err != nil {
+	gate := &Gate{ClientKey: testClientKey, ServerKey: "server-secret", Store: NewStore("", 1)}
+	if _, err := gate.Apply(testClientKey, "ebook", "u1", true); err != nil {
 		t.Fatal(err)
 	}
 	if remaining := gate.Store.Remaining("u1"); remaining != 1 {
@@ -97,9 +107,20 @@ func TestGateDoesNotCountMusicOrEbook(t *testing.T) {
 }
 
 func TestGateUnavailableWithoutServerKey(t *testing.T) {
-	gate := &Gate{}
-	if _, err := gate.Apply(ClientToken, "movie", "u1", true); err != ErrUnavailable {
+	gate := &Gate{ClientKey: testClientKey}
+	if _, err := gate.Apply(testClientKey, "movie", "u1", true); err != ErrUnavailable {
 		t.Fatalf("err = %v, want ErrUnavailable", err)
+	}
+}
+
+func TestIsClientTokenRequiresConfiguredClientKey(t *testing.T) {
+	gate := &Gate{ServerKey: "server-secret"}
+	if gate.IsClientToken(testClientKey) {
+		t.Fatal("empty client key should not match")
+	}
+	gate.ClientKey = testClientKey
+	if !gate.IsClientToken(testClientKey) {
+		t.Fatal("expected match")
 	}
 }
 

@@ -2,7 +2,12 @@ import { useLocation } from "react-router-dom";
 import { REAL_DEBRID_AFFILIATE_URL } from "@/lib/demoRealDebrid";
 import { cn } from "@/lib/utils";
 
-export function DemoRdBanner() {
+type DemoRdBannerProps = {
+  remaining?: number;
+  playLimit?: number;
+};
+
+export function DemoRdBanner({ remaining, playLimit }: DemoRdBannerProps) {
   const { pathname } = useLocation();
   const belowNavbar =
     pathname !== "/onboarding" &&
@@ -20,8 +25,11 @@ export function DemoRdBanner() {
       )}
     >
       <span>
-        You&apos;re in demo mode. Buy Real Debrid to keep watching movies, shows, and
-        audiobooks.
+        You&apos;re in demo mode
+        {typeof remaining === "number" && typeof playLimit === "number"
+          ? ` (${remaining} of ${playLimit} plays left)`
+          : ""}
+        . Buy Real Debrid to keep watching movies, shows, and audiobooks.
       </span>{" "}
       <a
         href={REAL_DEBRID_AFFILIATE_URL}

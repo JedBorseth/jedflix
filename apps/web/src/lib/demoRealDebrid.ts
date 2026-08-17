@@ -1,15 +1,9 @@
-export const DEMO_REAL_DEBRID_API_KEY = "121212";
 export const DEMO_RD_USER_HEADER = "X-Jedflix-Demo-User";
 export const REAL_DEBRID_AFFILIATE_URL = "http://real-debrid.com/?id=10515937";
-export const DEMO_RD_PLAY_LIMIT = 5;
 
 const DEMO_USER_ID_KEY = "jedflix.demoRdUserId";
 
 let demoUserId = "";
-
-export function isDemoRealDebridKey(key: string | undefined | null): boolean {
-  return typeof key === "string" && key.trim() === DEMO_REAL_DEBRID_API_KEY;
-}
 
 export function setDemoRdUserId(userId: string | null | undefined) {
   const trimmed = userId?.trim() ?? "";
@@ -45,10 +39,11 @@ export function getDemoRdUserId(): string {
   return generated;
 }
 
+/** Sent on stream API calls so demo play counts are per user. */
 export function getDemoRdRequestHeaders(
   realDebridToken?: string,
 ): Record<string, string> {
-  if (!isDemoRealDebridKey(realDebridToken)) {
+  if (!realDebridToken?.trim()) {
     return {};
   }
   const userId = getDemoRdUserId();

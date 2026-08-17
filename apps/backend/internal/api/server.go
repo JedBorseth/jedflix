@@ -72,6 +72,7 @@ func NewServer(
 		limiter:     newIPRateLimiter(20, 40), // ~20 req/s sustained, burst 40
 		resolveSem:  make(chan struct{}, resolveSlots),
 		demoRd: &demord.Gate{
+			ClientKey: cfg.RealDebridDemoClientKey,
 			ServerKey: cfg.RealDebridDemoAPIKey,
 			Store:     demord.NewStore(cfg.DemoRdPlaysPath, cfg.DemoRdPlayLimit),
 		},
@@ -117,6 +118,7 @@ func (s *Server) Router() http.Handler {
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Post("/sources", s.handleSources)
 		r.Post("/resolve", s.handleResolve)
+		r.Get("/demo-rd/status", s.handleDemoRdStatus)
 		r.Get("/resolve/jobs/{jobId}", s.handleResolveJob)
 		r.Get("/letterboxd/{username}/verify", s.handleLetterboxdVerify)
 		r.Get("/letterboxd/{username}/films/by/date", s.handleLetterboxdFilmsByDate)
@@ -1056,7 +1058,7 @@ func (s *Server) applyDemoRealDebrid(
 	mediaType string,
 	consume bool,
 ) (string, bool) {
-	if s == nil || s.demoRd == nil || !demord.IsClientToken(token) {
+	if s == nil || s.demoRd == nil || !s.demoRd.IsClientToken(token) {
 		return token, true
 	}
 	userID := demord.UserID(r, clientIP(r))
@@ -1086,7 +1088,7 @@ func (s *Server) applyDemoRealDebrid(
 }
 
 func (s *Server) consumeDemoPlay(w http.ResponseWriter, r *http.Request, mediaType string) bool {
-	if s == nil || s.demoRd == nil || !demord.IsClientToken(bearerToken(r)) {
+	if s == nil || s.demoRd == nil || !s.demoRd.IsClientToken(bearerToken(r)) {
 		return true
 	}
 	if !demord.CountsAsPlay(mediaType) {
@@ -1104,4 +1106,27 @@ func (s *Server) consumeDemoPlay(w http.ResponseWriter, r *http.Request, mediaTy
 		return false
 	}
 	return true
+}
+
+func (s *Server) handleDemoRdStatus(w http.ResponseWriter, r *http.Request) {
+	token := bearerToken(r)
+	if token == "" || s.demoRd == nil || !s.demoRd.IsClientToken(token) {
+		writeJSON(w, http.StatusOK, map[string]any{"demo": false})
+		return
+	}
+	if !s.demoRd.Configured() {
+		writeJSON(w, http.StatusOK, map[string]any{"demo": false})
+		return
+	}
+	userID := demord.UserID(r, clientIP(r))
+	remaining := s.demoRd.Store.Remaining(userID)
+	limit := s.cfg.DemoRdPlayLimit
+	if limit <= 0 {
+		limit = demord.DefaultPlayLimit
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"demo":      true,
+		"remaining": remaining,
+		"playLimit": limit,
+	})
 }

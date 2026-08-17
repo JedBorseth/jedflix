@@ -2,13 +2,14 @@ import { useEffect, type ReactNode } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@convex/_generated/api";
 import { DemoRdBanner } from "@/components/demo/DemoRdBanner";
+import { useDemoRdStatus } from "@/hooks/useDemoRdStatus";
 import { useUserSettings } from "@/hooks/useUserSettings";
-import { isDemoRealDebridKey, setDemoRdUserId } from "@/lib/demoRealDebrid";
+import { setDemoRdUserId } from "@/lib/demoRealDebrid";
 
 export function DemoRdProvider({ children }: { children: ReactNode }) {
   const { realDebridApiKey } = useUserSettings();
   const viewer = useQuery(api.users.viewer);
-  const isDemo = isDemoRealDebridKey(realDebridApiKey);
+  const { demo, remaining, playLimit } = useDemoRdStatus(realDebridApiKey);
 
   useEffect(() => {
     if (viewer?._id) {
@@ -17,15 +18,17 @@ export function DemoRdProvider({ children }: { children: ReactNode }) {
   }, [viewer?._id]);
 
   useEffect(() => {
-    document.documentElement.classList.toggle("demo-rd", isDemo);
+    document.documentElement.classList.toggle("demo-rd", demo);
     return () => {
       document.documentElement.classList.remove("demo-rd");
     };
-  }, [isDemo]);
+  }, [demo]);
 
   return (
     <>
-      {isDemo ? <DemoRdBanner /> : null}
+      {demo ? (
+        <DemoRdBanner remaining={remaining} playLimit={playLimit} />
+      ) : null}
       {children}
     </>
   );

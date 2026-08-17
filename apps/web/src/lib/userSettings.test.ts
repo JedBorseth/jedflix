@@ -9,7 +9,6 @@ import {
   saveUserSettings,
   withoutDebridContentTypes,
 } from "@/lib/userSettings";
-import { DEMO_REAL_DEBRID_API_KEY } from "@/lib/demoRealDebrid";
 import {
   isContentTypeLockedWithoutDebrid,
   toggleContentType,
@@ -106,11 +105,11 @@ describe("userSettings onboarding fields", () => {
     expect(isOnboardingComplete(getUserSettings())).toBe(false);
   });
 
-  test("demo Real Debrid key 121212 unlocks movies during onboarding", () => {
+  test("any non-empty Real Debrid key satisfies movies onboarding", () => {
     saveUserSettings({
       deviceType: "desktop",
       contentTypes: ["movies_shows"],
-      realDebridApiKey: DEMO_REAL_DEBRID_API_KEY,
+      realDebridApiKey: "user-or-demo-key",
       externalPlayer: "disabled",
       virusWarningAccepted: true,
       ispWarningAccepted: true,

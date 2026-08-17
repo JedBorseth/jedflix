@@ -272,8 +272,7 @@ export function SettingsPage() {
                 {syncEnabled
                   ? "Settings sync to your account."
                   : "Sign in to sync settings to your account."}{" "}
-                Enter <span className="font-mono text-zinc-300">121212</span> for a limited demo
-                (5 plays).
+                A limited demo key may be available from your JedFlix host.
               </p>
               {saved ? <p className="text-sm text-emerald-400">Settings saved.</p> : null}
             </CardContent>

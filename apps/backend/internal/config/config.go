@@ -58,11 +58,13 @@ type Config struct {
 	AbbBaseURL     string
 	AbbUsername    string
 	AbbPassword    string
-	// RealDebridDemoAPIKey is the server-side RD token used when a client
-	// sends the public demo key "121212". Empty disables demo mode.
-	RealDebridDemoAPIKey string
-	DemoRdPlaysPath      string
-	DemoRdPlayLimit      int
+	// RealDebridDemoClientKey is what users enter for limited demo playback.
+	// RealDebridDemoAPIKey is the server-side RD token swapped in at resolve time.
+	// Both must be set to enable demo mode. Neither belongs in source control.
+	RealDebridDemoClientKey string
+	RealDebridDemoAPIKey    string
+	DemoRdPlaysPath         string
+	DemoRdPlayLimit         int
 }
 
 func Load() Config {
@@ -109,6 +111,7 @@ func Load() Config {
 		AbbBaseURL:                 strings.TrimRight(envOr("ABB_BASE_URL", "https://audiobookbay.lu"), "/"),
 		AbbUsername:                strings.TrimSpace(os.Getenv("ABB_USERNAME")),
 		AbbPassword:                os.Getenv("ABB_PASSWORD"),
+		RealDebridDemoClientKey:    strings.TrimSpace(os.Getenv("REAL_DEBRID_DEMO_CLIENT_KEY")),
 		RealDebridDemoAPIKey:       strings.TrimSpace(os.Getenv("REAL_DEBRID_DEMO_API_KEY")),
 		DemoRdPlaysPath:            strings.TrimSpace(envOr("DEMO_RD_PLAYS_PATH", defaultDemoRdPlaysPath())),
 		DemoRdPlayLimit:            envInt("DEMO_RD_PLAY_LIMIT", 5),
