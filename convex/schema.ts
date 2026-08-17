@@ -46,6 +46,33 @@ export default defineSchema({
     .index("by_user", ["userId"])
     .index("by_user_and_media_type_and_movie_id", ["userId", "mediaType", "movieId"])
     .index("by_user_and_media_type_and_work_id", ["userId", "mediaType", "workId"]),
+  /**
+   * Curated home-row picks. IDs only — catalog metadata stays in TMDB /
+   * Open Library / MusicBrainz.
+   */
+  jedsPicks: defineTable({
+    category: v.union(
+      v.literal("movie"),
+      v.literal("tv"),
+      v.literal("audiobook"),
+      v.literal("music"),
+    ),
+    kind: v.union(
+      v.literal("movie"),
+      v.literal("tv"),
+      v.literal("audiobook"),
+      v.literal("album"),
+      v.literal("artist"),
+    ),
+    movieId: v.optional(v.number()),
+    workId: v.optional(v.string()),
+    catalogId: v.optional(v.string()),
+    addedAt: v.number(),
+  })
+    .index("by_category", ["category"])
+    .index("by_kind_and_movie_id", ["kind", "movieId"])
+    .index("by_kind_and_work_id", ["kind", "workId"])
+    .index("by_kind_and_catalog_id", ["kind", "catalogId"]),
   mediaReviews: defineTable({
     userId: v.id("users"),
     movieId: v.optional(v.number()),

@@ -4,6 +4,7 @@ import { HeroBanner } from "@/components/browse/HeroBanner";
 import { LetterboxdRow } from "@/components/browse/LetterboxdRow";
 import { MovieRow } from "@/components/browse/MovieRow";
 import { WatchHistoryRow } from "@/components/browse/WatchHistoryRow";
+import { JedsPicksRow } from "@/components/jedsPicks/JedsPicksRow";
 import { HeroBannerSkeleton } from "@/components/ui/skeleton";
 import { catalogQueryKeys } from "@/lib/queryClient";
 import type { MediaType } from "@/lib/types";
@@ -60,9 +61,18 @@ export function BrowsePage({ mediaType = "all" }: BrowsePageProps) {
           <h1 className="sr-only">{pageTitle}</h1>
         </div>
         {mediaType === "all" ? (
+          <Authenticated>
+            <WatchHistoryRow title="Continue Watching" mode="continue" />
+          </Authenticated>
+        ) : null}
+        <JedsPicksRow
+          category={
+            mediaType === "movie" ? "movie" : mediaType === "tv" ? "tv" : "home"
+          }
+        />
+        {mediaType === "all" ? (
           <>
             <Authenticated>
-              <WatchHistoryRow title="Continue Watching" mode="continue" />
               <WatchHistoryRow title="Recently Watched" mode="recent" />
             </Authenticated>
             <LetterboxdRow title="From Letterboxd" />

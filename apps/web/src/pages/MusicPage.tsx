@@ -4,6 +4,7 @@ import { useSyncExternalStore } from "react";
 import { AlbumCard } from "@/components/browse/AlbumCard";
 import { ArtistCard } from "@/components/browse/ArtistCard";
 import { RecentlyPlayedMusicGrid } from "@/components/browse/RecentlyPlayedMusicGrid";
+import { JedsPicksRow } from "@/components/jedsPicks/JedsPicksRow";
 import { AppLink } from "@/components/layout/AppLink";
 import { PartyStatusButton } from "@/components/party/PartyStatusButton";
 import { PosterRowSkeleton } from "@/components/ui/skeleton";
@@ -68,6 +69,8 @@ export function MusicPage() {
         {recentTracks.length > 0 ? (
           <RecentlyPlayedMusicGrid tracks={recentTracks} />
         ) : null}
+
+        <JedsPicksRow category="music" className="mb-0 px-4 md:px-12" />
 
         <section className="grid grid-cols-2 gap-2 px-4 md:gap-3 md:px-12">
           <AppLink

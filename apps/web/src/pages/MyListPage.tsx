@@ -97,7 +97,7 @@ export function MyListPage() {
           ) : loadingMedia ? (
             <PosterGridSkeleton count={savedList.length || 6} />
           ) : (
-            <div className="flex flex-wrap gap-4">
+            <div className="flex flex-wrap justify-center gap-4">
               {(movies ?? []).map((movie) => (
                 <MovieCard key={`${movie.mediaType}-${movie.id}`} movie={movie} />
               ))}

@@ -25,7 +25,9 @@ Convex agent skills for common tasks can be installed by running
 - Music artist pages should show Popular top tracks and full discography (Spotify-like); top-track artwork must be the track/album image, not the artist image reused for every row; iOS music lock-screen controls should be next/previous track, not ±10s seek; keep catalog/Spotify track duration rather than overwriting with yt-dlp/YouTube stream length.
 - Mobile music player: keep the bar flush with the bottom nav; do not use full-overlay touch capture that blocks taps on controls; queue UI should show the current track at the top (hide prior tracks in the UI, keep them for previous).
 - Party mode: JedFlix↔JedFlix syncs track, play/pause, and position (≈5s grace); Spotify follow mirrors Spotify→JedFlix for track/position, with JedFlix→Spotify pause/play only (never change Spotify’s track or seek).
-- Real Debrid is optional: skipping the API key during onboarding keeps music playable but locks movies, TV, audiobooks, and video games. Never use Last.fm for artist images (including placeholder `2a96cbd8b46e442fc41c2b86b821562f`); store artist image URLs in the music DB rather than downloading catalog-wide image files.
+- Remember the last 5 searches per media category (movies/shows, audiobooks, music) and show them when search is focused and open, with a search icon on the left.
+- My List posters should be centered in the grid.
+- Jed's Picks is a curated home-row under Continue Watching (and on each media-category home). Only `jedborseth@gmail.com` can add/remove items from the top-right of posters; store IDs only, not catalog metadata.
 
 ## Learned Workspace Facts
 

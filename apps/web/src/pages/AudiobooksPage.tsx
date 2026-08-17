@@ -8,6 +8,7 @@ import { HeroBannerSkeleton, PosterRowSkeleton } from "@/components/ui/skeleton"
 import type { AudiobookBrowseResponse, BookItem } from "@/lib/openlibrary";
 import { getAudiobookBrowse, getWorkDetails, pickRandomBook } from "@/lib/openlibrary";
 import { catalogQueryKeys } from "@/lib/queryClient";
+import { JedsPicksRow } from "@/components/jedsPicks/JedsPicksRow";
 import {
   getRecentAudiobooksSnapshot,
   recordRecentAudiobook,
@@ -150,6 +151,7 @@ export function AudiobooksPage() {
             </div>
           </section>
         ) : null}
+        <JedsPicksRow category="audiobook" />
         {rows === undefined ? (
           <>
             <CatalogRowSkeleton title="Trending" />

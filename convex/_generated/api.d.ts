@@ -11,6 +11,7 @@
 import type * as auth from "../auth.js";
 import type * as env from "../env.js";
 import type * as http from "../http.js";
+import type * as jedsPicks from "../jedsPicks.js";
 import type * as likedSongs from "../likedSongs.js";
 import type * as musicInteractions from "../musicInteractions.js";
 import type * as musicTrack from "../musicTrack.js";
@@ -37,6 +38,7 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   env: typeof env;
   http: typeof http;
+  jedsPicks: typeof jedsPicks;
   likedSongs: typeof likedSongs;
   musicInteractions: typeof musicInteractions;
   musicTrack: typeof musicTrack;

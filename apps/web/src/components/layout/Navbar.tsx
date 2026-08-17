@@ -1,9 +1,11 @@
 import {
   FormEvent,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Authenticated, Unauthenticated } from "convex/react";
@@ -20,6 +22,11 @@ import {
   MagnifyingGlassIcon,
 } from "@radix-ui/react-icons";
 import { useUserSettings } from "@/hooks/useUserSettings";
+import {
+  getRecentSearchesSnapshot,
+  recordRecentSearch,
+  subscribeRecentSearches,
+} from "@/lib/recentSearches";
 import {
   searchDebounceMs,
   shouldLiveSearch,
@@ -107,6 +114,21 @@ export function Navbar() {
       : activeSearchMode === "music"
         ? "Search songs, albums, or artists"
         : "Search movies, shows, or cast";
+  const getRecentSnapshot = useCallback(
+    () => getRecentSearchesSnapshot(activeSearchMode),
+    [activeSearchMode],
+  );
+  const recentSearches = useSyncExternalStore(
+    subscribeRecentSearches,
+    getRecentSnapshot,
+    getRecentSnapshot,
+  );
+  const showRecentSearches =
+    isSearchOpen && isSearchFocused && recentSearches.length > 0;
+
+  function rememberQuery(value: string) {
+    recordRecentSearch(activeSearchMode, value);
+  }
 
   function rememberSearchOrigin(path = `${location.pathname}${location.search}`) {
     if (!path.startsWith("/search")) {
@@ -198,6 +220,7 @@ export function Navbar() {
       }
 
       const nextPath = buildSearchPath(trimmed, activeSearchMode);
+      recordRecentSearch(activeSearchMode, trimmed);
       if (current === nextPath) {
         return;
       }
@@ -246,7 +269,20 @@ export function Navbar() {
       return;
     }
 
+    rememberQuery(trimmedQuery);
     const nextPath = buildSearchPath(trimmedQuery, activeSearchMode);
+    const current = `${location.pathname}${location.search}`;
+    if (current !== nextPath) {
+      void navigate(nextPath, { replace: isOnSearchPage });
+    }
+  }
+
+  function applyRecentSearch(value: string) {
+    rememberQuery(value);
+    setQuery(value);
+    setIsSearchOpen(true);
+    setIsSearchFocused(false);
+    const nextPath = buildSearchPath(value, activeSearchMode);
     const current = `${location.pathname}${location.search}`;
     if (current !== nextPath) {
       void navigate(nextPath, { replace: isOnSearchPage });
@@ -322,72 +358,108 @@ export function Navbar() {
           >
             <div
               className={cn(
-                "flex items-center overflow-hidden rounded-md border border-transparent bg-black/40 transition-all duration-200",
+                "relative",
                 isSearchFocused
-                  ? "min-w-0 flex-1 border-zinc-700 px-2"
+                  ? "min-w-0 flex-1"
                   : isSearchOpen
-                    ? "w-52 border-zinc-700 px-2 md:w-72"
-                    : "w-9 hover:border-zinc-700",
+                    ? "w-52 md:w-72"
+                    : "w-9",
               )}
             >
-              <button
-                type={isSearchOpen && query.trim() ? "submit" : "button"}
-                className="flex h-10 w-9 shrink-0 items-center justify-center text-zinc-200 transition hover:text-white md:h-9"
-                aria-label={isSearchOpen ? "Search" : "Open search"}
-                onClick={() => {
-                  if (!isSearchOpen || !isSearchFocused) {
-                    openSearch();
-                  }
-                }}
-              >
-                <MagnifyingGlassIcon className="h-5 w-5" />
-              </button>
-              <Input
-                ref={inputRef}
-                value={query}
-                tabIndex={isSearchOpen || isSearchFocused ? 0 : -1}
-                aria-hidden={!isSearchOpen && !isSearchFocused}
-                autoCapitalize="off"
-                autoCorrect="off"
-                spellCheck={false}
-                enterKeyHint="search"
-                onChange={(event) => {
-                  rememberSearchOrigin();
-                  setIsSearchOpen(true);
-                  setIsSearchFocused(true);
-                  setQuery(event.target.value);
-                }}
-                onFocus={() => {
-                  rememberSearchOrigin();
-                  setIsSearchOpen(true);
-                  setIsSearchFocused(true);
-                }}
-                onBlur={() => {
-                  setIsSearchFocused(false);
-                  if (!query.trim() && !isOnSearchPage) {
-                    setIsSearchOpen(false);
-                  }
-                }}
-                placeholder={searchPlaceholder}
+              <div
                 className={cn(
-                  "h-10 border-0 bg-transparent px-1 text-base text-white placeholder:text-zinc-500 focus-visible:ring-0 md:h-9 md:text-sm",
-                  !isSearchOpen &&
-                    !isSearchFocused &&
-                    "pointer-events-none w-0 px-0 opacity-0",
+                  "flex items-center overflow-hidden rounded-md border border-transparent bg-black/40 transition-all duration-200",
+                  isSearchFocused
+                    ? "min-w-0 w-full border-zinc-700 px-2"
+                    : isSearchOpen
+                      ? "w-full border-zinc-700 px-2"
+                      : "w-9 hover:border-zinc-700",
                 )}
-              />
-              {isSearchFocused && query ? (
+              >
                 <button
-                  type="button"
-                  aria-label="Clear search"
-                  className="flex h-10 w-9 shrink-0 items-center justify-center text-zinc-400 transition hover:text-white md:h-9"
-                  onMouseDown={(event) => {
-                    event.preventDefault();
+                  type={isSearchOpen && query.trim() ? "submit" : "button"}
+                  className="flex h-10 w-9 shrink-0 items-center justify-center text-zinc-200 transition hover:text-white md:h-9"
+                  aria-label={isSearchOpen ? "Search" : "Open search"}
+                  onClick={() => {
+                    if (!isSearchOpen || !isSearchFocused) {
+                      openSearch();
+                    }
                   }}
-                  onClick={clearSearch}
                 >
-                  <Cross2Icon className="h-4 w-4" />
+                  <MagnifyingGlassIcon className="h-5 w-5" />
                 </button>
+                <Input
+                  ref={inputRef}
+                  value={query}
+                  tabIndex={isSearchOpen || isSearchFocused ? 0 : -1}
+                  aria-hidden={!isSearchOpen && !isSearchFocused}
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  enterKeyHint="search"
+                  onChange={(event) => {
+                    rememberSearchOrigin();
+                    setIsSearchOpen(true);
+                    setIsSearchFocused(true);
+                    setQuery(event.target.value);
+                  }}
+                  onFocus={() => {
+                    rememberSearchOrigin();
+                    setIsSearchOpen(true);
+                    setIsSearchFocused(true);
+                  }}
+                  onBlur={() => {
+                    setIsSearchFocused(false);
+                    if (!query.trim() && !isOnSearchPage) {
+                      setIsSearchOpen(false);
+                    }
+                  }}
+                  placeholder={searchPlaceholder}
+                  className={cn(
+                    "h-10 border-0 bg-transparent px-1 text-base text-white placeholder:text-zinc-500 focus-visible:ring-0 md:h-9 md:text-sm",
+                    !isSearchOpen &&
+                      !isSearchFocused &&
+                      "pointer-events-none w-0 px-0 opacity-0",
+                  )}
+                />
+                {isSearchFocused && query ? (
+                  <button
+                    type="button"
+                    aria-label="Clear search"
+                    className="flex h-10 w-9 shrink-0 items-center justify-center text-zinc-400 transition hover:text-white md:h-9"
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                    }}
+                    onClick={clearSearch}
+                  >
+                    <Cross2Icon className="h-4 w-4" />
+                  </button>
+                ) : null}
+              </div>
+              {showRecentSearches ? (
+                <ul
+                  className="absolute left-0 right-0 top-full z-[60] mt-1 overflow-hidden rounded-md border border-zinc-700 bg-zinc-950/95 py-1 shadow-xl shadow-black/50"
+                  aria-label="Recent searches"
+                >
+                  {recentSearches.map((recentQuery) => (
+                    <li key={recentQuery}>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm text-zinc-200 transition hover:bg-zinc-800 hover:text-white"
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                        }}
+                        onClick={() => applyRecentSearch(recentQuery)}
+                      >
+                        <MagnifyingGlassIcon
+                          className="h-4 w-4 shrink-0 text-zinc-500"
+                          aria-hidden
+                        />
+                        <span className="truncate">{recentQuery}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
               ) : null}
             </div>
             {isSearchFocused ? (
