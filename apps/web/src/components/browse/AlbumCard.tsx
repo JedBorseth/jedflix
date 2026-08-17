@@ -1,5 +1,4 @@
 import { AppLink } from "@/components/layout/AppLink";
-import { AddToJedsPicksButton } from "@/components/jedsPicks/AddToJedsPicksButton";
 import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
 import type { AlbumItem } from "@/lib/spotify";
 import { getAlbumDetailPath } from "@/lib/spotify";
@@ -34,7 +33,6 @@ export function AlbumCard({ album, to }: AlbumCardProps) {
           <p className="truncate text-xs text-zinc-500 group-hover:text-zinc-400">{subtitle}</p>
         ) : null}
       </AppLink>
-      <AddToJedsPicksButton item={{ kind: "album", catalogId: album.id }} />
     </div>
   );
 }

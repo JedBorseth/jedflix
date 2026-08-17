@@ -271,7 +271,9 @@ export function SettingsPage() {
                 Real Debrid keys stored in the browser are visible in DevTools.{" "}
                 {syncEnabled
                   ? "Settings sync to your account."
-                  : "Sign in to sync settings to your account."}
+                  : "Sign in to sync settings to your account."}{" "}
+                Enter <span className="font-mono text-zinc-300">121212</span> for a limited demo
+                (5 plays).
               </p>
               {saved ? <p className="text-sm text-emerald-400">Settings saved.</p> : null}
             </CardContent>

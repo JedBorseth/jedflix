@@ -419,7 +419,9 @@ function StepFields({
                 </Button>
               </div>
               <p className="text-sm text-zinc-500">
-                Music works without Real Debrid. Skip if you only want to listen.
+                Music works without Real Debrid. Skip if you only want to listen. For a limited
+                trial, enter <span className="font-mono text-zinc-300">121212</span> as the API
+                key (5 movie, show, or audiobook plays).
               </p>
             </div>
           )}

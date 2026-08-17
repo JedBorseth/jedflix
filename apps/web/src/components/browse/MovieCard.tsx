@@ -1,6 +1,5 @@
 import { useRef, type MouseEvent } from "react";
 import { AppLink } from "@/components/layout/AppLink";
-import { AddToJedsPicksButton } from "@/components/jedsPicks/AddToJedsPicksButton";
 import { useHasRealDebridApiKey } from "@/hooks/useHasRealDebridApiKey";
 import { blockDebridMediaNavigation } from "@/lib/debridAccess";
 import type { MediaItem } from "@/lib/types";
@@ -52,12 +51,6 @@ export function MovieCard({ movie }: MovieCardProps) {
           {movie.title}
         </p>
       </AppLink>
-      <AddToJedsPicksButton
-        item={{
-          kind: movie.mediaType === "tv" ? "tv" : "movie",
-          movieId: movie.id,
-        }}
-      />
     </div>
   );
 }

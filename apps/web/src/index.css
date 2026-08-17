@@ -4,8 +4,14 @@
 
 :root {
   /* Navbar py-4 + control height (~h-10). Queue and back button sit below this. */
-  --navbar-offset: calc(4.75rem + env(safe-area-inset-top, 0px));
+  --navbar-chrome-offset: calc(4.75rem + env(safe-area-inset-top, 0px));
+  --demo-banner-height: 0px;
+  --navbar-offset: calc(var(--navbar-chrome-offset) + var(--demo-banner-height));
   --desktop-queue-width: 22rem;
+}
+
+html.demo-rd {
+  --demo-banner-height: 2.75rem;
 }
 
 /* To change the theme colors, change the values below
@@ -150,7 +156,7 @@
 
 @layer utilities {
   .pt-navbar {
-    padding-top: calc(7rem + env(safe-area-inset-top, 0px));
+    padding-top: calc(7rem + env(safe-area-inset-top, 0px) + var(--demo-banner-height));
   }
 
   /**

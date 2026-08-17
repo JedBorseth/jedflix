@@ -11,6 +11,7 @@ import { PartyPanel } from "@/components/party/PartyPanel";
 import { PartyProvider } from "@/components/party/PartyProvider";
 import { MusicPlayerBar } from "@/components/player/music/MusicPlayerBar";
 import { JedsPicksProvider } from "@/components/jedsPicks/JedsPicksProvider";
+import { DemoRdProvider } from "@/components/demo/DemoRdProvider";
 import {
   MusicPlayerProvider,
   useMusicPlayer,
@@ -78,9 +79,11 @@ export function RootLayout() {
           <ScreenKeepAwake />
           <ScrollToTopOnNavigate />
           {showNavbar ? <Navbar /> : null}
-          <JedsPicksProvider>
-            <QueueAwareMain />
-          </JedsPicksProvider>
+          <DemoRdProvider>
+            <JedsPicksProvider>
+              <QueueAwareMain />
+            </JedsPicksProvider>
+          </DemoRdProvider>
           {/* Stack player + nav so they sit flush with no gap */}
           <div className="fixed inset-x-0 bottom-0 z-50 flex flex-col">
             {showMusicChrome ? <MusicPlayerBar /> : null}

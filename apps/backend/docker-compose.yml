@@ -16,3 +16,4 @@ services:
       ABB_BASE_URL: ${ABB_BASE_URL:-https://audiobookbay.lu}
       ABB_USERNAME: ${ABB_USERNAME:-}
       ABB_PASSWORD: ${ABB_PASSWORD:-}
+      REAL_DEBRID_DEMO_API_KEY: ${REAL_DEBRID_DEMO_API_KEY:-}

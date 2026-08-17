@@ -279,6 +279,7 @@ export type MusicRecommendResponse = {
 
 export type StreamClientConfig = {
   apiBase: string;
+  getRequestHeaders?: (realDebridToken?: string) => Record<string, string>;
 };
 
 export type StreamClient = {
@@ -353,6 +354,7 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
   function headers(realDebridToken?: string): HeadersInit {
     const result: Record<string, string> = {
       "Content-Type": "application/json",
+      ...(config.getRequestHeaders?.(realDebridToken) ?? {}),
     };
     if (realDebridToken) {
       result.Authorization = `Bearer ${realDebridToken}`;
@@ -391,8 +393,15 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
       }),
     });
     if (!response.ok) {
-      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-      throw new Error(payload?.error ?? `Source search failed (${response.status})`);
+      const payload = (await response.json().catch(() => null)) as {
+        error?: string;
+        code?: string;
+      } | null;
+      const message = payload?.error ?? `Source search failed (${response.status})`;
+      if (payload?.code) {
+        throw new StreamResolveError(payload.code, message, response.status);
+      }
+      throw new Error(message);
     }
     const payload = (await response.json()) as { sources: StreamSource[] };
     return (payload.sources ?? []).map(normalizeSource);

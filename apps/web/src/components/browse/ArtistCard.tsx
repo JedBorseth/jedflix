@@ -1,5 +1,4 @@
 import { AppLink } from "@/components/layout/AppLink";
-import { AddToJedsPicksButton } from "@/components/jedsPicks/AddToJedsPicksButton";
 import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
 import type { ArtistSummary } from "@/lib/spotify";
 import { getArtistPath } from "@/lib/spotify";
@@ -40,7 +39,6 @@ export function ArtistCard({ artist }: ArtistCardProps) {
           </p>
         ) : null}
       </AppLink>
-      <AddToJedsPicksButton item={{ kind: "artist", catalogId: artist.id }} />
     </div>
   );
 }

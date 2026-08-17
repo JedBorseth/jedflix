@@ -1,5 +1,4 @@
 import { AppLink } from "@/components/layout/AppLink";
-import { AddToJedsPicksButton } from "@/components/jedsPicks/AddToJedsPicksButton";
 import { useHasRealDebridApiKey } from "@/hooks/useHasRealDebridApiKey";
 import { blockDebridMediaNavigation } from "@/lib/debridAccess";
 import type { WatchHistoryItem } from "@/lib/watchHistory";
@@ -52,12 +51,6 @@ export function ContinueWatchingCard({ item }: ContinueWatchingCardProps) {
           {item.media.title}
         </p>
       </AppLink>
-      <AddToJedsPicksButton
-        item={{
-          kind: item.mediaType === "tv" ? "tv" : "movie",
-          movieId: item.media.id,
-        }}
-      />
     </div>
   );
 }

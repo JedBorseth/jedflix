@@ -1,5 +1,4 @@
 import { AppLink } from "@/components/layout/AppLink";
-import { AddToJedsPicksButton } from "@/components/jedsPicks/AddToJedsPicksButton";
 import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
 import type { BookItem } from "@/lib/openlibrary";
 import { getBookDetailPath } from "@/lib/openlibrary";
@@ -39,7 +38,6 @@ export function BookCard({ book, to }: BookCardProps) {
           </p>
         ) : null}
       </AppLink>
-      <AddToJedsPicksButton item={{ kind: "audiobook", workId: book.id }} />
     </div>
   );
 }

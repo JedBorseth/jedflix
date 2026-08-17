@@ -1,8 +1,10 @@
 import { createStreamClient } from "@jedflix/stream-client";
 import { getBackendApiBase } from "@/lib/backendEnv";
+import { getDemoRdRequestHeaders } from "@/lib/demoRealDebrid";
 
 const streamClient = createStreamClient({
   apiBase: getBackendApiBase(),
+  getRequestHeaders: getDemoRdRequestHeaders,
 });
 
 export type {

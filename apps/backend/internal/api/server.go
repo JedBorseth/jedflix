@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"github.com/jedborseth/jeds-movies/backend/internal/config"
+	"github.com/jedborseth/jeds-movies/backend/internal/demord"
 	"github.com/jedborseth/jeds-movies/backend/internal/lastfm"
 	"github.com/jedborseth/jeds-movies/backend/internal/letterboxd"
 	"github.com/jedborseth/jeds-movies/backend/internal/musicbrainz"
@@ -38,6 +39,7 @@ type Server struct {
 	youtube     *youtube.Resolver
 	limiter     *ipRateLimiter
 	resolveSem  chan struct{}
+	demoRd      *demord.Gate
 }
 
 func NewServer(
@@ -69,6 +71,10 @@ func NewServer(
 		youtube:     youtubeResolver,
 		limiter:     newIPRateLimiter(20, 40), // ~20 req/s sustained, burst 40
 		resolveSem:  make(chan struct{}, resolveSlots),
+		demoRd: &demord.Gate{
+			ServerKey: cfg.RealDebridDemoAPIKey,
+			Store:     demord.NewStore(cfg.DemoRdPlaysPath, cfg.DemoRdPlayLimit),
+		},
 	}
 }
 
@@ -90,7 +96,7 @@ func (s *Server) Router() http.Handler {
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   s.cfg.CORSOrigins,
 		AllowedMethods:   []string{"GET", "HEAD", "POST", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "Range"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "Range", demord.UserHeader},
 		ExposedHeaders:   []string{"Content-Range", "Accept-Ranges", "Content-Length", "Content-Type", "X-Audio-Duration-Ms", "X-Audio-Ext"},
 		AllowCredentials: false,
 		MaxAge:           300,
@@ -159,6 +165,11 @@ func (s *Server) handleSources(w http.ResponseWriter, r *http.Request) {
 	if token := bearerToken(r); token != "" {
 		req.RealDebridToken = token
 	}
+	rewritten, ok := s.applyDemoRealDebrid(w, r, req.RealDebridToken, req.Type, false)
+	if !ok {
+		return
+	}
+	req.RealDebridToken = rewritten
 	if (req.Type == "audiobook" || req.Type == "ebook") && strings.TrimSpace(req.Query) == "" {
 		req.Query = strings.TrimSpace(strings.TrimSpace(req.Title) + " " + strings.TrimSpace(req.Author))
 	}
@@ -188,6 +199,11 @@ func (s *Server) handleResolve(w http.ResponseWriter, r *http.Request) {
 	if token := bearerToken(r); token != "" {
 		req.RealDebridToken = token
 	}
+	rewritten, ok := s.applyDemoRealDebrid(w, r, req.RealDebridToken, req.Type, false)
+	if !ok {
+		return
+	}
+	req.RealDebridToken = rewritten
 
 	timeout := s.cfg.ResolveTimeout
 	if timeout <= 0 {
@@ -205,6 +221,10 @@ func (s *Server) handleResolve(w http.ResponseWriter, r *http.Request) {
 				"error": "too many resolve jobs in progress",
 				"code":  "rate_limited",
 			})
+			return
+		}
+		if !s.consumeDemoPlay(w, r, req.Type) {
+			s.release(s.resolveSem)
 			return
 		}
 		job := s.jobs.Start(timeout+30*time.Second, req, func(
@@ -225,6 +245,10 @@ func (s *Server) handleResolve(w http.ResponseWriter, r *http.Request) {
 			"error": "too many resolve jobs in progress",
 			"code":  "rate_limited",
 		})
+		return
+	}
+	if !s.consumeDemoPlay(w, r, req.Type) {
+		s.release(s.resolveSem)
 		return
 	}
 	defer s.release(s.resolveSem)
@@ -267,6 +291,10 @@ func writeResolveError(w http.ResponseWriter, err error) {
 			status = http.StatusUnavailableForLegalReasons
 		case "rate_limited":
 			status = http.StatusTooManyRequests
+		case "demo_limit_reached":
+			status = http.StatusForbidden
+		case "demo_unavailable":
+			status = http.StatusServiceUnavailable
 		case "magnet_error", "abb_magnet":
 			status = http.StatusBadRequest
 		}
@@ -1019,4 +1047,61 @@ func bearerToken(r *http.Request) string {
 		return ""
 	}
 	return strings.TrimSpace(token)
+}
+
+func (s *Server) applyDemoRealDebrid(
+	w http.ResponseWriter,
+	r *http.Request,
+	token string,
+	mediaType string,
+	consume bool,
+) (string, bool) {
+	if s == nil || s.demoRd == nil || !demord.IsClientToken(token) {
+		return token, true
+	}
+	userID := demord.UserID(r, clientIP(r))
+	rewritten, err := s.demoRd.Apply(token, mediaType, userID, consume)
+	if err == nil {
+		return rewritten, true
+	}
+	if errors.Is(err, demord.ErrUnavailable) {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": demord.UnavailableMessage,
+			"code":  "demo_unavailable",
+		})
+		return "", false
+	}
+	if errors.Is(err, demord.ErrLimitReached) {
+		writeJSON(w, http.StatusForbidden, map[string]string{
+			"error": demord.LimitReachedMessage,
+			"code":  "demo_limit_reached",
+		})
+		return "", false
+	}
+	writeJSON(w, http.StatusInternalServerError, map[string]string{
+		"error": "demo Real Debrid failed",
+		"code":  "demo_unavailable",
+	})
+	return "", false
+}
+
+func (s *Server) consumeDemoPlay(w http.ResponseWriter, r *http.Request, mediaType string) bool {
+	if s == nil || s.demoRd == nil || !demord.IsClientToken(bearerToken(r)) {
+		return true
+	}
+	if !demord.CountsAsPlay(mediaType) {
+		return true
+	}
+	userID := demord.UserID(r, clientIP(r))
+	if s.demoRd.Store == nil {
+		s.demoRd.Store = demord.NewStore("", demord.DefaultPlayLimit)
+	}
+	if err := s.demoRd.Store.Consume(userID); err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]string{
+			"error": demord.LimitReachedMessage,
+			"code":  "demo_limit_reached",
+		})
+		return false
+	}
+	return true
 }

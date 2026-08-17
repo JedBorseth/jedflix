@@ -19,7 +19,9 @@ export type RealDebridErrorCode =
   | "cancelled"
   | "invalid_request"
   | "magnet_error"
-  | "abb_magnet";
+  | "abb_magnet"
+  | "demo_limit_reached"
+  | "demo_unavailable";
 
 export class RealDebridError extends Error {
   code: RealDebridErrorCode;
@@ -95,6 +97,8 @@ function normalizeErrorCode(code: string): RealDebridErrorCode {
     case "invalid_request":
     case "magnet_error":
     case "abb_magnet":
+    case "demo_limit_reached":
+    case "demo_unavailable":
       return code;
     default:
       return "no_links";
