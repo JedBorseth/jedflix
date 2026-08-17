@@ -6,6 +6,7 @@ import { api } from "@convex/_generated/api";
 import { BookCard } from "@/components/browse/BookCard";
 import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
 import { AppLink } from "@/components/layout/AppLink";
+import { AddToJedsPicksButton } from "@/components/jedsPicks/AddToJedsPicksButton";
 import { AddToMyListButton } from "@/components/mylist/AddToMyListButton";
 import { MediaReviews } from "@/components/reviews/MediaReviews";
 import { Button } from "@/components/ui/button";
@@ -170,12 +171,20 @@ export function AudiobookDetailPage() {
         <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/90 to-black/60" />
 
         <div className="pt-navbar relative z-10 mx-auto flex max-w-6xl flex-col gap-8 px-4 pb-chrome md:flex-row md:items-start md:px-12">
-          <ProgressiveCoverImage
-            src={displayBook.coverUrl}
-            fullSrc={displayBook.coverFullUrl}
-            alt={displayBook.title}
-            className="mx-auto aspect-[2/3] h-auto w-56 shrink-0 self-start rounded-md object-cover shadow-2xl md:mx-0 md:w-64"
-          />
+          <div className="relative mx-auto w-56 shrink-0 self-start md:mx-0 md:w-64">
+            <ProgressiveCoverImage
+              src={displayBook.coverUrl}
+              fullSrc={displayBook.coverFullUrl}
+              alt={displayBook.title}
+              className="aspect-[2/3] h-auto w-56 rounded-md object-cover shadow-2xl md:w-64"
+            />
+            {normalizedId ? (
+              <AddToJedsPicksButton
+                item={{ kind: "audiobook", workId: normalizedId }}
+                className="h-8 w-8"
+              />
+            ) : null}
+          </div>
           <div className="flex min-w-0 flex-col justify-end">
             <h1 className="mb-4 text-4xl font-bold md:text-5xl">{displayBook.title}</h1>
             <div className="mb-4 flex flex-wrap gap-3 text-sm text-zinc-300">

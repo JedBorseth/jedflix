@@ -3,6 +3,7 @@ import { useLocation, useParams } from "react-router-dom";
 import { AlbumCard } from "@/components/browse/AlbumCard";
 import { ArtistCard } from "@/components/browse/ArtistCard";
 import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
+import { AddToJedsPicksButton } from "@/components/jedsPicks/AddToJedsPicksButton";
 import { AppLink } from "@/components/layout/AppLink";
 import { useMusicPlayer } from "@/components/player/music/MusicPlayerContext";
 import { SwipeableTrackRow } from "@/components/player/music/SwipeableTrackRow";
@@ -171,11 +172,17 @@ export function AlbumDetailPage() {
         <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/90 to-black/60" />
 
         <div className="pt-navbar relative z-10 mx-auto flex max-w-6xl flex-col gap-8 px-4 pb-10 md:flex-row md:items-start md:px-12">
-          <ProgressiveCoverImage
-            src={displayAlbum.imageUrl}
-            alt={displayAlbum.name}
-            className="mx-auto aspect-square h-auto w-56 shrink-0 self-start rounded-md object-cover shadow-2xl md:mx-0 md:w-64"
-          />
+          <div className="relative mx-auto w-56 shrink-0 self-start md:mx-0 md:w-64">
+            <ProgressiveCoverImage
+              src={displayAlbum.imageUrl}
+              alt={displayAlbum.name}
+              className="aspect-square h-auto w-56 rounded-md object-cover shadow-2xl md:w-64"
+            />
+            <AddToJedsPicksButton
+              item={{ kind: "album", catalogId: displayAlbum.id }}
+              className="h-8 w-8"
+            />
+          </div>
           <div className="flex min-w-0 flex-col justify-end">
             <p className="mb-2 text-sm font-medium uppercase tracking-widest text-red-500">
               {displayAlbum.albumType || "Album"}

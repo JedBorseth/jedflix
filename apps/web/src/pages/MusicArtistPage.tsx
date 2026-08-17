@@ -4,6 +4,7 @@ import { useLocation, useParams } from "react-router-dom";
 import { AlbumCard } from "@/components/browse/AlbumCard";
 import { ArtistCard } from "@/components/browse/ArtistCard";
 import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
+import { AddToJedsPicksButton } from "@/components/jedsPicks/AddToJedsPicksButton";
 import { AppLink } from "@/components/layout/AppLink";
 import { useMusicPlayer } from "@/components/player/music/MusicPlayerContext";
 import { SwipeableTrackRow } from "@/components/player/music/SwipeableTrackRow";
@@ -107,11 +108,17 @@ export function MusicArtistPage() {
     <div className="min-h-screen bg-zinc-950 text-white">
       <main className="pt-navbar mx-auto max-w-6xl px-4 pb-chrome md:px-12">
         <div className="mb-10 flex flex-col items-center gap-8 md:flex-row md:items-start">
-          <ProgressiveCoverImage
-            src={artist.imageUrl}
-            alt={artist.name}
-            className="aspect-square w-48 shrink-0 rounded-full object-cover shadow-2xl md:w-56"
-          />
+          <div className="relative w-48 shrink-0 md:w-56">
+            <ProgressiveCoverImage
+              src={artist.imageUrl}
+              alt={artist.name}
+              className="aspect-square w-48 rounded-full object-cover shadow-2xl md:w-56"
+            />
+            <AddToJedsPicksButton
+              item={{ kind: "artist", catalogId: artist.id }}
+              className="h-8 w-8"
+            />
+          </div>
           <div className="min-w-0 flex-1 text-center md:text-left">
             <p className="mb-2 text-sm font-medium uppercase tracking-widest text-red-500">
               Artist
