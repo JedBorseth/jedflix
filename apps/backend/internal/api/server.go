@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -887,6 +888,9 @@ func (s *Server) handleYouTubeAudio(w http.ResponseWriter, r *http.Request) {
 func writeYouTubeError(w http.ResponseWriter, err error) {
 	status := http.StatusBadGateway
 	message := "youtube audio unavailable"
+	if err != nil {
+		log.Printf("youtube audio error: %v", err)
+	}
 	switch {
 	case errors.Is(err, youtube.ErrBadRequest):
 		status = http.StatusBadRequest
