@@ -131,7 +131,10 @@ export async function resolveStreamServerAudioError(
   }
 
   try {
-    const response = await fetchImpl(src);
+    // googlevideo 403s a GET with no closed Range; probe a 2-byte slice instead.
+    const response = await fetchImpl(src, {
+      headers: { Range: "bytes=0-1" },
+    });
     const contentType = response.headers.get("content-type") ?? "";
     if (!contentType.includes("json")) {
       return base;

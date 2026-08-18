@@ -73,6 +73,23 @@ describe("resolveStreamServerAudioError", () => {
     expect(message.toLowerCase()).not.toContain("format");
   });
 
+  test("probes the stream with a closed Range so googlevideo does not 403", async () => {
+    const media = {
+      currentSrc: "https://example/audio",
+      src: "https://example/audio",
+      error: { code: 4, message: "Format error" },
+    } as unknown as HTMLMediaElement;
+    let rangeHeader = "";
+    await resolveStreamServerAudioError(media, async (_url, init) => {
+      const headers = new Headers(init?.headers);
+      rangeHeader = headers.get("Range") ?? "";
+      return new Response(JSON.stringify({ error: "youtube busy" }), {
+        headers: { "content-type": "application/json" },
+      });
+    });
+    expect(rangeHeader).toBe("bytes=0-1");
+  });
+
   test("maps missing browser-compatible formats without calling it unsupported", async () => {
     const media = {
       currentSrc: "https://example/audio",
