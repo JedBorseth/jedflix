@@ -1,12 +1,16 @@
 # JedFlix
 
-JedFlix brings movies, TV shows, audiobooks, ebooks, and music together in a single web experience, with a focus on fast search, direct streaming, and a polished streaming UI.
+JedFlix brings movies, TV shows, audiobooks, ebooks, and music together in a single web experience — fast search, direct streaming, and a polished Netflix-style UI.
 
-> 🚧 **JedFlix is actively developed and is not yet intended as a plug-and-play production release.**
+<p align="center">
+  <img src="docs/screenshots/home.png" alt="JedFlix home with hero banner and Jed's Picks" width="920" />
+</p>
 
-> 📱 **Built from an iPhone:** A large portion of JedFlix was developed almost entirely from an iPhone using Cursor. As a result, expect bugs, rough edges, questionable decisions, and the occasional "it works on my machine" moment. Contributions and bug reports are welcome!
+> 🚧 **Actively developed** — not intended as a plug-and-play production release.
 
-> 🎵 AI-powered music search — JedFlix maintains a local MusicBrainz dataset and combines vector search with Qwen reranking to make searching a massive music catalog fast and forgiving.
+> 📱 **Built from an iPhone:** A large portion of JedFlix was developed from an iPhone using Cursor. Expect bugs, rough edges, and the occasional "it works on my machine" moment. Contributions and bug reports are welcome!
+
+> 🎵 **AI-powered music search** — a local MusicBrainz dataset plus vector search and Qwen reranking, so searching a huge catalog stays fast and forgiving.
 
 
 
@@ -120,14 +124,20 @@ The web application can also be installed as a PWA for a more native-like experi
 
 ## 📸 Screenshots
 
-> Screenshots coming soon.
+<p align="center">
+  <img src="docs/screenshots/home.png" alt="Home — hero banner, Jed's Picks, and browse rows" width="920" />
+</p>
+<p align="center"><em>Home — hero banner, Jed's Picks, and browse rows</em></p>
 
-<!--
-![Home](docs/screenshots/home.png)
-![Movie](docs/screenshots/movie.png)
-![Music](docs/screenshots/music.png)
-![Player](docs/screenshots/player.png)
--->
+<p align="center">
+  <img src="docs/screenshots/show-details.png" alt="Show details — cast, seasons, episodes, and similar titles" width="920" />
+</p>
+<p align="center"><em>Shows — cast, seasons, episode synopses, and similar titles</em></p>
+
+<p align="center">
+  <img src="docs/screenshots/music.png" alt="Music — recently played, queue, and player" width="920" />
+</p>
+<p align="center"><em>Music — recently played, queue, and player</em></p>
 
 ---
 
@@ -190,6 +200,6 @@ Torrentio is used for source discovery while Real-Debrid is used to resolve avai
 The server resolves the requested audio using `yt-dlp`, allowing the client to stream the resulting source.
 
 
-## 👨‍💻
+## 👨‍💻 Author
 
-Built by **Jed Borseth**.
+Built by **[Jed Borseth](https://github.com/JedBorseth)**.
