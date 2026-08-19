@@ -8,9 +8,7 @@ JedFlix brings movies, TV shows, audiobooks, ebooks, and music together in a sin
 
 > 🚧 **Actively developed** — not intended as a plug-and-play production release.
 
-> 📱 **Built from an iPhone:** A large portion of JedFlix was developed from an iPhone using Cursor. Expect bugs, rough edges, and the occasional "it works on my machine" moment. Contributions and bug reports are welcome!
-
-> 🎵 **AI-powered music search** — a local MusicBrainz dataset plus vector search and Qwen reranking, so searching a huge catalog stays fast and forgiving.
+> 🎵 **AI-powered music search** — a local MusicBrainz dataset plus vector search and Qwen reranking, so searching a 2 million song catalog stays fast and forgiving.
 
 
 
