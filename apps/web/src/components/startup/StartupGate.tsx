@@ -2,7 +2,12 @@ import { useCallback, useLayoutEffect, useState, type ReactNode } from "react";
 import gsap from "gsap";
 import { StartupAnimation } from "./StartupAnimation";
 import { useAppReady } from "./useAppReady";
+import { isTvPairingPath } from "@/lib/tvRdKey";
 import "./StartupAnimation.css";
+
+function shouldSkipStartupIntro(): boolean {
+  return typeof window !== "undefined" && isTvPairingPath(window.location.pathname);
+}
 
 type StartupGateProps = {
   children: ReactNode;
@@ -14,9 +19,10 @@ type StartupGateProps = {
  * The app shell renders underneath (hidden) so the exit crossfade feels seamless.
  */
 export function StartupGate({ children }: StartupGateProps) {
+  const skipIntro = shouldSkipStartupIntro();
   const appReady = useAppReady();
-  const [introComplete, setIntroComplete] = useState(false);
-  const [overlayMounted, setOverlayMounted] = useState(true);
+  const [introComplete, setIntroComplete] = useState(skipIntro);
+  const [overlayMounted, setOverlayMounted] = useState(!skipIntro);
   const [appShell, setAppShell] = useState<HTMLElement | null>(null);
 
   const dismissible = introComplete && appReady;

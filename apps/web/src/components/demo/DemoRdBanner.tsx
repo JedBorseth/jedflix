@@ -1,5 +1,6 @@
 import { useLocation } from "react-router-dom";
 import { REAL_DEBRID_AFFILIATE_URL } from "@/lib/demoRealDebrid";
+import { isTvPairingPath } from "@/lib/tvRdKey";
 import { cn } from "@/lib/utils";
 
 type DemoRdBannerProps = {
@@ -9,6 +10,10 @@ type DemoRdBannerProps = {
 
 export function DemoRdBanner({ remaining, playLimit }: DemoRdBannerProps) {
   const { pathname } = useLocation();
+  if (isTvPairingPath(pathname)) {
+    return null;
+  }
+
   const belowNavbar =
     pathname !== "/onboarding" &&
     !pathname.startsWith("/watch") &&

@@ -24,6 +24,7 @@ import (
 	"github.com/jedborseth/jeds-movies/backend/internal/resolvejobs"
 	"github.com/jedborseth/jeds-movies/backend/internal/resolver"
 	"github.com/jedborseth/jeds-movies/backend/internal/tmdb"
+	"github.com/jedborseth/jeds-movies/backend/internal/tvrdkey"
 	"github.com/jedborseth/jeds-movies/backend/internal/youtube"
 )
 
@@ -41,6 +42,8 @@ type Server struct {
 	limiter     *ipRateLimiter
 	resolveSem  chan struct{}
 	demoRd      *demord.Gate
+	tvRdKey     *tvrdkey.Store
+	tvRdKeyWait time.Duration
 }
 
 func NewServer(
@@ -77,6 +80,8 @@ func NewServer(
 			ServerKey: cfg.RealDebridDemoAPIKey,
 			Store:     demord.NewStore(cfg.DemoRdPlaysPath, cfg.DemoRdPlayLimit),
 		},
+		tvRdKey:     tvrdkey.NewStore(tvrdkey.DefaultTTL),
+		tvRdKeyWait: tvRdKeyWaitDefault,
 	}
 }
 
@@ -97,7 +102,7 @@ func (s *Server) Router() http.Handler {
 
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   s.cfg.CORSOrigins,
-		AllowedMethods:   []string{"GET", "HEAD", "POST", "OPTIONS"},
+		AllowedMethods:   []string{"GET", "HEAD", "POST", "PUT", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "Range", demord.UserHeader},
 		ExposedHeaders:   []string{"Content-Range", "Accept-Ranges", "Content-Length", "Content-Type", "X-Audio-Duration-Ms", "X-Audio-Ext"},
 		AllowCredentials: false,
@@ -141,6 +146,12 @@ func (s *Server) Router() http.Handler {
 		r.Get("/youtube/search", s.handleYouTubeSearch)
 		r.Get("/youtube/audio", s.handleYouTubeAudio)
 		r.Head("/youtube/audio", s.handleYouTubeAudio)
+		r.Route("/tv/rd-key/{code}", func(r chi.Router) {
+			r.Put("/", s.handleTvRdKeyOpen)
+			r.Get("/", s.handleTvRdKeyWait)
+			r.Post("/", s.handleTvRdKeySubmit)
+			r.Get("/status", s.handleTvRdKeyStatus)
+		})
 	})
 
 	return r

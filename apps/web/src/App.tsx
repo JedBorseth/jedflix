@@ -23,6 +23,7 @@ import { SignInForm } from "@/components/auth/SignInForm";
 import { SearchPage } from "@/pages/SearchPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { PersonPage } from "@/pages/PersonPage";
+import { TvRealDebridPage } from "@/pages/TvRealDebridPage";
 
 const WatchPage = lazy(() =>
   import("@/pages/WatchPage").then((module) => ({ default: module.WatchPage })),
@@ -126,6 +127,7 @@ const router = createBrowserRouter([
       { path: "/my-list", element: <MyListPage /> },
       { path: "/settings", element: <SettingsPage /> },
       { path: "/sign-in", element: <SignInForm /> },
+      { path: "/tv/rd/:code", element: <TvRealDebridPage /> },
       { path: "*", element: <Navigate to="/" replace /> },
     ],
   },

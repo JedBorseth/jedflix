@@ -119,6 +119,7 @@ func redactLogger(next http.Handler) http.Handler {
 		uri := r.URL.RequestURI()
 		uri = redactQueryParam(uri, "apikey")
 		uri = redactQueryParam(uri, "token")
+		uri = redactTvRdKeyURI(uri)
 		log.Printf("%s %s %d %s", r.Method, uri, ww.status, time.Since(start).Round(time.Millisecond))
 	})
 }

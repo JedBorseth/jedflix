@@ -17,11 +17,12 @@ import {
   useMusicPlayer,
 } from "@/components/player/music/MusicPlayerContext";
 import { cn } from "@/lib/utils";
+import { isTvPairingPath } from "@/lib/tvRdKey";
 
 const HIDE_CHROME_PATHS = ["/sign-in", "/onboarding"];
 
 function shouldShowBottomNav(pathname: string) {
-  if (HIDE_CHROME_PATHS.includes(pathname)) {
+  if (HIDE_CHROME_PATHS.includes(pathname) || isTvPairingPath(pathname)) {
     return false;
   }
 
@@ -33,7 +34,7 @@ function shouldShowBottomNav(pathname: string) {
 }
 
 function shouldShowNavbar(pathname: string) {
-  if (pathname === "/onboarding") {
+  if (pathname === "/onboarding" || isTvPairingPath(pathname)) {
     return false;
   }
 
@@ -89,8 +90,8 @@ export function RootLayout() {
             {showMusicChrome ? <MusicPlayerBar /> : null}
             {showBottomNav ? <MobileBottomNav /> : null}
           </div>
-          <PartyPanel />
-          <SpotifyImportProgress />
+          {isTvPairingPath(pathname) ? null : <PartyPanel />}
+          {isTvPairingPath(pathname) ? null : <SpotifyImportProgress />}
           <Toaster theme="dark" position="bottom-right" richColors closeButton />
         </OnboardingGate>
       </PartyProvider>
