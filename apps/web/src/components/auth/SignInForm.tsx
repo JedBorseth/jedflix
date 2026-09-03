@@ -46,7 +46,10 @@ export function SignInForm() {
   async function handleSocialSignIn(provider: SocialProvider) {
     setSubmittingProvider(provider);
     try {
-      await signIn(provider, { redirectTo: window.location.origin });
+      // Convex Auth only allows relative paths or URLs that start with SITE_URL.
+      // Passing window.location.origin breaks GitHub/Google OAuth when the
+      // current origin does not match the Convex SITE_URL exactly.
+      await signIn(provider, { redirectTo: "/" });
     } catch (error: unknown) {
       console.error(error);
       toast.error("Authentication failed");
