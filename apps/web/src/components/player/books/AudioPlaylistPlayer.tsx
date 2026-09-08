@@ -1,8 +1,20 @@
 import { PauseIcon, PlayIcon, TrackNextIcon, TrackPreviousIcon } from "@radix-ui/react-icons";
 import { useEffect, useRef, useState } from "react";
-import { useMediaSession } from "@/hooks/useMediaSession";
+import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
+import {
+  ChapterQueuePanel,
+  ChaptersToggleButton,
+} from "@/components/player/books/ChapterQueuePanel";
 import { mapMediaElementError } from "@/components/player/shared/playbackErrors";
+import { useMediaSession } from "@/hooks/useMediaSession";
+import {
+  formatAudiobookTime,
+  humanizeChapterTitle,
+  isIgnorableAudioAbort,
+  nextChapterIndex,
+} from "@/lib/chapterTitle";
 import { playMediaElement } from "@/lib/mediaSession";
+import { cn } from "@/lib/utils";
 import type { PackKind, StreamFile } from "@/lib/streamApi";
 
 type AudioPlaylistPlayerProps = {
@@ -15,20 +27,6 @@ type AudioPlaylistPlayerProps = {
   initialPositionSec?: number;
   onProgress?: (progress: { fileIndex: number; positionSec: number }) => void;
 };
-
-function formatTime(sec: number) {
-  if (!Number.isFinite(sec) || sec < 0) {
-    return "0:00";
-  }
-  const total = Math.floor(sec);
-  const hours = Math.floor(total / 3600);
-  const minutes = Math.floor((total % 3600) / 60);
-  const seconds = total % 60;
-  if (hours > 0) {
-    return `${hours}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
-  }
-  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
-}
 
 function applyInitialSeek(
   audio: HTMLAudioElement,
@@ -68,22 +66,50 @@ export function AudioPlaylistPlayer({
   const [loading, setLoading] = useState(true);
   const [current, setCurrent] = useState(initialPositionSec);
   const [duration, setDuration] = useState(0);
+  const [durations, setDurations] = useState<Record<number, number>>({});
   const [rate, setRate] = useState(1);
   const [playbackError, setPlaybackError] = useState<string>();
+  const [chaptersOpen, setChaptersOpen] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia("(min-width: 768px)").matches : true,
+  );
   const seekAppliedRef = useRef(false);
   const playIntentRef = useRef(false);
+  const advancingRef = useRef(false);
+  const fileIndexRef = useRef(fileIndex);
+  const filesRef = useRef(files);
+  const currentRef = useRef(current);
+  const durationRef = useRef(duration);
+  fileIndexRef.current = fileIndex;
+  filesRef.current = files;
+  currentRef.current = current;
+  durationRef.current = duration;
 
   const currentFile = files[fileIndex];
+  const chapterTitle = currentFile
+    ? humanizeChapterTitle(currentFile.filename)
+    : undefined;
   const chapterLabel =
-    files.length > 1
-      ? `${fileIndex + 1}. ${currentFile?.filename ?? "Chapter"}`
-      : undefined;
+    files.length > 1 && chapterTitle
+      ? `${fileIndex + 1}. ${chapterTitle}`
+      : chapterTitle;
+
+  useEffect(() => {
+    const query = window.matchMedia("(min-width: 768px)");
+    const onChange = () => {
+      if (!query.matches) {
+        setChaptersOpen(false);
+      }
+    };
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
 
   useEffect(() => {
     seekAppliedRef.current = false;
     setCurrent(fileIndex === initialFileIndex ? initialPositionSec : 0);
     setPlaybackError(undefined);
     setLoading(true);
+    setDuration(0);
   }, [fileIndex, initialFileIndex, initialPositionSec, currentFile?.url]);
 
   useEffect(() => {
@@ -101,18 +127,18 @@ export function AudioPlaylistPlayer({
         return;
       }
       onProgress?.({
-        fileIndex,
+        fileIndex: fileIndexRef.current,
         positionSec: Math.floor(audio.currentTime),
       });
     }, 15000);
     return () => window.clearInterval(interval);
-  }, [fileIndex, onProgress]);
+  }, [onProgress]);
 
   async function startPlayback(audio: HTMLAudioElement) {
     playIntentRef.current = true;
     setPlaying(true);
     applyInitialSeek(audio, {
-      fileIndex,
+      fileIndex: fileIndexRef.current,
       initialFileIndex,
       initialPositionSec,
       seekAppliedRef,
@@ -129,14 +155,40 @@ export function AudioPlaylistPlayer({
       setPlaybackError(undefined);
       return;
     }
-    // Aborted by a newer load/seek — keep intent; metadata handler may retry.
     setPlaying(!audio.paused);
   }
 
   function playFile(index: number, autoplay: boolean) {
+    if (index !== fileIndexRef.current) {
+      advancingRef.current = true;
+    } else {
+      advancingRef.current = false;
+    }
     playIntentRef.current = autoplay;
     setFileIndex(index);
     setPlaying(autoplay);
+  }
+
+  function handleTrackEnded() {
+    if (advancingRef.current) {
+      return;
+    }
+    advancingRef.current = true;
+    const index = fileIndexRef.current;
+    onProgress?.({
+      fileIndex: index,
+      positionSec: Math.floor(durationRef.current || currentRef.current),
+    });
+    const next = nextChapterIndex(index, filesRef.current.length);
+    if (next != null) {
+      playIntentRef.current = true;
+      setFileIndex(next);
+      setPlaying(true);
+      return;
+    }
+    playIntentRef.current = false;
+    advancingRef.current = false;
+    setPlaying(false);
   }
 
   function toggle() {
@@ -182,6 +234,7 @@ export function AudioPlaylistPlayer({
     durationSec: duration > 0 ? duration : undefined,
     positionSec: current,
     playbackRate: rate,
+    defaultSeekOffsetSec: 30,
     onPlay: () => {
       const audio = audioRef.current;
       if (audio) {
@@ -196,237 +249,260 @@ export function AudioPlaylistPlayer({
     onSeek: seekTo,
     onSeekBy: skip,
     onPreviousTrack: () => {
-      if (fileIndex > 0) {
-        playFile(fileIndex - 1, true);
+      if (fileIndexRef.current > 0) {
+        playFile(fileIndexRef.current - 1, true);
       } else {
         seekTo(0);
       }
     },
     onNextTrack: () => {
-      if (fileIndex < files.length - 1) {
-        playFile(fileIndex + 1, true);
+      const next = nextChapterIndex(fileIndexRef.current, filesRef.current.length);
+      if (next != null) {
+        playFile(next, true);
       }
     },
   });
 
   if (!currentFile) {
-    return <p className="text-zinc-400">No audio files in this pack.</p>;
+    return <p className="px-4 text-zinc-400">No audio files in this pack.</p>;
   }
 
+  const progressMax = duration > 0 ? duration : 1;
+  const progressValue = Math.min(current, progressMax);
+  const progressPercent = duration > 0 ? Math.min(100, (progressValue / duration) * 100) : 0;
+
   return (
-    <div className="mx-auto grid w-full max-w-5xl gap-8 md:grid-cols-[minmax(0,1fr)_260px]">
-      <div className="space-y-6">
-        <div className="flex items-start gap-5">
-          {artworkUrl ? (
-            <img
-              src={artworkUrl}
-              alt=""
-              className="h-28 w-28 shrink-0 rounded-md object-cover shadow-lg shadow-black/40 md:h-36 md:w-36"
-            />
-          ) : null}
-          <div className="min-w-0 pt-1">
-            <h1 className="text-2xl font-semibold tracking-tight text-white md:text-3xl">
-              {title}
-            </h1>
-            {artist ? <p className="mt-1 text-sm text-zinc-300 md:text-base">{artist}</p> : null}
+    <div className="flex min-h-0 min-w-0 flex-1">
+      <div className="relative mx-auto flex min-h-0 w-full min-w-0 max-w-lg flex-1 flex-col overflow-y-auto px-6 py-6 md:max-w-xl md:py-8">
+        {artworkUrl ? (
+          <div className="flex min-h-0 flex-1 items-center justify-center">
+            <div className="aspect-[2/3] h-full max-h-[min(52vh,28rem)] w-auto max-w-full">
+              <ProgressiveCoverImage
+                src={artworkUrl}
+                alt=""
+                className="h-full w-full rounded-lg object-cover shadow-2xl"
+              />
+            </div>
+          </div>
+        ) : null}
+
+        <div className="mt-5 w-full shrink-0 space-y-4">
+          <div className="min-w-0 text-center md:text-left">
+            <h1 className="truncate text-xl font-semibold text-white sm:text-2xl">{title}</h1>
+            {artist ? <p className="mt-1 truncate text-zinc-300">{artist}</p> : null}
             {chapterLabel ? (
-              <p className="mt-2 truncate text-sm text-zinc-500">{chapterLabel}</p>
+              <p className="mt-1 truncate text-sm text-zinc-500">{chapterLabel}</p>
             ) : null}
           </div>
-        </div>
 
-        {playbackError ? (
-          <div className="rounded-md border border-red-900/50 bg-red-950/40 p-3 text-sm text-red-200">
-            <p className="font-medium">Playback error</p>
-            <p className="mt-1 break-words text-red-100/90">{playbackError}</p>
-          </div>
-        ) : null}
+          {playbackError ? (
+            <div className="rounded-md border border-red-900/50 bg-red-950/40 p-3 text-sm text-red-200">
+              <p className="font-medium">Playback error</p>
+              <p className="mt-1 break-words text-red-100/90">{playbackError}</p>
+            </div>
+          ) : null}
 
-        <audio
-          ref={audioRef}
-          key={currentFile.url}
-          preload="metadata"
-          playsInline
-          onPlay={() => {
-            playIntentRef.current = true;
-            setPlaying(true);
-            setPlaybackError(undefined);
-          }}
-          onPause={() => setPlaying(false)}
-          onWaiting={() => setLoading(true)}
-          onLoadStart={() => setLoading(true)}
-          onCanPlay={() => setLoading(false)}
-          onPlaying={() => setLoading(false)}
-          onTimeUpdate={(event) => setCurrent(event.currentTarget.currentTime)}
-          onLoadedMetadata={(event) => {
-            const audio = event.currentTarget;
-            setDuration(audio.duration);
-            setPlaybackError(undefined);
-            setLoading(false);
-            // Seek before any follow-up play() so we don't abort an in-flight play
-            // from the user's Play click (that race surfaced as "operation was aborted").
-            applyInitialSeek(audio, {
-              fileIndex,
-              initialFileIndex,
-              initialPositionSec,
-              seekAppliedRef,
-            });
-            if (!playIntentRef.current) {
-              return;
-            }
-            void playMediaElement(audio).then((result) => {
-              if (result.status === "error") {
-                setPlaybackError(`Could not start playback: ${result.error.message}`);
-                playIntentRef.current = false;
+          <audio
+            ref={audioRef}
+            src={currentFile.url}
+            preload="metadata"
+            playsInline
+            onPlay={() => {
+              playIntentRef.current = true;
+              setPlaying(true);
+              setPlaybackError(undefined);
+            }}
+            onPause={() => {
+              if (!playIntentRef.current) {
                 setPlaying(false);
-                return;
-              }
-              if (result.status === "playing") {
-                setPlaying(true);
-                setPlaybackError(undefined);
-              }
-            });
-          }}
-          onError={(event) => {
-            playIntentRef.current = false;
-            setPlaying(false);
-            setLoading(false);
-            setPlaybackError(mapMediaElementError(event.currentTarget));
-          }}
-          onEnded={() => {
-            onProgress?.({ fileIndex, positionSec: Math.floor(duration || current) });
-            if (fileIndex < files.length - 1) {
-              playFile(fileIndex + 1, true);
-            } else {
-              playIntentRef.current = false;
-              setPlaying(false);
-            }
-          }}
-        >
-          <source src={currentFile.url} type={currentFile.mimeType || undefined} />
-        </audio>
-
-        <div>
-          <input
-            type="range"
-            min={0}
-            max={duration || 1}
-            step={1}
-            value={Math.min(current, duration || 1)}
-            onChange={(event) => {
-              const next = Number(event.target.value);
-              setCurrent(next);
-              if (audioRef.current) {
-                audioRef.current.currentTime = next;
               }
             }}
-            className="w-full accent-red-600"
-            aria-label="Seek"
+            onWaiting={() => setLoading(true)}
+            onLoadStart={() => setLoading(true)}
+            onCanPlay={() => setLoading(false)}
+            onPlaying={() => setLoading(false)}
+            onTimeUpdate={(event) => {
+              const audio = event.currentTarget;
+              const time = audio.currentTime;
+              setCurrent(time);
+              const known = audio.duration;
+              if (
+                !advancingRef.current &&
+                Number.isFinite(known) &&
+                known > 0 &&
+                time >= known - 0.35
+              ) {
+                handleTrackEnded();
+              }
+            }}
+            onLoadedMetadata={(event) => {
+              const audio = event.currentTarget;
+              const known = Number.isFinite(audio.duration) ? audio.duration : 0;
+              setDuration(known);
+              if (known > 0) {
+                setDurations((prev) => ({ ...prev, [fileIndexRef.current]: known }));
+              }
+              setPlaybackError(undefined);
+              setLoading(false);
+              advancingRef.current = false;
+              applyInitialSeek(audio, {
+                fileIndex: fileIndexRef.current,
+                initialFileIndex,
+                initialPositionSec,
+                seekAppliedRef,
+              });
+              if (!playIntentRef.current) {
+                return;
+              }
+              void playMediaElement(audio).then((result) => {
+                if (result.status === "error") {
+                  setPlaybackError(`Could not start playback: ${result.error.message}`);
+                  playIntentRef.current = false;
+                  setPlaying(false);
+                  return;
+                }
+                if (result.status === "playing") {
+                  setPlaying(true);
+                  setPlaybackError(undefined);
+                }
+              });
+            }}
+            onError={(event) => {
+              if (isIgnorableAudioAbort(event.currentTarget.error?.code)) {
+                return;
+              }
+              playIntentRef.current = false;
+              setPlaying(false);
+              setLoading(false);
+              setPlaybackError(mapMediaElementError(event.currentTarget));
+            }}
+            onEnded={handleTrackEnded}
           />
-          <div className="mt-1 flex justify-between text-xs text-zinc-500">
-            <span>{formatTime(current)}</span>
-            <span>{formatTime(duration)}</span>
+
+          <div>
+            <input
+              type="range"
+              min={0}
+              max={progressMax}
+              step={1}
+              value={progressValue}
+              onChange={(event) => {
+                const next = Number(event.target.value);
+                setCurrent(next);
+                if (audioRef.current) {
+                  audioRef.current.currentTime = next;
+                }
+              }}
+              className="h-1 w-full cursor-pointer appearance-none rounded-full bg-zinc-700 accent-red-600"
+              style={{
+                background: `linear-gradient(to right, #dc2626 0%, #dc2626 ${progressPercent}%, rgb(63 63 70) ${progressPercent}%, rgb(63 63 70) 100%)`,
+              }}
+              aria-label="Seek"
+            />
+            <div className="mt-1 flex justify-between text-xs text-zinc-500">
+              <span>{formatAudiobookTime(current)}</span>
+              <span>{formatAudiobookTime(duration)}</span>
+            </div>
           </div>
-        </div>
 
-        <div className="flex items-center justify-center gap-4">
-          <button
-            type="button"
-            className="rounded-full p-2 text-zinc-300 transition hover:bg-zinc-800 hover:text-white disabled:opacity-40"
-            disabled={fileIndex <= 0}
-            onClick={() => playFile(fileIndex - 1, true)}
-            aria-label="Previous file"
-          >
-            <TrackPreviousIcon className="h-5 w-5" />
-          </button>
-          <button
-            type="button"
-            className="rounded-full border border-zinc-700 px-3 py-2 text-xs font-medium text-zinc-300 hover:border-zinc-500 hover:text-white"
-            onClick={() => skip(-30)}
-          >
-            −30s
-          </button>
-          <button
-            type="button"
-            className="relative flex h-14 w-14 items-center justify-center rounded-full bg-white text-black transition hover:bg-zinc-200 disabled:opacity-60"
-            onClick={toggle}
-            disabled={loading && !playing}
-            aria-label={loading ? "Loading" : playing ? "Pause" : "Play"}
-          >
-            {loading && !playing ? (
-              <span className="h-6 w-6 animate-spin rounded-full border-2 border-zinc-400 border-t-black" />
-            ) : playing ? (
-              <PauseIcon className="h-7 w-7" />
-            ) : (
-              <PlayIcon className="h-7 w-7 translate-x-0.5" />
-            )}
-          </button>
-          <button
-            type="button"
-            className="rounded-full border border-zinc-700 px-3 py-2 text-xs font-medium text-zinc-300 hover:border-zinc-500 hover:text-white"
-            onClick={() => skip(30)}
-          >
-            +30s
-          </button>
-          <button
-            type="button"
-            className="rounded-full p-2 text-zinc-300 transition hover:bg-zinc-800 hover:text-white disabled:opacity-40"
-            disabled={fileIndex >= files.length - 1}
-            onClick={() => playFile(fileIndex + 1, true)}
-            aria-label="Next file"
-          >
-            <TrackNextIcon className="h-5 w-5" />
-          </button>
-        </div>
-
-        {loading && playing ? (
-          <p className="text-center text-xs text-zinc-500">Buffering…</p>
-        ) : null}
-
-        <div className="flex flex-wrap items-center justify-center gap-2">
-          <span className="text-sm text-zinc-500">Speed</span>
-          {[0.75, 1, 1.25, 1.5, 1.75, 2].map((value) => (
+          <div className="relative flex items-center justify-center gap-3 sm:gap-4">
             <button
-              key={value}
               type="button"
-              className={`rounded-md px-2.5 py-1 text-xs ${
-                rate === value
-                  ? "bg-red-600 text-white"
-                  : "border border-zinc-700 text-zinc-300 hover:border-zinc-500"
-              }`}
-              onClick={() => setRate(value)}
+              className="rounded-full p-2 text-zinc-300 transition hover:bg-zinc-800 hover:text-white disabled:opacity-40"
+              disabled={fileIndex <= 0}
+              onClick={() => playFile(fileIndex - 1, true)}
+              aria-label="Previous chapter"
             >
-              {value}x
+              <TrackPreviousIcon className="h-6 w-6" />
             </button>
-          ))}
+            <button
+              type="button"
+              className="rounded-full border border-zinc-700 px-3 py-2 text-xs font-medium text-zinc-300 hover:border-zinc-500 hover:text-white"
+              onClick={() => skip(-30)}
+            >
+              −30s
+            </button>
+            <button
+              type="button"
+              className="relative flex h-14 w-14 items-center justify-center rounded-full bg-white text-black transition hover:bg-zinc-200 disabled:opacity-60"
+              onClick={toggle}
+              disabled={loading && !playing}
+              aria-label={loading ? "Loading" : playing ? "Pause" : "Play"}
+            >
+              {loading && !playing ? (
+                <span className="h-6 w-6 animate-spin rounded-full border-2 border-zinc-400 border-t-black" />
+              ) : playing ? (
+                <PauseIcon className="h-7 w-7" />
+              ) : (
+                <PlayIcon className="h-7 w-7 translate-x-0.5" />
+              )}
+            </button>
+            <button
+              type="button"
+              className="rounded-full border border-zinc-700 px-3 py-2 text-xs font-medium text-zinc-300 hover:border-zinc-500 hover:text-white"
+              onClick={() => skip(30)}
+            >
+              +30s
+            </button>
+            <button
+              type="button"
+              className="rounded-full p-2 text-zinc-300 transition hover:bg-zinc-800 hover:text-white disabled:opacity-40"
+              disabled={fileIndex >= files.length - 1}
+              onClick={() => playFile(fileIndex + 1, true)}
+              aria-label="Next chapter"
+            >
+              <TrackNextIcon className="h-6 w-6" />
+            </button>
+            <ChaptersToggleButton
+              open={chaptersOpen}
+              count={files.length}
+              onClick={() => setChaptersOpen((value) => !value)}
+              className="absolute right-0 hidden sm:inline-flex"
+            />
+          </div>
+
+          <div className="flex items-center justify-center gap-2 sm:hidden">
+            <ChaptersToggleButton
+              open={chaptersOpen}
+              count={files.length}
+              onClick={() => setChaptersOpen((value) => !value)}
+            />
+          </div>
+
+          {loading && playing ? (
+            <p className="text-center text-xs text-zinc-500">Buffering…</p>
+          ) : null}
+
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <span className="text-sm text-zinc-500">Speed</span>
+            {[0.75, 1, 1.25, 1.5, 1.75, 2].map((value) => (
+              <button
+                key={value}
+                type="button"
+                className={cn(
+                  "rounded-md px-2.5 py-1 text-xs",
+                  rate === value
+                    ? "bg-red-600 text-white"
+                    : "border border-zinc-700 text-zinc-300 hover:border-zinc-500",
+                )}
+                onClick={() => setRate(value)}
+              >
+                {value}x
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {files.length > 1 ? (
-        <aside>
-          <h2 className="mb-3 text-sm font-semibold text-zinc-300">
-            {packKind === "series" ? "Books" : "Chapters"}
-          </h2>
-          <ul className="max-h-[60vh] space-y-1 overflow-y-auto">
-            {files.map((file) => (
-              <li key={`${file.fileId}-${file.index}`}>
-                <button
-                  type="button"
-                  onClick={() => playFile(file.index, true)}
-                  className={`w-full rounded-md px-2 py-2 text-left text-xs ${
-                    file.index === fileIndex
-                      ? "bg-white/10 text-white"
-                      : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"
-                  }`}
-                >
-                  <span className="mr-2 text-zinc-600">{file.index + 1}.</span>
-                  {file.filename}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </aside>
-      ) : null}
+      <ChapterQueuePanel
+        files={files}
+        fileIndex={fileIndex}
+        packKind={packKind}
+        durations={durations}
+        open={chaptersOpen}
+        onOpenChange={setChaptersOpen}
+        onSelect={(index) => playFile(index, true)}
+      />
     </div>
   );
 }

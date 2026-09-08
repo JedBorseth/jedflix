@@ -285,11 +285,12 @@ export function ListenPage() {
   const initialFileIndex = savedProgress?.fileIndex ?? localRecent?.fileIndex ?? 0;
   const initialPositionSec =
     savedProgress?.progressSeconds ?? localRecent?.progressSeconds ?? 0;
+  const playerReady = resolveState.status === "ready" && files.length > 0;
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-white">
-      <header className="border-b border-zinc-800 px-4 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] md:px-8">
-        <div className="mx-auto flex max-w-5xl items-center justify-between gap-3">
+    <div className="flex h-dvh flex-col bg-zinc-950 text-white">
+      <header className="shrink-0 border-b border-zinc-800 px-4 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] md:px-8">
+        <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <Link
               to={getBookDetailPath(book)}
@@ -306,14 +307,20 @@ export function ListenPage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-5xl px-4 py-8 pb-[calc(2rem+env(safe-area-inset-bottom,0px))] md:px-8">
+      <main
+        className={
+          playerReady
+            ? "flex min-h-0 flex-1 flex-col overflow-hidden pb-[env(safe-area-inset-bottom,0px)]"
+            : "mx-auto w-full max-w-5xl flex-1 overflow-y-auto px-4 py-8 pb-[calc(2rem+env(safe-area-inset-bottom,0px))] md:px-8"
+        }
+      >
         {!rdToken ? (
           <div className="rounded-lg border border-amber-800/60 bg-amber-950/30 p-4 text-sm text-amber-100">
             Add your Real Debrid API key in Settings to stream audiobooks.
           </div>
         ) : null}
 
-        {resolveState.status === "ready" && files.length > 0 ? (
+        {playerReady ? (
           <AudioPlaylistPlayer
             title={book.title}
             artist={author || book.authors.join(", ") || undefined}

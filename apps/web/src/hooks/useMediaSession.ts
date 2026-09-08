@@ -25,6 +25,8 @@ export type UseMediaSessionOptions = {
   onPause?: () => void;
   onSeek?: (timeSec: number) => void;
   onSeekBy?: (deltaSec: number) => void;
+  /** Used when the OS does not supply seekOffset (audiobooks: 30). Default 10. */
+  defaultSeekOffsetSec?: number;
   onPreviousTrack?: () => void;
   onNextTrack?: () => void;
   onStop?: () => void;
@@ -60,6 +62,7 @@ export function useMediaSession({
   onPause,
   onSeek,
   onSeekBy,
+  defaultSeekOffsetSec = 10,
   onPreviousTrack,
   onNextTrack,
   onStop,
@@ -198,11 +201,11 @@ export function useMediaSession({
       bind("seekto", null);
     } else {
       bind("seekbackward", (details) => {
-        const offset = details.seekOffset ?? 10;
+        const offset = details.seekOffset ?? defaultSeekOffsetSec;
         handlersRef.current.onSeekBy?.(-offset);
       });
       bind("seekforward", (details) => {
-        const offset = details.seekOffset ?? 10;
+        const offset = details.seekOffset ?? defaultSeekOffsetSec;
         handlersRef.current.onSeekBy?.(offset);
       });
       bind("seekto", (details) => {
@@ -240,7 +243,7 @@ export function useMediaSession({
       window.removeEventListener("pageshow", reassertTrackSkip);
     };
     // Do not clear handlers on rebind — the gap lets iOS revert to ±10s skip.
-  }, [actionHandlerKey, enabled, preferTrackSkip]);
+  }, [actionHandlerKey, defaultSeekOffsetSec, enabled, preferTrackSkip]);
 
   useEffect(() => {
     return () => {
