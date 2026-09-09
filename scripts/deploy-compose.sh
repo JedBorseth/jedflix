@@ -56,12 +56,16 @@ while [[ $# -gt 0 ]]; do
 done
 
 plan_from_files() {
-  local frontend=0 backend=0 music_ai=0 music_embed=0 musicbrainz_db=0 caddy=0 sync_compose=0
+  local frontend=0 backend=0 music_ai=0 music_embed=0 musicbrainz_db=0 caddy=0 sync_compose=0 abb_warp=0
   local p
   for p in "$@"; do
     p="${p#./}"
     case "$p" in
       docker-compose.yml | docker-compose.yaml)
+        sync_compose=1
+        ;;
+      deploy/warp | deploy/warp/*)
+        abb_warp=1
         sync_compose=1
         ;;
       deploy/Caddyfile)
@@ -105,6 +109,7 @@ plan_from_files() {
   [[ "$music_ai" == 1 ]] && build+=(music-ai)
   [[ "$music_embed" == 1 ]] && build+=(music-embed)
   [[ "$musicbrainz_db" == 1 ]] && build+=(musicbrainz-db)
+  [[ "$abb_warp" == 1 ]] && build+=(abb-warp)
 
   if ((${#build[@]})); then
     echo "BUILD=${build[*]}"

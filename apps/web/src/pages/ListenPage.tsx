@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useConvexAuth, useMutation, useQuery as useConvexQuery } from "convex/react";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "@convex/_generated/api";
 import { AudioPlaylistPlayer } from "@/components/player/books/AudioPlaylistPlayer";
 import { BookSourcePicker } from "@/components/player/books/BookSourcePicker";
@@ -11,12 +11,16 @@ import { Button } from "@/components/ui/button";
 import { useUserSettings } from "@/hooks/useUserSettings";
 import {
   getBookDetailPath,
+  getListenPath,
   getWorkDetails,
   normalizeWorkId,
 } from "@/lib/openlibrary";
 import { catalogQueryKeys } from "@/lib/queryClient";
 import {
+  findSavedAudiobookSource,
   getRecentAudiobook,
+  hasSavedAudiobookStream,
+  prependLastUsedAudiobookSource,
   recordRecentAudiobook,
   saveRecentAudiobookProgress,
   saveRecentAudiobookStream,
@@ -27,6 +31,9 @@ import { fetchSources, type ResolveRequest, type StreamSource } from "@/lib/stre
 export function ListenPage() {
   const { workId: rawWorkId } = useParams<{ workId: string }>();
   const workId = normalizeWorkId(rawWorkId ?? null);
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const forcePicker = searchParams.get("switch") === "1";
   const { isAuthenticated } = useConvexAuth();
   const { settings } = useUserSettings();
   const rdToken = settings.realDebridApiKey?.trim() ?? "";
@@ -137,33 +144,16 @@ export function ListenPage() {
   }, [author, book, rdToken, searchKey, workId]);
 
   useEffect(() => {
-    if (autoSelectedRef.current || selected || sourcesLoading || sources.length === 0) {
+    if (forcePicker || autoSelectedRef.current || selected || sourcesLoading || sources.length === 0) {
       return;
     }
 
     const savedLocal = workId ? getRecentAudiobook(workId)?.selectedStream : undefined;
-    const preferredId =
-      savedLocal?.id ??
-      savedProgress?.selectedStreamId ??
-      undefined;
-    const preferredAbb =
-      savedLocal?.abbPostUrl ??
-      savedProgress?.selectedStreamAbbPostUrl ??
-      undefined;
-    const preferredHash =
-      savedLocal?.infoHash ??
-      savedProgress?.selectedStreamInfoHash ??
-      undefined;
-
-    const match =
-      sources.find((source) => preferredId && source.id === preferredId) ??
-      sources.find((source) => preferredAbb && source.abbPostUrl === preferredAbb) ??
-      sources.find(
-        (source) =>
-          preferredHash &&
-          source.infoHash &&
-          source.infoHash.toLowerCase() === preferredHash.toLowerCase(),
-      );
+    const match = findSavedAudiobookSource(sources, {
+      id: savedLocal?.id ?? savedProgress?.selectedStreamId,
+      abbPostUrl: savedLocal?.abbPostUrl ?? savedProgress?.selectedStreamAbbPostUrl,
+      infoHash: savedLocal?.infoHash ?? savedProgress?.selectedStreamInfoHash,
+    });
 
     if (match) {
       autoSelectedRef.current = true;
@@ -190,7 +180,44 @@ export function ListenPage() {
         infoHash: savedProgress.selectedStreamInfoHash,
       });
     }
-  }, [savedProgress, selected, sources, sourcesLoading, workId]);
+  }, [savedProgress, selected, sources, sourcesLoading, workId, forcePicker]);
+
+  const lastUsedSource = useMemo(() => {
+    const savedLocal = workId ? getRecentAudiobook(workId)?.selectedStream : undefined;
+    const savedRef = hasSavedAudiobookStream(savedLocal)
+      ? savedLocal
+      : savedProgress?.selectedStreamId &&
+          (savedProgress.selectedStreamMagnet ||
+            savedProgress.selectedStreamAbbPostUrl ||
+            savedProgress.selectedStreamInfoHash)
+        ? {
+            id: savedProgress.selectedStreamId,
+            title: savedProgress.selectedStreamTitle ?? "Last used",
+            magnet: savedProgress.selectedStreamMagnet ?? "",
+            abbPostUrl: savedProgress.selectedStreamAbbPostUrl,
+            infoHash: savedProgress.selectedStreamInfoHash,
+          }
+        : undefined;
+    const matched = findSavedAudiobookSource(sources, savedRef);
+    if (matched) {
+      return matched;
+    }
+    if (savedRef && hasSavedAudiobookStream(savedRef) && savedRef.id && savedRef.title) {
+      return toStreamSource({
+        id: savedRef.id,
+        title: savedRef.title,
+        magnet: savedRef.magnet,
+        abbPostUrl: savedRef.abbPostUrl,
+        infoHash: savedRef.infoHash,
+      });
+    }
+    return undefined;
+  }, [savedProgress, sources, workId]);
+
+  const pickerSources = useMemo(
+    () => prependLastUsedAudiobookSource(sources, lastUsedSource),
+    [lastUsedSource, sources],
+  );
 
   const resolveRequest: ResolveRequest | null = useMemo(() => {
     if (!selected || !rdToken) {
@@ -232,8 +259,11 @@ export function ListenPage() {
     (source: StreamSource) => {
       setSelected(source);
       persistStreamChoice(source);
+      if (forcePicker && workId) {
+        navigate(getListenPath(workId), { replace: true });
+      }
     },
-    [persistStreamChoice],
+    [forcePicker, navigate, persistStreamChoice, workId],
   );
 
   const onProgress = useCallback(
@@ -370,11 +400,12 @@ export function ListenPage() {
 
             {!selected || resolveState.status === "idle" || resolveState.status === "failed" ? (
               <BookSourcePicker
-                sources={sources}
+                sources={pickerSources}
                 loading={sourcesLoading}
                 error={sourcesError}
                 mediaLabel="audiobook"
                 selectedId={selected?.id}
+                lastUsedId={lastUsedSource?.id}
                 disabled={!rdToken || resolveState.status === "downloading"}
                 onSelect={onSelectSource}
                 onRetry={() => setSearchKey((value) => value + 1)}

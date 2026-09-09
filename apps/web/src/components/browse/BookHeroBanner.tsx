@@ -50,11 +50,6 @@ export function BookHeroBanner({ book }: BookHeroBannerProps) {
                 Listen
               </AppLink>
             </Button>
-            <Button asChild size="lg" variant="outline" className="border-zinc-600">
-              <AppLink to={`/read/${book.id}`} state={{ preview: book }}>
-                Read
-              </AppLink>
-            </Button>
             <Button
               asChild
               size="lg"

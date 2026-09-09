@@ -6,6 +6,7 @@ type BookSourcePickerProps = {
   error?: string;
   disabled?: boolean;
   selectedId?: string;
+  lastUsedId?: string;
   mediaLabel: "audiobook" | "ebook";
   onSelect: (source: StreamSource) => void;
   onRetry: () => void;
@@ -33,6 +34,7 @@ export function BookSourcePicker({
   error,
   disabled = false,
   selectedId,
+  lastUsedId,
   mediaLabel,
   onSelect,
   onRetry,
@@ -87,6 +89,7 @@ export function BookSourcePicker({
         {sources.map((source) => {
           const match = matchPercent(source.matchScore);
           const selected = source.id === selectedId;
+          const lastUsed = Boolean(lastUsedId) && source.id === lastUsedId;
           return (
             <li key={source.id}>
               <button
@@ -94,14 +97,19 @@ export function BookSourcePicker({
                 disabled={disabled}
                 onClick={() => onSelect(source)}
                 className={`w-full rounded-md border px-3 py-3 text-left transition ${
-                  selected
-                    ? "border-red-500 bg-red-950/40"
-                    : "border-zinc-700 bg-zinc-950/60 hover:border-zinc-500"
+                  lastUsed
+                    ? "border-emerald-500 bg-emerald-950/50"
+                    : selected
+                      ? "border-red-500 bg-red-950/40"
+                      : "border-zinc-700 bg-zinc-950/60 hover:border-zinc-500"
                 } disabled:opacity-50`}
               >
                 <div className="flex items-start justify-between gap-3">
                   <p className="text-sm font-medium text-white">{source.title}</p>
                   <div className="flex shrink-0 items-center gap-2 text-xs">
+                    {lastUsed ? (
+                      <span className="font-medium text-emerald-400">Last used</span>
+                    ) : null}
                     {showSeeders && source.seeders !== undefined ? (
                       <SeederCount seeders={source.seeders} />
                     ) : null}

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -58,6 +59,10 @@ type Config struct {
 	AbbBaseURL     string
 	AbbUsername    string
 	AbbPassword    string
+	// AbbProxy is SOCKS5/HTTP egress used only for AudioBookBay. It must not
+	// be HTTP_PROXY: that would send TMDB, Torrentio, Open Library, and music
+	// through WARP.
+	AbbProxy string
 	// RealDebridDemoClientKey is what users enter for limited demo playback.
 	// RealDebridDemoAPIKey is the server-side RD token swapped in at resolve time.
 	// Both must be set to enable demo mode. Neither belongs in source control.
@@ -106,11 +111,12 @@ func Load() Config {
 		LastFMAPIKey:               strings.TrimSpace(os.Getenv("LASTFM_API_KEY")),
 		LastFMAPIBaseURL:           strings.TrimRight(envOr("LASTFM_API_BASE_URL", "https://ws.audioscrobbler.com/2.0"), "/"),
 		LastFMCacheTTL:             envDuration("LASTFM_CACHE_TTL", 6*time.Hour),
-		TMDBAPIKey:                 strings.TrimSpace(os.Getenv("TMDB_API_KEY")),
+		TMDBAPIKey:                 strings.TrimSpace(envOr("TMDB_API_KEY", os.Getenv("VITE_TMDB_API_KEY"))),
 		TMDBAPIBaseURL:             strings.TrimRight(envOr("TMDB_API_BASE_URL", "https://api.themoviedb.org/3"), "/"),
 		AbbBaseURL:                 strings.TrimRight(envOr("ABB_BASE_URL", "https://audiobookbay.lu"), "/"),
 		AbbUsername:                strings.TrimSpace(os.Getenv("ABB_USERNAME")),
 		AbbPassword:                os.Getenv("ABB_PASSWORD"),
+		AbbProxy:                   strings.TrimSpace(os.Getenv("ABB_PROXY")),
 		RealDebridDemoClientKey:    strings.TrimSpace(os.Getenv("REAL_DEBRID_DEMO_CLIENT_KEY")),
 		RealDebridDemoAPIKey:       strings.TrimSpace(os.Getenv("REAL_DEBRID_DEMO_API_KEY")),
 		DemoRdPlaysPath:            strings.TrimSpace(envOr("DEMO_RD_PLAYS_PATH", defaultDemoRdPlaysPath())),
@@ -129,6 +135,27 @@ func (c Config) HTTPClient() *http.Client {
 		if parsed, err := url.Parse(proxyURL); err == nil {
 			transport.Proxy = http.ProxyURL(parsed)
 		}
+	}
+	return &http.Client{
+		Timeout:   30 * time.Second,
+		Transport: transport,
+	}
+}
+
+func (c Config) AbbProxyScheme() string {
+	parsed, err := url.Parse(strings.TrimSpace(c.AbbProxy))
+	if err != nil || parsed.Scheme == "" {
+		return ""
+	}
+	return strings.ToLower(parsed.Scheme)
+}
+
+func (c Config) AbbHTTPClient() *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	// Ignore HTTP_PROXY/HTTPS_PROXY so only ABB_PROXY can divert ABB traffic.
+	transport.Proxy = func(*http.Request) (*url.URL, error) { return nil, nil }
+	if err := applyForwardProxy(transport, c.AbbProxy); err != nil {
+		log.Printf("warning: %v", err)
 	}
 	return &http.Client{
 		Timeout:   30 * time.Second,

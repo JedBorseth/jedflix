@@ -36,8 +36,9 @@ export function getBookDetailPath(book: Pick<BookItem, "id">) {
   return `/audiobook/${book.id}`;
 }
 
-export function getListenPath(workId: string) {
-  return `/listen/${workId}`;
+export function getListenPath(workId: string, options?: { switchStream?: boolean }) {
+  const path = `/listen/${workId}`;
+  return options?.switchStream ? `${path}?switch=1` : path;
 }
 
 export function getReadPath(workId: string) {

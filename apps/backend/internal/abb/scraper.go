@@ -129,7 +129,7 @@ func (c *Client) Search(query string) ([]SearchResult, error) {
 }
 
 func (c *Client) searchOnce(queryLower string) ([]SearchResult, error) {
-	html, err := c.fetchHTML("/?s=" + url.QueryEscape(queryLower))
+	html, err := c.fetchHTML(searchPath(queryLower))
 	if err != nil {
 		return nil, err
 	}
@@ -259,7 +259,16 @@ func ParseSearchHTML(html, baseURL string) ([]SearchResult, error) {
 		link := post.Find("h2 a, .postTitle a").First()
 		title := strings.TrimSpace(link.Text())
 		href, ok := link.Attr("href")
+		if !ok || href == "" {
+			href, ok = post.Find(".postLink a").First().Attr("href")
+		}
+		if title == "" {
+			title = strings.TrimSpace(post.Find("h2").First().Text())
+		}
 		if !ok || title == "" || href == "" {
+			return
+		}
+		if strings.EqualFold(title, "Direct Download") || strings.EqualFold(title, "Audiobook Details") {
 			return
 		}
 		absolute := absolutize(href, baseURL)
@@ -283,6 +292,9 @@ func ParseSearchHTML(html, baseURL string) ([]SearchResult, error) {
 			title := strings.TrimSpace(link.Text())
 			href, ok := link.Attr("href")
 			if !ok || title == "" || len(title) < 4 || href == "" {
+				return
+			}
+			if strings.EqualFold(title, "Direct Download") || strings.EqualFold(title, "Audiobook Details") {
 				return
 			}
 			absolute := absolutize(href, baseURL)
@@ -395,7 +407,7 @@ func extractTrackers(html string, doc *goquery.Document) []string {
 
 	doc.Find("tr").Each(func(_ int, row *goquery.Selection) {
 		label := strings.ToLower(strings.TrimSpace(row.Find("td").First().Text()))
-		if !strings.Contains(label, "tracker") {
+		if !strings.Contains(label, "tracker") && !strings.Contains(label, "announce") {
 			return
 		}
 		add(row.Find("td").Eq(1).Text())
@@ -492,6 +504,16 @@ func extractInfoHash(html string, doc *goquery.Document) string {
 		return true
 	})
 	return hash
+}
+
+// searchPath is ABB advanced search scoped to Title & Author (tt=1).
+// The header box (?s= only) now ignores the query and mixes recent homepage
+// posts into the results.
+func searchPath(queryLower string) string {
+	values := url.Values{}
+	values.Set("s", queryLower)
+	values.Set("tt", "1")
+	return "/?" + values.Encode()
 }
 
 // looksLikeHomepage detects when ABB ignored the search query and served the front page.

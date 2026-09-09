@@ -27,6 +27,9 @@ describe("openlibrary helpers", () => {
     expect(getBookDetailPath({ id: "OL82563W" })).toBe("/audiobook/OL82563W");
     expect(getAuthorPath("OL23919A")).toBe("/author/OL23919A");
     expect(getListenPath("OL82563W")).toBe("/listen/OL82563W");
+    expect(getListenPath("OL82563W", { switchStream: true })).toBe(
+      "/listen/OL82563W?switch=1",
+    );
     expect(getReadPath("OL82563W")).toBe("/read/OL82563W");
   });
 

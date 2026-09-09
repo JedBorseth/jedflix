@@ -66,6 +66,9 @@ services:
       ABB_BASE_URL: ${ABB_BASE_URL:-https://audiobookbay.lu}
       ABB_USERNAME: ${ABB_USERNAME:-}
       ABB_PASSWORD: ${ABB_PASSWORD:-}
+      # SOCKS5 via abb-warp only. Do not set HTTP_PROXY here — that would send
+      # TMDB/Torrentio/Open Library/music through Cloudflare.
+      ABB_PROXY: ${ABB_PROXY:-socks5://abb-warp:40000}
       REAL_DEBRID_DEMO_CLIENT_KEY: ${REAL_DEBRID_DEMO_CLIENT_KEY:-}
       REAL_DEBRID_DEMO_API_KEY: ${REAL_DEBRID_DEMO_API_KEY:-}
       DEMO_RD_PLAYS_PATH: ${DEMO_RD_PLAYS_PATH:-/data/demo-rd-plays.json}
@@ -78,6 +81,30 @@ services:
     depends_on:
       musicbrainz-db:
         condition: service_healthy
+      abb-warp:
+        condition: service_started
+
+  # Cloudflare WARP SOCKS5 for AudioBookBay only. Proxy mode, own network
+  # namespace, no published ports: host SSH/Tailscale/default route stay on the ISP.
+  abb-warp:
+    build:
+      context: ./deploy/warp
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+      - MKNOD
+      - AUDIT_WRITE
+    devices:
+      - /dev/net/tun
+    device_cgroup_rules:
+      - "c 10:200 rwm"
+    sysctls:
+      - net.ipv6.conf.all.disable_ipv6=0
+      - net.ipv4.conf.all.src_valid_mark=1
+    volumes:
+      - abb_warp_data:/var/lib/cloudflare-warp
+    expose:
+      - "40000"
 
   # --- Local MusicBrainz (data lives on /mnt/disk1/jedflix) ---
   musicbrainz-db:
@@ -175,3 +202,4 @@ volumes:
   caddy_data:
   caddy_config:
   backend_data:
+  abb_warp_data:

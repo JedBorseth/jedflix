@@ -40,10 +40,13 @@ func main() {
 		BaseURL:    cfg.AbbBaseURL,
 		Username:   cfg.AbbUsername,
 		Password:   cfg.AbbPassword,
-		HTTPClient: cfg.HTTPClient(),
+		HTTPClient: cfg.AbbHTTPClient(),
 	})
 	if cfg.AbbUsername != "" {
 		log.Printf("AudiobookBay login configured for user %q", cfg.AbbUsername)
+	}
+	if scheme := cfg.AbbProxyScheme(); scheme != "" {
+		log.Printf("AudiobookBay egress via %s proxy (other backend traffic is direct)", scheme)
 	}
 	resolverService := resolver.NewService(cfg, searcher, rd, abbClient)
 	letterboxdClient := letterboxd.NewClient(cfg)

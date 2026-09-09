@@ -15,7 +15,6 @@ import type { BookItem } from "@/lib/openlibrary";
 import {
   getAuthorPath,
   getListenPath,
-  getReadPath,
   getWorkDetails,
   normalizeWorkId,
   searchBooks,
@@ -25,6 +24,7 @@ import {
   getRecentAudiobook,
   getRecentAudiobooksSnapshot,
   hasContinueProgress,
+  hasKnownGoodAudiobookStream,
   recordRecentAudiobook,
   subscribeRecentAudiobooks,
 } from "@/lib/recentAudiobooks";
@@ -106,6 +106,9 @@ export function AudiobookDetailPage() {
     fileIndex: convexProgress?.fileIndex ?? localRecent?.fileIndex ?? 0,
   };
   const canContinue = hasContinueProgress(progressEntry);
+  const hasSavedStream =
+    hasKnownGoodAudiobookStream(localRecent) ||
+    hasKnownGoodAudiobookStream(convexProgress);
 
   const author = book?.authors[0];
   const relatedQuery = useQuery({
@@ -228,9 +231,13 @@ export function AudiobookDetailPage() {
                     {canContinue ? "Continue" : "Listen"}
                   </AppLink>
                 </Button>
-                <Button asChild size="lg" variant="outline" className="border-zinc-600">
-                  <AppLink to={getReadPath(normalizedId)}>Read</AppLink>
-                </Button>
+                {hasSavedStream ? (
+                  <Button asChild size="lg" variant="outline" className="border-zinc-600">
+                    <AppLink to={getListenPath(normalizedId, { switchStream: true })}>
+                      Switch Stream
+                    </AppLink>
+                  </Button>
+                ) : null}
                 <AddToMyListButton mediaType="audiobook" workId={normalizedId} />
               </div>
             ) : null}

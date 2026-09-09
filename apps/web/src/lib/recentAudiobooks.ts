@@ -220,6 +220,91 @@ export function hasContinueProgress(entry: {
   return progress >= 15 || fileIndex > 0;
 }
 
+export function hasSavedAudiobookStream(
+  stream?: {
+    magnet?: string | null;
+    abbPostUrl?: string | null;
+    infoHash?: string | null;
+  } | null,
+): boolean {
+  if (!stream) {
+    return false;
+  }
+  return Boolean(
+    stream.magnet?.trim() || stream.abbPostUrl?.trim() || stream.infoHash?.trim(),
+  );
+}
+
+export function hasKnownGoodAudiobookStream(
+  entry?: {
+    selectedStream?: SavedAudiobookStream;
+    selectedStreamMagnet?: string | null;
+    selectedStreamAbbPostUrl?: string | null;
+    selectedStreamInfoHash?: string | null;
+  } | null,
+): boolean {
+  if (!entry) {
+    return false;
+  }
+  return (
+    hasSavedAudiobookStream(entry.selectedStream) ||
+    Boolean(
+      entry.selectedStreamMagnet?.trim() ||
+        entry.selectedStreamAbbPostUrl?.trim() ||
+        entry.selectedStreamInfoHash?.trim(),
+    )
+  );
+}
+
+export type SavedAudiobookStreamRef = {
+  id?: string;
+  title?: string;
+  magnet?: string;
+  abbPostUrl?: string;
+  infoHash?: string;
+};
+
+export function findSavedAudiobookSource(
+  sources: StreamSource[],
+  saved?: SavedAudiobookStreamRef | null,
+): StreamSource | undefined {
+  if (!saved) {
+    return undefined;
+  }
+  const preferredId = saved.id?.trim();
+  const preferredAbb = saved.abbPostUrl?.trim();
+  const preferredHash = saved.infoHash?.trim().toLowerCase();
+  return (
+    sources.find((source) => preferredAbb && source.abbPostUrl === preferredAbb) ??
+    sources.find(
+      (source) =>
+        preferredHash &&
+        source.infoHash &&
+        source.infoHash.toLowerCase() === preferredHash,
+    ) ??
+    sources.find((source) => preferredId && source.id === preferredId)
+  );
+}
+
+export function prependLastUsedAudiobookSource(
+  sources: StreamSource[],
+  lastUsed?: StreamSource | null,
+): StreamSource[] {
+  if (!lastUsed) {
+    return sources;
+  }
+  const rest = sources.filter((source) => {
+    if (source.id === lastUsed.id) {
+      return false;
+    }
+    if (lastUsed.abbPostUrl && source.abbPostUrl === lastUsed.abbPostUrl) {
+      return false;
+    }
+    return true;
+  });
+  return [lastUsed, ...rest];
+}
+
 export function notifyRecentAudiobooksChanged() {
   if (typeof window === "undefined") {
     return;

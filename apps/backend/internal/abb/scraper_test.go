@@ -1,9 +1,71 @@
 package abb
 
 import (
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
+
+func TestSearchUsesTitleAuthorFilter(t *testing.T) {
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.RawQuery == "" {
+			_, _ = io.WriteString(w, `<html><head><title>Unabridged Audiobooks Free Download</title></head></html>`)
+			return
+		}
+		gotQuery = r.URL.RawQuery
+		_, _ = io.WriteString(w, `<html><head><title>Dune Audiobook</title></head><body>
+		<div class="post"><div class="postTitle"><h2><a href="/abss/dune/" rel="bookmark">Dune - Frank Herbert</a></h2></div></div>
+		</body></html>`)
+	}))
+	t.Cleanup(srv.Close)
+
+	httpClient := &http.Client{
+		Transport: rewriteHost{target: srv.URL, base: srv.Client().Transport},
+	}
+	results, err := NewClient("https://audiobookbay.lu", httpClient).Search("Dune")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Title != "Dune - Frank Herbert" {
+		t.Fatalf("unexpected results: %#v", results)
+	}
+	if !strings.Contains(gotQuery, "s=dune") {
+		t.Fatalf("search query missing s=: %q", gotQuery)
+	}
+	if !strings.Contains(gotQuery, "tt=1") {
+		t.Fatalf("ABB header search without tt=1 returns mixed homepage posts; expected Title & Author filter, got %q", gotQuery)
+	}
+}
+
+func TestParseSearchHTMLCurrentMarkup(t *testing.T) {
+	html := `<html><head><title>Project Hail Mary Audiobook</title></head><body>
+	<div class="post"><div class="postTitle"><h2><a href="/abss/prokject-hail-mary-andy-weir/" rel="bookmark">Project Hail Mary - Andy Weir</a></h2></div>
+	<div class="postInfo">Category: Sci-Fi</div>
+	<div class="postContent"><p>Shared by:cxh22</p></div>
+	<div class="postMeta">
+		<span class="postLink"><a href="https://audiobookbay.lu/abss/prokject-hail-mary-andy-weir/">Audiobook Details</a></span>
+		<span class="postComments"><a href="/dload-now?ll=84Andy_Weir" rel="nofollow">Direct Download</a></span>
+	</div></div>
+	</body></html>`
+
+	results, err := ParseSearchHTML(html, "https://audiobookbay.lu")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %#v", results)
+	}
+	if results[0].Title != "Project Hail Mary - Andy Weir" {
+		t.Fatalf("unexpected title: %s", results[0].Title)
+	}
+	if results[0].URL != "https://audiobookbay.lu/abss/prokject-hail-mary-andy-weir/" {
+		t.Fatalf("unexpected url: %s", results[0].URL)
+	}
+}
 
 func TestParseSearchHTML(t *testing.T) {
 	html := `<html><body>
@@ -60,8 +122,14 @@ func TestParsePostHTMLInfoHash(t *testing.T) {
 	html := `<html><body>
     <h1>Project Hail Mary - Andy Weir</h1>
     <table>
+      <tr><td>Announce URL:</td><td>http://googer.cc:1337/announce</td></tr>
       <tr><td>Tracker:</td><td>udp://tracker.opentrackr.org:1337/announce</td></tr>
       <tr><td>Info Hash:</td><td>ad5fae5ffda056f9f45131045d140326bbafc4dc</td></tr>
+      <tr>
+        <td>Torrent Download</td>
+        <td><a href="/downld0?downfs=84Andy_Weir___Project_Hail_Mary">Torrent Free Downloads</a></td>
+        <td style="display:none;"></td>
+      </tr>
     </table>
   </body></html>`
 
@@ -112,4 +180,21 @@ func TestRankResults(t *testing.T) {
 	if ranked[0].URL != "b" && ranked[0].URL != "c" {
 		t.Fatalf("expected potter match first, got %#v", ranked[0])
 	}
+}
+
+type rewriteHost struct {
+	target string
+	base   http.RoundTripper
+}
+
+func (r rewriteHost) RoundTrip(req *http.Request) (*http.Response, error) {
+	target, err := url.Parse(r.target)
+	if err != nil {
+		return nil, err
+	}
+	clone := req.Clone(req.Context())
+	clone.URL.Scheme = target.Scheme
+	clone.URL.Host = target.Host
+	clone.Host = target.Host
+	return r.base.RoundTrip(clone)
 }

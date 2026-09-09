@@ -10,6 +10,7 @@ require (
 	github.com/go-chi/cors v1.2.1
 	github.com/jackc/pgx/v5 v5.7.4
 	golang.org/x/image v0.18.0
+	golang.org/x/net v0.24.0
 	golang.org/x/sync v0.17.0
 )
 
@@ -20,6 +21,5 @@ require (
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/stretchr/testify v1.8.2 // indirect
 	golang.org/x/crypto v0.31.0 // indirect
-	golang.org/x/net v0.24.0 // indirect
 	golang.org/x/text v0.29.0 // indirect
 )

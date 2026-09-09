@@ -45,6 +45,11 @@ assert_contains "${compose}" "BUILD="
 assert_contains "${compose}" "SYNC_COMPOSE=1"
 assert_not_contains "${compose}" "music-ai"
 
+warp="$("${PLAN[@]}" deploy/warp/entrypoint.sh)"
+assert_contains "${warp}" "BUILD=abb-warp"
+assert_contains "${warp}" "SYNC_COMPOSE=1"
+assert_not_contains "${warp}" "music-ai"
+
 web="$("${PLAN[@]}" apps/web/src/pages/ListenPage.tsx)"
 assert_contains "${web}" "BUILD=frontend"
 
