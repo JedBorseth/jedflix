@@ -21,12 +21,16 @@ const streamClient = createStreamClient({
 
 export const bookSubjectRows = [
   { title: "NYT Bestsellers", subject: "new_york_times_bestseller" },
+  { title: "Hugo Award Winners", subject: "hugo_award" },
+  { title: "Pulitzer Prize", subject: "pulitzer_prize_winner" },
+  { title: "Classics", subject: "classics" },
   { title: "Science Fiction", subject: "science_fiction" },
   { title: "Fantasy", subject: "fantasy" },
   { title: "Mystery", subject: "mystery" },
   { title: "Thrillers", subject: "thriller" },
   { title: "Romance", subject: "romance" },
   { title: "Horror", subject: "horror" },
+  { title: "True Crime", subject: "true_crime" },
   { title: "Biography", subject: "biography" },
   { title: "History", subject: "history" },
   { title: "Young Adult", subject: "young_adult_fiction" },

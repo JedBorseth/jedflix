@@ -47,6 +47,7 @@ type Client struct {
 	http            *http.Client
 	refreshTTL      time.Duration
 	subjects        []SubjectRowConfig
+	series          []SeriesConfig
 
 	mu          sync.Mutex
 	lastRequest time.Time
@@ -101,6 +102,7 @@ func NewClient(cfg config.Config) *Client {
 		http:            httpClient,
 		refreshTTL:      ttl,
 		subjects:        DefaultSubjectRows,
+		series:          DefaultSeries,
 		now:             time.Now,
 	}
 }
@@ -171,18 +173,46 @@ func (c *Client) refreshCatalog(ctx context.Context) error {
 		}
 	}
 
-	prevBySubject := make(map[string]SubjectRow, len(c.subjects))
+	prevBySubject := make(map[string]SubjectRow, len(c.subjects)+1)
 	if prev != nil {
 		for _, row := range prev.Rows {
 			prevBySubject[row.Subject] = row
 		}
 	}
 
-	rows := make([]SubjectRow, 0, len(c.subjects))
-	fetchedBooks := make([]Book, 0, defaultLimit*(len(c.subjects)+1))
+	rows := make([]SubjectRow, 0, len(c.subjects)+1)
+	fetchedBooks := make([]Book, 0, defaultLimit*(len(c.subjects)+2))
 	if trendingErr == nil {
 		fetchedBooks = append(fetchedBooks, trending...)
 	}
+
+	if series, ok := pickSeries(c.now(), c.series); ok {
+		books, seriesErr := c.fetchWorksByIDs(ctx, series.Works)
+		switch {
+		case seriesErr != nil:
+			log.Printf("openlibrary: series %q refresh failed: %v", series.Key, seriesErr)
+			if prev != nil {
+				if prevRow, ok := previousSeriesRow(prev.Rows); ok {
+					rows = append(rows, prevRow)
+				}
+			}
+		case len(books) == 0:
+			log.Printf("openlibrary: series %q returned no works", series.Key)
+			if prev != nil {
+				if prevRow, ok := previousSeriesRow(prev.Rows); ok {
+					rows = append(rows, prevRow)
+				}
+			}
+		default:
+			fetchedBooks = append(fetchedBooks, books...)
+			rows = append(rows, SubjectRow{
+				Title:   series.Title,
+				Subject: seriesSubject(series.Key),
+				Books:   books,
+			})
+		}
+	}
+
 	subjectFailures := 0
 	for _, subject := range c.subjects {
 		books, subjectErr := c.fetchSubject(ctx, subject.Subject, defaultLimit)
@@ -415,29 +445,52 @@ func (c *Client) fetchTrending(ctx context.Context, limit int) ([]Book, error) {
 }
 
 func (c *Client) fetchSubject(ctx context.Context, subject string, limit int) ([]Book, error) {
-	var payload struct {
-		Works []subjectWork `json:"works"`
+	// readinglog ranks well-known titles; the subjects API returns unranked tag dumps.
+	return c.fetchSearchBooks(ctx, "subject:"+subject, limit, "readinglog")
+}
+
+func (c *Client) fetchWorksByIDs(ctx context.Context, ids []string) ([]Book, error) {
+	if len(ids) == 0 {
+		return nil, nil
 	}
-	path := fmt.Sprintf("/subjects/%s.json", url.PathEscape(subject))
-	if err := c.getJSON(ctx, path, url.Values{
-		"limit": {strconv.Itoa(limit)},
-	}, &payload); err != nil {
+	parts := make([]string, 0, len(ids))
+	normalizedIDs := make([]string, 0, len(ids))
+	for _, id := range ids {
+		normalized := NormalizeWorkID(id)
+		if normalized == "" {
+			continue
+		}
+		normalizedIDs = append(normalizedIDs, normalized)
+		parts = append(parts, "key:/works/"+normalized)
+	}
+	if len(parts) == 0 {
+		return nil, nil
+	}
+	books, err := c.fetchSearchBooks(ctx, strings.Join(parts, " OR "), len(parts), "")
+	if err != nil {
 		return nil, err
 	}
-	return c.normalizeSubjectWorks(payload.Works), nil
+	return orderBooksByIDs(books, normalizedIDs), nil
 }
 
 func (c *Client) searchBooks(ctx context.Context, query string, limit int) ([]Book, error) {
+	// edition_count is the best popularity proxy OL exposes without a local catalog.
+	return c.fetchSearchBooks(ctx, query, limit, "editions")
+}
+
+func (c *Client) fetchSearchBooks(ctx context.Context, query string, limit int, sort string) ([]Book, error) {
 	var payload struct {
 		Docs []searchDoc `json:"docs"`
 	}
-	if err := c.getJSON(ctx, "/search.json", url.Values{
+	values := url.Values{
 		"q":      {query},
 		"fields": {searchFields},
 		"limit":  {strconv.Itoa(limit)},
-		// edition_count is the best popularity proxy OL exposes without a local catalog.
-		"sort": {"editions"},
-	}, &payload); err != nil {
+	}
+	if sort != "" {
+		values.Set("sort", sort)
+	}
+	if err := c.getJSON(ctx, "/search.json", values, &payload); err != nil {
 		return nil, err
 	}
 	return c.normalizeSearchDocs(payload.Docs), nil
@@ -757,18 +810,6 @@ func (t *openLibraryText) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-type subjectWork struct {
-	Key              string   `json:"key"`
-	Title            string   `json:"title"`
-	CoverID          *int     `json:"cover_id"`
-	FirstPublishYear *int     `json:"first_publish_year"`
-	Subject          []string `json:"subject"`
-	Authors          []struct {
-		Key  string `json:"key"`
-		Name string `json:"name"`
-	} `json:"authors"`
-}
-
 type searchDoc struct {
 	Key                 string   `json:"key"`
 	Title               string   `json:"title"`
@@ -807,48 +848,6 @@ type authorResponse struct {
 	Bio       openLibraryText `json:"bio"`
 	BirthDate string          `json:"birth_date"`
 	Photos    []int           `json:"photos"`
-}
-
-func (c *Client) normalizeSubjectWorks(works []subjectWork) []Book {
-	books := make([]Book, 0, len(works))
-	for _, work := range works {
-		id := NormalizeWorkID(work.Key)
-		title := strings.TrimSpace(work.Title)
-		if id == "" || title == "" {
-			continue
-		}
-		authors := make([]string, 0, len(work.Authors))
-		authorKeys := make([]string, 0, len(work.Authors))
-		for _, author := range work.Authors {
-			if name := strings.TrimSpace(author.Name); name != "" {
-				authors = append(authors, name)
-			}
-			if key := NormalizeAuthorID(author.Key); key != "" {
-				authorKeys = append(authorKeys, key)
-			}
-		}
-		coverID := 0
-		if work.CoverID != nil {
-			coverID = *work.CoverID
-		}
-		description := strings.Join(authors, ", ")
-		subjects := work.Subject
-		if len(subjects) > 8 {
-			subjects = subjects[:8]
-		}
-		books = append(books, Book{
-			ID:           id,
-			Title:        title,
-			Description:  description,
-			CoverURL:     c.coverURL(coverID),
-			CoverFullURL: c.coverFullURL(coverID),
-			Authors:      authors,
-			AuthorKeys:   authorKeys,
-			Year:         work.FirstPublishYear,
-			Subjects:     subjects,
-		})
-	}
-	return books
 }
 
 func (c *Client) normalizeSearchDocs(docs []searchDoc) []Book {

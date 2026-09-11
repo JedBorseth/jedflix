@@ -68,6 +68,8 @@ export type StreamResult = {
   mode: "direct";
   files?: StreamFile[];
   packKind?: PackKind;
+  magnet?: string;
+  infoHash?: string;
 };
 
 export type LetterboxdFilm = {
@@ -420,11 +422,14 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
       );
     }
 
+    const magnet = (source.magnet || request.magnet || "").trim();
+    const infoHash = (source.infoHash ?? request.infoHash)?.trim();
     const body = JSON.stringify({
       type: request.type,
-      magnet: source.magnet || request.magnet,
-      abbPostUrl: source.abbPostUrl || request.abbPostUrl,
-      infoHash: source.infoHash ?? request.infoHash,
+      magnet,
+      abbPostUrl:
+        magnet || infoHash ? undefined : source.abbPostUrl || request.abbPostUrl,
+      infoHash,
       title: source.title,
       mediaTitle: request.mediaTitle,
       fileIdx: source.fileIdx ?? request.fileIdx,

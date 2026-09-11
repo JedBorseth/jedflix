@@ -64,3 +64,20 @@ test("opens the chapter list with humanized titles", () => {
   expect(screen.getAllByText("chapter 2").length).toBeGreaterThan(0);
   expect(screen.getAllByText("chapter 3").length).toBeGreaterThan(0);
 });
+
+test("puts speed on a menu trigger instead of a chip row", () => {
+  render(
+    <AudioPlaylistPlayer
+      title="Dune"
+      artist="Frank Herbert"
+      artworkUrl="https://example.com/cover.jpg"
+      files={files}
+    />,
+  );
+
+  expect(screen.getByRole("button", { name: "Playback speed 1x" })).toBeTruthy();
+  expect(screen.queryByRole("menuitemradio")).toBeNull();
+  expect(screen.queryByText("0.75x")).toBeNull();
+  expect(screen.getByRole("button", { name: "+30s" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Open chapters" })).toBeTruthy();
+});

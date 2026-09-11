@@ -24,18 +24,21 @@ func TestRefreshPreservesSubjectRowsOnPartialFailure(t *testing.T) {
 					{"key": "/works/OL1W", "title": "Fresh Trending", "cover_i": 1},
 				},
 			})
-		case r.URL.Path == "/subjects/fantasy.json":
-			fantasyHits.Add(1)
-			http.Error(w, "unavailable", http.StatusServiceUnavailable)
-		case r.URL.Path == "/subjects/horror.json":
-			writeJSON(w, map[string]any{
-				"works": []map[string]any{
-					{
-						"key": "/works/OL9W", "title": "Fresh Horror", "cover_id": 9,
-						"authors": []map[string]string{{"key": "/authors/OL1A", "name": "Author"}},
+		case r.URL.Path == "/search.json":
+			q := r.URL.Query().Get("q")
+			switch {
+			case strings.Contains(q, "subject:fantasy"):
+				fantasyHits.Add(1)
+				http.Error(w, "unavailable", http.StatusServiceUnavailable)
+			case strings.Contains(q, "subject:horror"):
+				writeJSON(w, map[string]any{
+					"docs": []map[string]any{
+						{"key": "/works/OL9W", "title": "Fresh Horror", "cover_i": 9, "author_name": []string{"Author"}},
 					},
-				},
-			})
+				})
+			default:
+				writeJSON(w, map[string]any{"docs": []any{}})
+			}
 		default:
 			http.NotFound(w, r)
 		}
@@ -50,6 +53,7 @@ func TestRefreshPreservesSubjectRowsOnPartialFailure(t *testing.T) {
 		{Title: "Fantasy", Subject: "fantasy"},
 		{Title: "Horror", Subject: "horror"},
 	}
+	client.series = nil
 	client.http = server.Client()
 	client.catalog = &BrowseResponse{
 		Trending: []Book{{ID: "OL0W", Title: "Old Trending", CoverURL: fallbackCover}},
@@ -99,8 +103,8 @@ func TestBrowseWaitsForInFlightRefresh(t *testing.T) {
 			})
 			return
 		}
-		if strings.HasPrefix(r.URL.Path, "/subjects/") {
-			writeJSON(w, map[string]any{"works": []any{}})
+		if strings.HasPrefix(r.URL.Path, "/search.json") {
+			writeJSON(w, map[string]any{"docs": []any{}})
 			return
 		}
 		http.NotFound(w, r)
@@ -112,6 +116,7 @@ func TestBrowseWaitsForInFlightRefresh(t *testing.T) {
 		OpenLibraryCacheTTL: time.Hour,
 	})
 	client.subjects = nil
+	client.series = nil
 	client.http = server.Client()
 
 	var refreshErr error
@@ -194,6 +199,106 @@ func TestGetJSONRetriesTransientStatuses(t *testing.T) {
 	}
 	if hits.Load() != 3 {
 		t.Fatalf("hits = %d, want 3", hits.Load())
+	}
+}
+
+func TestRefreshPutsFeaturedSeriesFirstInReadingOrder(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/trending/"):
+			writeJSON(w, map[string]any{"works": []any{}})
+		case r.URL.Path == "/search.json":
+			writeJSON(w, map[string]any{
+				"docs": []map[string]any{
+					{"key": "/works/OL2W", "title": "Chamber of Secrets", "cover_i": 2},
+					{"key": "/works/OL1W", "title": "Philosopher's Stone", "cover_i": 1},
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(config.Config{
+		OpenLibraryBaseURL:  server.URL,
+		OpenLibraryCacheTTL: time.Hour,
+	})
+	client.subjects = nil
+	client.series = []SeriesConfig{
+		{Title: "Harry Potter Collection", Key: "harry_potter", Works: []string{"OL1W", "OL2W"}},
+	}
+	client.http = server.Client()
+	client.now = func() time.Time {
+		return time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
+	}
+
+	if err := client.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	browse, err := client.Browse(context.Background())
+	if err != nil {
+		t.Fatalf("Browse: %v", err)
+	}
+	if len(browse.Rows) != 1 {
+		t.Fatalf("rows = %+v", browse.Rows)
+	}
+	row := browse.Rows[0]
+	if row.Title != "Harry Potter Collection" || row.Subject != "series:harry_potter" {
+		t.Fatalf("row = %+v", row)
+	}
+	if len(row.Books) != 2 || row.Books[0].Title != "Philosopher's Stone" || row.Books[1].Title != "Chamber of Secrets" {
+		t.Fatalf("books = %+v", row.Books)
+	}
+}
+
+func TestRefreshKeepsPreviousSeriesOnFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/trending/") {
+			writeJSON(w, map[string]any{
+				"works": []map[string]any{
+					{"key": "/works/OL9W", "title": "Trending", "cover_i": 9},
+				},
+			})
+			return
+		}
+		if r.URL.Path == "/search.json" {
+			http.Error(w, "unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	client := NewClient(config.Config{
+		OpenLibraryBaseURL:  server.URL,
+		OpenLibraryCacheTTL: time.Hour,
+	})
+	client.subjects = nil
+	client.series = []SeriesConfig{
+		{Title: "Harry Potter Collection", Key: "harry_potter", Works: []string{"OL1W"}},
+	}
+	client.http = server.Client()
+	client.catalog = &BrowseResponse{
+		Trending: []Book{{ID: "OL0W", Title: "Old", CoverURL: fallbackCover}},
+		Rows: []SubjectRow{
+			{
+				Title:   "A Court of Thorns and Roses",
+				Subject: "series:acotar",
+				Books:   []Book{{ID: "OL8W", Title: "Cached Series", CoverURL: fallbackCover}},
+			},
+		},
+	}
+
+	if err := client.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	browse, err := client.Browse(context.Background())
+	if err != nil {
+		t.Fatalf("Browse: %v", err)
+	}
+	if len(browse.Rows) != 1 || browse.Rows[0].Title != "A Court of Thorns and Roses" {
+		t.Fatalf("expected cached series row, got %+v", browse.Rows)
 	}
 }
 

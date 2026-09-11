@@ -125,12 +125,57 @@ export function getRecentAudiobook(workId: string): RecentAudiobook | null {
   return getRecentAudiobooksSnapshot().find((book) => book.id === workId) ?? null;
 }
 
+export function extractAudiobookInfoHash(
+  magnet?: string | null,
+  infoHash?: string | null,
+): string | undefined {
+  const fromHash = infoHash?.trim().toLowerCase();
+  if (fromHash && (fromHash.length === 32 || fromHash.length === 40)) {
+    return fromHash;
+  }
+  const trimmed = magnet?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  const lower = trimmed.toLowerCase();
+  const prefix = "urn:btih:";
+  const idx = lower.indexOf(prefix);
+  if (idx < 0) {
+    return undefined;
+  }
+  const rest = trimmed.slice(idx + prefix.length);
+  let end = 0;
+  while (end < rest.length) {
+    const char = rest[end];
+    if (!char || !/[0-9a-fA-F]/.test(char)) {
+      break;
+    }
+    end += 1;
+  }
+  const hash = rest.slice(0, end).toLowerCase();
+  return hash.length === 32 || hash.length === 40 ? hash : undefined;
+}
+
+/** Store a hash-only magnet so replay can skip AudiobookBay and go straight to Real Debrid. */
+export function compactAudiobookMagnet(
+  magnet?: string | null,
+  infoHash?: string | null,
+): { magnet?: string; infoHash?: string } {
+  const hash = extractAudiobookInfoHash(magnet, infoHash);
+  if (hash) {
+    return { magnet: `magnet:?xt=urn:btih:${hash}`, infoHash: hash };
+  }
+  const trimmed = magnet?.trim();
+  return trimmed ? { magnet: trimmed } : {};
+}
+
 export function toSavedAudiobookStream(source: StreamSource): SavedAudiobookStream {
+  const compact = compactAudiobookMagnet(source.magnet, source.infoHash);
   return {
     id: source.id,
     title: source.title,
-    magnet: source.magnet || undefined,
-    infoHash: source.infoHash,
+    magnet: compact.magnet,
+    infoHash: compact.infoHash,
     abbPostUrl: source.abbPostUrl,
     sizeGb: source.sizeGb,
     seeders: source.seeders,
@@ -235,6 +280,71 @@ export function hasSavedAudiobookStream(
   );
 }
 
+/** Magnet or info hash is enough for Real Debrid — no AudiobookBay fetch. */
+export function hasPlayableAudiobookMagnet(
+  stream?: {
+    magnet?: string | null;
+    infoHash?: string | null;
+  } | null,
+): boolean {
+  return Boolean(stream?.magnet?.trim() || stream?.infoHash?.trim());
+}
+
+export function playbackSourceFromSaved(
+  local?: SavedAudiobookStream | null,
+  convex?: {
+    selectedStreamId?: string | null;
+    selectedStreamTitle?: string | null;
+    selectedStreamMagnet?: string | null;
+    selectedStreamAbbPostUrl?: string | null;
+    selectedStreamInfoHash?: string | null;
+  } | null,
+): StreamSource | undefined {
+  const id = local?.id ?? convex?.selectedStreamId ?? undefined;
+  const title = local?.title ?? convex?.selectedStreamTitle ?? undefined;
+  if (!id || !title) {
+    return undefined;
+  }
+  const compact = compactAudiobookMagnet(
+    local?.magnet || convex?.selectedStreamMagnet,
+    local?.infoHash || convex?.selectedStreamInfoHash,
+  );
+  const abbPostUrl = local?.abbPostUrl?.trim() || convex?.selectedStreamAbbPostUrl || undefined;
+  if (!compact.magnet && !compact.infoHash && !abbPostUrl) {
+    return undefined;
+  }
+  return {
+    id,
+    title,
+    magnet: compact.magnet ?? "",
+    infoHash: compact.infoHash,
+    abbPostUrl,
+    sizeGb: local?.sizeGb,
+    seeders: local?.seeders,
+    cached: local?.cached,
+    info: local?.info,
+    matchScore: local?.matchScore,
+  };
+}
+
+export function overlaySavedMagnet(
+  source: StreamSource,
+  saved?: SavedAudiobookStreamRef | null,
+): StreamSource {
+  const compact = compactAudiobookMagnet(
+    saved?.magnet || source.magnet,
+    saved?.infoHash || source.infoHash,
+  );
+  if (!compact.magnet && !compact.infoHash) {
+    return source;
+  }
+  return {
+    ...source,
+    magnet: compact.magnet ?? source.magnet,
+    infoHash: compact.infoHash ?? source.infoHash,
+  };
+}
+
 export function hasKnownGoodAudiobookStream(
   entry?: {
     selectedStream?: SavedAudiobookStream;
@@ -274,7 +384,7 @@ export function findSavedAudiobookSource(
   const preferredId = saved.id?.trim();
   const preferredAbb = saved.abbPostUrl?.trim();
   const preferredHash = saved.infoHash?.trim().toLowerCase();
-  return (
+  const found =
     sources.find((source) => preferredAbb && source.abbPostUrl === preferredAbb) ??
     sources.find(
       (source) =>
@@ -282,8 +392,8 @@ export function findSavedAudiobookSource(
         source.infoHash &&
         source.infoHash.toLowerCase() === preferredHash,
     ) ??
-    sources.find((source) => preferredId && source.id === preferredId)
-  );
+    sources.find((source) => preferredId && source.id === preferredId);
+  return found ? overlaySavedMagnet(found, saved) : undefined;
 }
 
 export function prependLastUsedAudiobookSource(

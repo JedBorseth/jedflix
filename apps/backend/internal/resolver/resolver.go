@@ -79,6 +79,8 @@ type StreamResult struct {
 	Mode      string       `json:"mode"`
 	Files     []StreamFile `json:"files,omitempty"`
 	PackKind  string       `json:"packKind,omitempty"`
+	Magnet    string       `json:"magnet,omitempty"`
+	InfoHash  string       `json:"infoHash,omitempty"`
 }
 
 type ResolveError struct {
@@ -312,6 +314,13 @@ func probeRDSeeders(rd *realdebrid.Client, magnet string) (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+func compactMagnetURI(magnet, hash string) string {
+	if hash != "" {
+		return "magnet:?xt=urn:btih:" + hash
+	}
+	return strings.TrimSpace(magnet)
 }
 
 func infoHashFromMagnet(magnet string) string {
@@ -635,6 +644,7 @@ func (s *Service) resolveBook(
 
 	packKind := realdebrid.ClassifyPack(selectedOrdered)
 	first := streamFiles[0]
+	hash := infoHashFromMagnet(magnet)
 	return &StreamResult{
 		URL:       first.URL,
 		DirectURL: first.URL,
@@ -643,6 +653,8 @@ func (s *Service) resolveBook(
 		Mode:      "direct",
 		Files:     streamFiles,
 		PackKind:  string(packKind),
+		Magnet:    compactMagnetURI(magnet, hash),
+		InfoHash:  hash,
 	}, nil
 }
 

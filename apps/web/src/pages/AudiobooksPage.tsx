@@ -155,6 +155,7 @@ export function AudiobooksPage() {
         {rows === undefined ? (
           <>
             <CatalogRowSkeleton title="Trending" />
+            <CatalogRowSkeleton title="Featured Series" />
             <CatalogRowSkeleton title="NYT Bestsellers" />
           </>
         ) : (

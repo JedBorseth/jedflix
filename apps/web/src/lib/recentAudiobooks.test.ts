@@ -1,11 +1,14 @@
 import { describe, expect, test, beforeEach } from "bun:test";
 import {
+  compactAudiobookMagnet,
   getRecentAudiobook,
   getRecentAudiobooksSnapshot,
   hasContinueProgress,
   hasKnownGoodAudiobookStream,
+  hasPlayableAudiobookMagnet,
   hasSavedAudiobookStream,
   findSavedAudiobookSource,
+  playbackSourceFromSaved,
   prependLastUsedAudiobookSource,
   loadRecentAudiobooks,
   recordRecentAudiobook,
@@ -91,6 +94,51 @@ describe("recentAudiobooks", () => {
       })?.id,
     ).toBe("abb_2");
     expect(findSavedAudiobookSource(sources, { infoHash: "ABC" })?.id).toBe("abb_2");
+  });
+
+  test("findSavedAudiobookSource overlays the saved magnet onto a search hit", () => {
+    const hash = "a".repeat(40);
+    const sources = [
+      { id: "abb_2", title: "Dune", magnet: "", abbPostUrl: "https://abb/dune" },
+    ];
+    const matched = findSavedAudiobookSource(sources, {
+      abbPostUrl: "https://abb/dune",
+      magnet: `magnet:?xt=urn:btih:${hash}&dn=Dune`,
+    });
+    expect(matched?.magnet).toBe(`magnet:?xt=urn:btih:${hash}`);
+    expect(matched?.infoHash).toBe(hash);
+  });
+
+  test("compactAudiobookMagnet keeps a hash-only magnet for Real Debrid", () => {
+    const hash = "b".repeat(40);
+    expect(
+      compactAudiobookMagnet(`magnet:?xt=urn:btih:${hash}&tr=udp://tracker.example/announce`),
+    ).toEqual({
+      magnet: `magnet:?xt=urn:btih:${hash}`,
+      infoHash: hash,
+    });
+    expect(hasPlayableAudiobookMagnet({ magnet: `magnet:?xt=urn:btih:${hash}` })).toBe(true);
+    expect(hasPlayableAudiobookMagnet({ magnet: "", infoHash: "" })).toBe(false);
+  });
+
+  test("playbackSourceFromSaved prefers a local magnet over an empty Convex row", () => {
+    const hash = "c".repeat(40);
+    const source = playbackSourceFromSaved(
+      {
+        id: "abb_0",
+        title: "Dune M4B",
+        magnet: `magnet:?xt=urn:btih:${hash}&dn=Dune`,
+        abbPostUrl: "https://abb/dune",
+      },
+      {
+        selectedStreamId: "abb_0",
+        selectedStreamTitle: "Dune M4B",
+        selectedStreamMagnet: "",
+        selectedStreamAbbPostUrl: "https://abb/dune",
+      },
+    );
+    expect(source?.magnet).toBe(`magnet:?xt=urn:btih:${hash}`);
+    expect(source?.infoHash).toBe(hash);
   });
 
   test("prependLastUsedAudiobookSource puts the saved stream first", () => {

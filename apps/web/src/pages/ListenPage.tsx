@@ -19,12 +19,13 @@ import { catalogQueryKeys } from "@/lib/queryClient";
 import {
   findSavedAudiobookSource,
   getRecentAudiobook,
-  hasSavedAudiobookStream,
+  hasPlayableAudiobookMagnet,
+  playbackSourceFromSaved,
   prependLastUsedAudiobookSource,
   recordRecentAudiobook,
   saveRecentAudiobookProgress,
   saveRecentAudiobookStream,
-  toStreamSource,
+  toSavedAudiobookStream,
 } from "@/lib/recentAudiobooks";
 import { fetchSources, type ResolveRequest, type StreamSource } from "@/lib/streamApi";
 
@@ -81,10 +82,22 @@ export function ListenPage() {
   const [sourcesError, setSourcesError] = useState<string>();
   const [selected, setSelected] = useState<StreamSource | null>(null);
   const [searchKey, setSearchKey] = useState(0);
+  const [needSourceSearch, setNeedSourceSearch] = useState(forcePicker);
   const autoSelectedRef = useRef(false);
+  const persistedMagnetKeyRef = useRef("");
 
   const book = bookQuery.data;
   const author = book?.authors[0] ?? "";
+  const savedPlayback = useMemo(
+    () =>
+      playbackSourceFromSaved(
+        workId ? getRecentAudiobook(workId)?.selectedStream : undefined,
+        savedProgress,
+      ),
+    [savedProgress, workId],
+  );
+  const historyLoaded = !isAuthenticated || history !== undefined;
+  const canPlaySavedMagnet = hasPlayableAudiobookMagnet(savedPlayback);
 
   useEffect(() => {
     if (!book || !workId) {
@@ -103,14 +116,25 @@ export function ListenPage() {
   }, [book, isAuthenticated, touchRecent, workId]);
 
   useEffect(() => {
+    if (forcePicker) {
+      setNeedSourceSearch(true);
+    }
+  }, [forcePicker]);
+
+  useEffect(() => {
     if (!book || !workId) {
       return;
     }
+    if (!forcePicker && !needSourceSearch && canPlaySavedMagnet) {
+      return;
+    }
+    if (!forcePicker && !needSourceSearch && !historyLoaded) {
+      return;
+    }
+
     let cancelled = false;
     setSourcesLoading(true);
     setSourcesError(undefined);
-    setSelected(null);
-    autoSelectedRef.current = false;
 
     void fetchSources(
       {
@@ -141,78 +165,44 @@ export function ListenPage() {
     return () => {
       cancelled = true;
     };
-  }, [author, book, rdToken, searchKey, workId]);
+  }, [
+    author,
+    book,
+    canPlaySavedMagnet,
+    forcePicker,
+    historyLoaded,
+    needSourceSearch,
+    rdToken,
+    searchKey,
+    workId,
+  ]);
 
   useEffect(() => {
-    if (forcePicker || autoSelectedRef.current || selected || sourcesLoading || sources.length === 0) {
+    if (forcePicker || autoSelectedRef.current || selected || !savedPlayback) {
       return;
     }
 
-    const savedLocal = workId ? getRecentAudiobook(workId)?.selectedStream : undefined;
-    const match = findSavedAudiobookSource(sources, {
-      id: savedLocal?.id ?? savedProgress?.selectedStreamId,
-      abbPostUrl: savedLocal?.abbPostUrl ?? savedProgress?.selectedStreamAbbPostUrl,
-      infoHash: savedLocal?.infoHash ?? savedProgress?.selectedStreamInfoHash,
-    });
-
-    if (match) {
+    if (hasPlayableAudiobookMagnet(savedPlayback)) {
       autoSelectedRef.current = true;
-      setSelected(match);
+      setSelected(savedPlayback);
       return;
     }
 
-    if (savedLocal && (savedLocal.magnet || savedLocal.abbPostUrl)) {
-      autoSelectedRef.current = true;
-      setSelected(toStreamSource(savedLocal));
+    if (sourcesLoading || (sources.length === 0 && !sourcesError)) {
       return;
     }
 
-    if (
-      savedProgress?.selectedStreamId &&
-      (savedProgress.selectedStreamMagnet || savedProgress.selectedStreamAbbPostUrl)
-    ) {
-      autoSelectedRef.current = true;
-      setSelected({
-        id: savedProgress.selectedStreamId,
-        title: savedProgress.selectedStreamTitle ?? "Saved stream",
-        magnet: savedProgress.selectedStreamMagnet ?? "",
-        abbPostUrl: savedProgress.selectedStreamAbbPostUrl,
-        infoHash: savedProgress.selectedStreamInfoHash,
-      });
-    }
-  }, [savedProgress, selected, sources, sourcesLoading, workId, forcePicker]);
+    const match = findSavedAudiobookSource(sources, savedPlayback);
+    autoSelectedRef.current = true;
+    setSelected(match ?? savedPlayback);
+  }, [forcePicker, savedPlayback, selected, sources, sourcesError, sourcesLoading]);
 
   const lastUsedSource = useMemo(() => {
-    const savedLocal = workId ? getRecentAudiobook(workId)?.selectedStream : undefined;
-    const savedRef = hasSavedAudiobookStream(savedLocal)
-      ? savedLocal
-      : savedProgress?.selectedStreamId &&
-          (savedProgress.selectedStreamMagnet ||
-            savedProgress.selectedStreamAbbPostUrl ||
-            savedProgress.selectedStreamInfoHash)
-        ? {
-            id: savedProgress.selectedStreamId,
-            title: savedProgress.selectedStreamTitle ?? "Last used",
-            magnet: savedProgress.selectedStreamMagnet ?? "",
-            abbPostUrl: savedProgress.selectedStreamAbbPostUrl,
-            infoHash: savedProgress.selectedStreamInfoHash,
-          }
-        : undefined;
-    const matched = findSavedAudiobookSource(sources, savedRef);
-    if (matched) {
-      return matched;
+    if (!savedPlayback) {
+      return undefined;
     }
-    if (savedRef && hasSavedAudiobookStream(savedRef) && savedRef.id && savedRef.title) {
-      return toStreamSource({
-        id: savedRef.id,
-        title: savedRef.title,
-        magnet: savedRef.magnet,
-        abbPostUrl: savedRef.abbPostUrl,
-        infoHash: savedRef.infoHash,
-      });
-    }
-    return undefined;
-  }, [savedProgress, sources, workId]);
+    return findSavedAudiobookSource(sources, savedPlayback) ?? savedPlayback;
+  }, [savedPlayback, sources]);
 
   const pickerSources = useMemo(
     () => prependLastUsedAudiobookSource(sources, lastUsedSource),
@@ -223,11 +213,12 @@ export function ListenPage() {
     if (!selected || !rdToken) {
       return null;
     }
+    const canSkipAbb = hasPlayableAudiobookMagnet(selected);
     return {
       type: "audiobook",
       mediaTitle: book?.title,
       realDebridToken: rdToken,
-      abbPostUrl: selected.abbPostUrl,
+      abbPostUrl: canSkipAbb ? undefined : selected.abbPostUrl,
       magnet: selected.magnet,
       infoHash: selected.infoHash,
     };
@@ -240,15 +231,16 @@ export function ListenPage() {
       if (!workId) {
         return;
       }
+      const saved = toSavedAudiobookStream(source);
       saveRecentAudiobookStream(workId, source);
       if (isAuthenticated) {
         void saveStream({
           workId,
-          selectedStreamId: source.id,
-          selectedStreamTitle: source.title,
-          selectedStreamMagnet: source.magnet || undefined,
-          selectedStreamAbbPostUrl: source.abbPostUrl,
-          selectedStreamInfoHash: source.infoHash,
+          selectedStreamId: saved.id,
+          selectedStreamTitle: saved.title,
+          selectedStreamMagnet: saved.magnet,
+          selectedStreamAbbPostUrl: saved.abbPostUrl,
+          selectedStreamInfoHash: saved.infoHash,
         }).catch(() => {});
       }
     },
@@ -265,6 +257,27 @@ export function ListenPage() {
     },
     [forcePicker, navigate, persistStreamChoice, workId],
   );
+
+  useEffect(() => {
+    if (resolveState.status !== "ready" || !selected) {
+      return;
+    }
+    const magnet = resolveState.stream?.magnet || selected.magnet;
+    const infoHash = resolveState.stream?.infoHash || selected.infoHash;
+    if (!hasPlayableAudiobookMagnet({ magnet, infoHash })) {
+      return;
+    }
+    const key = `${selected.id}:${infoHash || magnet}`;
+    if (persistedMagnetKeyRef.current === key) {
+      return;
+    }
+    persistedMagnetKeyRef.current = key;
+    persistStreamChoice({
+      ...selected,
+      magnet: magnet ?? selected.magnet,
+      infoHash,
+    });
+  }, [persistStreamChoice, resolveState.status, resolveState.stream?.infoHash, resolveState.stream?.magnet, selected]);
 
   const onProgress = useCallback(
     (progress: { fileIndex: number; positionSec: number }) => {
@@ -391,7 +404,10 @@ export function ListenPage() {
                 <button
                   type="button"
                   className="mt-4 rounded-md bg-white px-4 py-2 text-black"
-                  onClick={() => setSelected(null)}
+                  onClick={() => {
+                    setNeedSourceSearch(true);
+                    setSelected(null);
+                  }}
                 >
                   Pick another source
                 </button>
@@ -408,7 +424,10 @@ export function ListenPage() {
                 lastUsedId={lastUsedSource?.id}
                 disabled={!rdToken || resolveState.status === "downloading"}
                 onSelect={onSelectSource}
-                onRetry={() => setSearchKey((value) => value + 1)}
+                onRetry={() => {
+                  setNeedSourceSearch(true);
+                  setSearchKey((value) => value + 1);
+                }}
               />
             ) : null}
           </div>

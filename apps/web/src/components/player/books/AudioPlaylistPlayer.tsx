@@ -6,6 +6,13 @@ import {
   ChaptersToggleButton,
 } from "@/components/player/books/ChapterQueuePanel";
 import { mapMediaElementError } from "@/components/player/shared/playbackErrors";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useMediaSession } from "@/hooks/useMediaSession";
 import {
   formatAudiobookTime,
@@ -16,6 +23,12 @@ import {
 import { playMediaElement } from "@/lib/mediaSession";
 import { cn } from "@/lib/utils";
 import type { PackKind, StreamFile } from "@/lib/streamApi";
+
+const SPEED_OPTIONS = [0.75, 1, 1.25, 1.5, 1.75, 2] as const;
+
+function formatSpeed(rate: number) {
+  return `${rate}x`;
+}
 
 type AudioPlaylistPlayerProps = {
   title: string;
@@ -273,7 +286,7 @@ export function AudioPlaylistPlayer({
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1">
-      <div className="relative mx-auto flex min-h-0 w-full min-w-0 max-w-lg flex-1 flex-col overflow-y-auto px-6 py-6 md:max-w-xl md:py-8">
+      <div className="relative mx-auto flex min-h-0 w-full min-w-0 max-w-lg flex-1 flex-col overflow-y-auto px-6 pb-4 pt-6 md:max-w-xl md:pb-6 md:pt-8">
         {artworkUrl ? (
           <div className="flex min-h-0 flex-1 items-center justify-center">
             <div className="aspect-[2/3] h-full max-h-[min(52vh,28rem)] w-auto max-w-full">
@@ -286,7 +299,7 @@ export function AudioPlaylistPlayer({
           </div>
         ) : null}
 
-        <div className="mt-5 w-full shrink-0 space-y-4">
+        <div className="mt-auto w-full shrink-0 space-y-4 pt-5">
           <div className="min-w-0 text-center md:text-left">
             <h1 className="truncate text-xl font-semibold text-white sm:text-2xl">{title}</h1>
             {artist ? <p className="mt-1 truncate text-zinc-300">{artist}</p> : null}
@@ -405,7 +418,7 @@ export function AudioPlaylistPlayer({
             </div>
           </div>
 
-          <div className="relative flex items-center justify-center gap-3 sm:gap-4">
+          <div className="flex items-center justify-center gap-3 sm:gap-4">
             <button
               type="button"
               className="rounded-full p-2 text-zinc-300 transition hover:bg-zinc-800 hover:text-white disabled:opacity-40"
@@ -453,15 +466,10 @@ export function AudioPlaylistPlayer({
             >
               <TrackNextIcon className="h-6 w-6" />
             </button>
-            <ChaptersToggleButton
-              open={chaptersOpen}
-              count={files.length}
-              onClick={() => setChaptersOpen((value) => !value)}
-              className="absolute right-0 hidden sm:inline-flex"
-            />
           </div>
 
-          <div className="flex items-center justify-center gap-2 sm:hidden">
+          <div className="flex items-center justify-between">
+            <PlaybackSpeedMenu rate={rate} onRateChange={setRate} />
             <ChaptersToggleButton
               open={chaptersOpen}
               count={files.length}
@@ -472,25 +480,6 @@ export function AudioPlaylistPlayer({
           {loading && playing ? (
             <p className="text-center text-xs text-zinc-500">Buffering…</p>
           ) : null}
-
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            <span className="text-sm text-zinc-500">Speed</span>
-            {[0.75, 1, 1.25, 1.5, 1.75, 2].map((value) => (
-              <button
-                key={value}
-                type="button"
-                className={cn(
-                  "rounded-md px-2.5 py-1 text-xs",
-                  rate === value
-                    ? "bg-red-600 text-white"
-                    : "border border-zinc-700 text-zinc-300 hover:border-zinc-500",
-                )}
-                onClick={() => setRate(value)}
-              >
-                {value}x
-              </button>
-            ))}
-          </div>
         </div>
       </div>
 
@@ -504,5 +493,50 @@ export function AudioPlaylistPlayer({
         onSelect={(index) => playFile(index, true)}
       />
     </div>
+  );
+}
+
+function PlaybackSpeedMenu({
+  rate,
+  onRateChange,
+}: {
+  rate: number;
+  onRateChange: (rate: number) => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex h-11 min-w-11 items-center justify-center rounded-full border border-zinc-700 bg-zinc-900/90 px-1.5 text-xs font-medium text-white hover:bg-zinc-800"
+          aria-label={`Playback speed ${formatSpeed(rate)}`}
+        >
+          {formatSpeed(rate)}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        side="top"
+        align="start"
+        className="min-w-[8rem] border-zinc-800 bg-zinc-950 text-zinc-100"
+      >
+        <DropdownMenuRadioGroup
+          value={String(rate)}
+          onValueChange={(value) => onRateChange(Number(value))}
+        >
+          {SPEED_OPTIONS.map((value) => (
+            <DropdownMenuRadioItem
+              key={value}
+              value={String(value)}
+              className={cn(
+                "cursor-pointer focus:bg-zinc-800 focus:text-white",
+                rate === value && "text-red-300",
+              )}
+            >
+              {formatSpeed(value)}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

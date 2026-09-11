@@ -42,6 +42,12 @@ type SubjectRowConfig struct {
 	Subject string `json:"subject"`
 }
 
+type SeriesConfig struct {
+	Title string
+	Key   string
+	Works []string
+}
+
 type SubjectRow struct {
 	Title   string `json:"title"`
 	Subject string `json:"subject"`
@@ -61,12 +67,16 @@ type SearchResponse struct {
 
 var DefaultSubjectRows = []SubjectRowConfig{
 	{Title: "NYT Bestsellers", Subject: "new_york_times_bestseller"},
+	{Title: "Hugo Award Winners", Subject: "hugo_award"},
+	{Title: "Pulitzer Prize", Subject: "pulitzer_prize_winner"},
+	{Title: "Classics", Subject: "classics"},
 	{Title: "Science Fiction", Subject: "science_fiction"},
 	{Title: "Fantasy", Subject: "fantasy"},
 	{Title: "Mystery", Subject: "mystery"},
 	{Title: "Thrillers", Subject: "thriller"},
 	{Title: "Romance", Subject: "romance"},
 	{Title: "Horror", Subject: "horror"},
+	{Title: "True Crime", Subject: "true_crime"},
 	{Title: "Biography", Subject: "biography"},
 	{Title: "History", Subject: "history"},
 	{Title: "Young Adult", Subject: "young_adult_fiction"},
