@@ -17,6 +17,13 @@
 		}
 	}
 
+	# JedFlix TV API (JedBorseth/jedflix-tv, server/). Runs from its own
+	# compose project on this host and joins the jedflix_default network.
+	handle /tv-api/* {
+		uri strip_prefix /tv-api
+		reverse_proxy jedflix-tv-api:8080
+	}
+
 	# Legacy /stream-api path (covers + older clients).
 	handle /stream-api/* {
 		uri strip_prefix /stream-api
