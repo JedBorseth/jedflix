@@ -1,7 +1,12 @@
 package youtube
 
 import (
+	"context"
+	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestBuildSearchQuery(t *testing.T) {
@@ -143,5 +148,189 @@ func TestPickBestEntryDoesNotFallBackToLiveConcert(t *testing.T) {
 	best := pickBestEntry(entries, req)
 	if best != nil {
 		t.Fatalf("expected no live fallback, got %+v", best)
+	}
+}
+
+func TestResolveSharesInflightJobForSameKey(t *testing.T) {
+	r := NewResolverWithLimit(1)
+	var calls atomic.Int32
+	started := make(chan struct{})
+	finish := make(chan struct{})
+	result := StreamInfo{URL: "https://example.test/a.m4a", Title: "Song", VideoID: "abc"}
+	r.resolveUncachedFn = func(ctx context.Context, req Request) (*StreamInfo, error) {
+		if calls.Add(1) == 1 {
+			close(started)
+		}
+		select {
+		case <-finish:
+			info := result
+			return &info, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+
+	req := Request{Artist: "Artist", Title: "Song"}
+	var firstErr, secondErr error
+	var first, second *StreamInfo
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		first, firstErr = r.Resolve(context.Background(), req)
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("job did not start")
+	}
+
+	wg.Add(1)
+	secondDone := make(chan struct{})
+	go func() {
+		defer wg.Done()
+		defer close(secondDone)
+		second, secondErr = r.Resolve(context.Background(), req)
+	}()
+
+	select {
+	case <-secondDone:
+		t.Fatal("second waiter returned before the shared job finished")
+	case <-time.After(30 * time.Millisecond):
+	}
+
+	close(finish)
+	wg.Wait()
+
+	if firstErr != nil || secondErr != nil {
+		t.Fatalf("resolve errors: %v %v", firstErr, secondErr)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("expected 1 shared job, got %d", calls.Load())
+	}
+	if first == nil || second == nil || first.URL != result.URL || second.URL != result.URL {
+		t.Fatalf("unexpected results: %+v %+v", first, second)
+	}
+}
+
+func TestResolveKeepsJobWhenOtherWaiterRemains(t *testing.T) {
+	r := NewResolverWithLimit(1)
+	var jobCancelled atomic.Bool
+	started := make(chan struct{})
+	finish := make(chan struct{})
+	result := StreamInfo{URL: "https://example.test/b.m4a", Title: "Song"}
+	r.resolveUncachedFn = func(ctx context.Context, req Request) (*StreamInfo, error) {
+		close(started)
+		select {
+		case <-finish:
+			info := result
+			return &info, nil
+		case <-ctx.Done():
+			jobCancelled.Store(true)
+			return nil, ctx.Err()
+		}
+	}
+
+	req := Request{Artist: "Artist", Title: "Song"}
+	headCtx, cancelHead := context.WithCancel(context.Background())
+	headErr := make(chan error, 1)
+	go func() {
+		_, err := r.Resolve(headCtx, req)
+		headErr <- err
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("job did not start")
+	}
+
+	var got *StreamInfo
+	getErr := make(chan error, 1)
+	getDone := make(chan struct{})
+	go func() {
+		defer close(getDone)
+		info, err := r.Resolve(context.Background(), req)
+		got = info
+		getErr <- err
+	}()
+
+	select {
+	case <-getDone:
+		t.Fatal("remaining waiter returned before the shared job finished")
+	case <-time.After(30 * time.Millisecond):
+	}
+
+	cancelHead()
+	select {
+	case err := <-headErr:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancelled HEAD waiter: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cancelled waiter did not return")
+	}
+
+	select {
+	case <-getDone:
+		t.Fatal("GET waiter returned after HEAD cancel; shared job should continue")
+	case <-time.After(30 * time.Millisecond):
+	}
+	if jobCancelled.Load() {
+		t.Fatal("shared job was cancelled while a GET waiter remained")
+	}
+
+	close(finish)
+	if err := <-getErr; err != nil {
+		t.Fatalf("remaining waiter: %v", err)
+	}
+	if got == nil || got.URL != result.URL {
+		t.Fatalf("remaining waiter result: %+v", got)
+	}
+}
+
+func TestResolveCacheHitDoesNotStartJobOrTakeSlot(t *testing.T) {
+	r := NewResolverWithLimit(1)
+	var calls atomic.Int32
+	result := StreamInfo{URL: "https://example.test/cached.m4a", Title: "Song"}
+	r.resolveUncachedFn = func(ctx context.Context, req Request) (*StreamInfo, error) {
+		calls.Add(1)
+		info := result
+		return &info, nil
+	}
+
+	req := Request{Artist: "Artist", Title: "Song"}
+	first, err := r.Resolve(context.Background(), req)
+	if err != nil {
+		t.Fatalf("first resolve: %v", err)
+	}
+
+	if err := r.acquire(context.Background(), false); err != nil {
+		t.Fatalf("hold slot: %v", err)
+	}
+	defer r.release(false)
+
+	done := make(chan struct{})
+	var second *StreamInfo
+	var secondErr error
+	go func() {
+		defer close(done)
+		second, secondErr = r.Resolve(context.Background(), req)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("cache hit blocked on a concurrency slot")
+	}
+	if secondErr != nil {
+		t.Fatalf("cache hit: %v", secondErr)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("cache hit started another job: %d", calls.Load())
+	}
+	if first.URL != result.URL || second.URL != result.URL {
+		t.Fatalf("cached results: %+v %+v", first, second)
 	}
 }

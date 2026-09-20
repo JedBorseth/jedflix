@@ -14,7 +14,6 @@ import (
 	"unicode"
 
 	"github.com/jedborseth/jeds-movies/backend/internal/livematch"
-	"golang.org/x/sync/singleflight"
 )
 
 var (
@@ -39,12 +38,25 @@ type Resolver struct {
 
 	mu       sync.Mutex
 	cache    map[string]cachedURL
-	inflight singleflight.Group
+	inflight map[string]*inflightCall
+	// resolveUncachedFn, when set, replaces yt-dlp work so tests can drive
+	// waiter/cancel behavior without shelling out.
+	resolveUncachedFn func(ctx context.Context, req Request) (*StreamInfo, error)
 	// sem limits concurrent yt-dlp processes — not audio proxying.
 	sem chan struct{}
 	// prefetchGate reserves one sem slot for playback. Prefetch may only
 	// occupy the remaining slots (nil when every slot is reserved).
 	prefetchGate chan struct{}
+}
+
+// inflightCall is one shared resolve for a cache key. Waiters share the job;
+// the last waiter to leave cancels it so abandoned yt-dlp work frees a slot.
+type inflightCall struct {
+	waiters int
+	cancel  context.CancelFunc
+	done    chan struct{}
+	info    StreamInfo
+	err     error
 }
 
 type cachedURL struct {
@@ -125,6 +137,7 @@ func NewResolverWithLimit(slots int) *Resolver {
 		searchN:      defaultSearchCount,
 		now:          time.Now,
 		cache:        make(map[string]cachedURL),
+		inflight:     make(map[string]*inflightCall),
 		sem:          make(chan struct{}, slots),
 		prefetchGate: prefetchGate,
 	}
@@ -205,25 +218,85 @@ func (r *Resolver) Resolve(ctx context.Context, req Request) (*StreamInfo, error
 		return &cached, nil
 	}
 
-	v, err, _ := r.inflight.Do(key, func() (interface{}, error) {
-		if info, ok := r.getCached(key); ok {
-			return info, nil
-		}
-		// Detach from the caller so a cancelled HEAD does not kill an in-flight GET.
-		resolveCtx, cancel := context.WithTimeout(context.Background(), ResolveTimeout)
-		defer cancel()
-		info, err := r.resolveUncached(resolveCtx, req)
-		if err != nil {
-			return nil, err
-		}
-		r.putCached(key, *info)
-		return *info, nil
-	})
-	if err != nil {
-		return nil, err
+	call, cached := r.joinInflight(key, req)
+	if cached != nil {
+		return cached, nil
 	}
-	info := v.(StreamInfo)
-	return &info, nil
+	defer r.leaveInflight(key, call)
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-call.done:
+		if call.err != nil {
+			return nil, call.err
+		}
+		info := call.info
+		return &info, nil
+	}
+}
+
+func (r *Resolver) joinInflight(key string, req Request) (*inflightCall, *StreamInfo) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if entry, ok := r.cache[key]; ok && r.now().Sub(entry.cachedAt) <= urlCacheTTL {
+		info := entry.info
+		return nil, &info
+	}
+	if call, ok := r.inflight[key]; ok {
+		call.waiters++
+		return call, nil
+	}
+
+	// Shared work is not tied to any one caller: a cancelled HEAD must not
+	// kill an in-flight GET for the same key. The last waiter leaving
+	// cancels this context so yt-dlp and acquire unblock.
+	resolveCtx, cancel := context.WithTimeout(context.Background(), ResolveTimeout)
+	call := &inflightCall{
+		waiters: 1,
+		cancel:  cancel,
+		done:    make(chan struct{}),
+	}
+	r.inflight[key] = call
+	go r.runInflight(resolveCtx, key, req, call)
+	return call, nil
+}
+
+func (r *Resolver) leaveInflight(key string, call *inflightCall) {
+	if call == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	call.waiters--
+	if call.waiters > 0 {
+		return
+	}
+	call.cancel()
+	if r.inflight[key] == call {
+		delete(r.inflight, key)
+	}
+}
+
+func (r *Resolver) runInflight(ctx context.Context, key string, req Request, call *inflightCall) {
+	defer func() {
+		close(call.done)
+		r.mu.Lock()
+		if r.inflight[key] == call {
+			delete(r.inflight, key)
+		}
+		r.mu.Unlock()
+		call.cancel()
+	}()
+
+	info, err := r.resolveUncached(ctx, req)
+	if err != nil {
+		call.err = err
+		return
+	}
+	r.putCached(key, *info)
+	call.info = *info
 }
 
 // Invalidate drops a cached googlevideo URL so the next Resolve re-runs yt-dlp.
@@ -235,13 +308,19 @@ func (r *Resolver) Invalidate(req Request) {
 }
 
 func (r *Resolver) resolveUncached(ctx context.Context, req Request) (*StreamInfo, error) {
-	if _, err := exec.LookPath(r.ytdlpPath); err != nil {
-		return nil, ErrYtdlpMissing
+	if r.resolveUncachedFn == nil {
+		if _, err := exec.LookPath(r.ytdlpPath); err != nil {
+			return nil, ErrYtdlpMissing
+		}
 	}
 	if err := r.acquire(ctx, req.Prefetch); err != nil {
 		return nil, err
 	}
 	defer r.release(req.Prefetch)
+
+	if r.resolveUncachedFn != nil {
+		return r.resolveUncachedFn(ctx, req)
+	}
 
 	var best *searchEntry
 	if req.VideoID != "" {
