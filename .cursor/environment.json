@@ -1,0 +1,19 @@
+{
+  "name": "JedFlix",
+  "install": "bash .cursor/install.sh",
+  "terminals": [
+    {
+      "name": "convex",
+      "command": "bash .cursor/dev-convex.sh"
+    },
+    {
+      "name": "backend",
+      "command": "cd \"$(git rev-parse --show-toplevel)/apps/backend\" && PATH=\"/usr/local/go/bin:$PATH\" go run ./cmd/backend"
+    },
+    {
+      "name": "web",
+      "command": "bash .cursor/dev-web.sh"
+    }
+  ],
+  "ports": [5173, 8080, 3210, 3211]
+}
