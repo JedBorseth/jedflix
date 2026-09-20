@@ -28,7 +28,7 @@ function artistLabel(artists: string[]): string {
   return artists.filter(Boolean).join(", ") || "Unknown artist";
 }
 
-function trackUrl(track: PrefetchTrack): string {
+function trackUrl(track: PrefetchTrack, prefetch: boolean): string {
   const videoId =
     track.youtubeVideoId ||
     (track.id.startsWith("yt:") ? track.id.slice(3) : undefined);
@@ -43,6 +43,7 @@ function trackUrl(track: PrefetchTrack): string {
     album: hints.album,
     durationMs: hints.durationMs,
     videoId,
+    prefetch,
   });
 }
 
@@ -72,8 +73,9 @@ export async function fetchYoutubeAudioMetadata(
 }
 
 /**
- * Warm the stream-server YouTube resolver cache for upcoming tracks.
+ * Warm the stream-server YouTube resolver cache for nearby tracks.
  * Uses HEAD so we resolve Spotify→YouTube without downloading audio bodies.
+ * Neighbor HEADs send prefetch=1 so they cannot take the last yt-dlp slot.
  */
 export async function prefetchYoutubeAudioTracks(
   tracks: PrefetchTrack[],
@@ -97,7 +99,7 @@ export async function prefetchYoutubeAudioTracks(
       continue;
     }
     seen.add(track.id);
-    const url = trackUrl(track);
+    const url = trackUrl(track, true);
     try {
       const response = await fetchImpl(url, {
         method: "HEAD",
@@ -109,8 +111,10 @@ export async function prefetchYoutubeAudioTracks(
         if (durationMs) {
           durationMsByTrackId[track.id] = durationMs;
         }
-      } else if (response.status === 429) {
-        seen.delete(track.id);
+        continue;
+      }
+      seen.delete(track.id);
+      if (response.status === 429) {
         break;
       }
     } catch {
@@ -132,4 +136,39 @@ export function upcomingTracksForPrefetch<T>(
     return [];
   }
   return queue.slice(queueIndex + 1, queueIndex + 1 + count);
+}
+
+/**
+ * Previous 1 + next 2 around `queueIndex`. Extra tracks (Infinite Queue
+ * previews) fill remaining next slots only — never previous.
+ */
+export function neighborTracksForPrefetch<T>(
+  queue: T[],
+  queueIndex: number,
+  extras: T[] = [],
+  options?: { previous?: number; next?: number },
+): T[] {
+  const previousCount = options?.previous ?? 1;
+  const nextCount = options?.next ?? 2;
+  if (queueIndex < 0) {
+    return [];
+  }
+  const previous =
+    previousCount > 0 && queueIndex > 0
+      ? queue.slice(Math.max(0, queueIndex - previousCount), queueIndex)
+      : [];
+  const next = upcomingTracksForPrefetch(queue, queueIndex, nextCount);
+  const need = Math.max(0, nextCount - next.length);
+  const filled = need > 0 ? extras.slice(0, need) : [];
+  return [...previous, ...next, ...filled];
+}
+
+/**
+ * Neighbor prefetch runs only after the current track is audibly playing
+ * (MAR-3 meaning of `playing`), not when `loading` flipped false from `onPlay`.
+ */
+export function shouldPrefetchNeighborAudio(input: {
+  playing: boolean;
+}): boolean {
+  return input.playing;
 }

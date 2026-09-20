@@ -346,6 +346,7 @@ export type StreamClient = {
     durationMs?: number;
     videoId?: string;
     fresh?: boolean;
+    prefetch?: boolean;
   }) => string;
 };
 
@@ -910,6 +911,7 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
     durationMs?: number;
     videoId?: string;
     fresh?: boolean;
+    prefetch?: boolean;
   }): string {
     const query = new URLSearchParams();
     if (params.videoId?.trim()) {
@@ -929,6 +931,9 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
     }
     if (params.fresh) {
       query.set("fresh", "1");
+    }
+    if (params.prefetch) {
+      query.set("prefetch", "1");
     }
     return `${apiBase}/api/v1/youtube/audio?${query.toString()}`;
   }

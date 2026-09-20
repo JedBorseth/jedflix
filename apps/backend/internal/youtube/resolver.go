@@ -44,6 +44,9 @@ type Resolver struct {
 	resolveUncachedFn func(ctx context.Context, req Request) (*StreamInfo, error)
 	// sem limits concurrent yt-dlp processes — not audio proxying.
 	sem chan struct{}
+	// prefetchGate reserves one sem slot for playback. Prefetch may only
+	// occupy the remaining slots (nil when every slot is reserved).
+	prefetchGate chan struct{}
 }
 
 // inflightCall is one shared resolve for a cache key. Waiters share the job;
@@ -69,6 +72,9 @@ type Request struct {
 	DurationMs int // Spotify track length; used to prefer audio over music videos
 	// VideoID skips ytsearch and extracts this YouTube video directly (catalog hits).
 	VideoID string
+	// Prefetch uses shared yt-dlp slots only and cannot take the last slot
+	// reserved for playback. Missing/false is playback-priority.
+	Prefetch bool
 }
 
 // StreamInfo is a resolved direct audio URL (ephemeral; not stored on disk).
@@ -116,20 +122,51 @@ func NewResolverWithLimit(slots int) *Resolver {
 	if cookies == "" {
 		cookies = strings.TrimSpace(os.Getenv("YOUTUBE_COOKIES_FILE"))
 	}
+	reserved := 1
+	if reserved > slots {
+		reserved = slots
+	}
+	prefetchMax := slots - reserved
+	var prefetchGate chan struct{}
+	if prefetchMax > 0 {
+		prefetchGate = make(chan struct{}, prefetchMax)
+	}
 	return &Resolver{
-		ytdlpPath:   "yt-dlp",
-		cookiesFile: cookies,
-		searchN:     defaultSearchCount,
-		now:         time.Now,
-		cache:       make(map[string]cachedURL),
-		inflight:    make(map[string]*inflightCall),
-		sem:         make(chan struct{}, slots),
+		ytdlpPath:    "yt-dlp",
+		cookiesFile:  cookies,
+		searchN:      defaultSearchCount,
+		now:          time.Now,
+		cache:        make(map[string]cachedURL),
+		inflight:     make(map[string]*inflightCall),
+		sem:          make(chan struct{}, slots),
+		prefetchGate: prefetchGate,
 	}
 }
 
-func (r *Resolver) acquire(ctx context.Context) error {
+func (r *Resolver) acquire(ctx context.Context, prefetch bool) error {
 	if r == nil || r.sem == nil {
 		return ctx.Err()
+	}
+	if prefetch {
+		if r.prefetchGate == nil {
+			<-ctx.Done()
+			return ctx.Err()
+		}
+		select {
+		case r.prefetchGate <- struct{}{}:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		select {
+		case r.sem <- struct{}{}:
+			return nil
+		case <-ctx.Done():
+			select {
+			case <-r.prefetchGate:
+			default:
+			}
+			return ctx.Err()
+		}
 	}
 	select {
 	case r.sem <- struct{}{}:
@@ -139,13 +176,19 @@ func (r *Resolver) acquire(ctx context.Context) error {
 	}
 }
 
-func (r *Resolver) release() {
+func (r *Resolver) release(prefetch bool) {
 	if r == nil || r.sem == nil {
 		return
 	}
 	select {
 	case <-r.sem:
 	default:
+	}
+	if prefetch && r.prefetchGate != nil {
+		select {
+		case <-r.prefetchGate:
+		default:
+		}
 	}
 }
 
@@ -270,10 +313,10 @@ func (r *Resolver) resolveUncached(ctx context.Context, req Request) (*StreamInf
 			return nil, ErrYtdlpMissing
 		}
 	}
-	if err := r.acquire(ctx); err != nil {
+	if err := r.acquire(ctx, req.Prefetch); err != nil {
 		return nil, err
 	}
-	defer r.release()
+	defer r.release(req.Prefetch)
 
 	if r.resolveUncachedFn != nil {
 		return r.resolveUncachedFn(ctx, req)

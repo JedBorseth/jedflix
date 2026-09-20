@@ -119,6 +119,7 @@ export function getYoutubeAudioUrl(params: {
   durationMs?: number;
   videoId?: string;
   fresh?: boolean;
+  prefetch?: boolean;
 }): string {
   return streamClient.getYoutubeAudioUrl(params);
 }

@@ -1,0 +1,28 @@
+{
+  "name": "JedFlix",
+  "install": "bash .cursor/install.sh",
+  "start": "true",
+  "terminals": [
+    {
+      "name": "convex",
+      "command": "bash .cursor/dev-convex.sh",
+      "description": "Local Convex backend on :3210 (site :3211)"
+    },
+    {
+      "name": "backend",
+      "command": "cd \"$(git rev-parse --show-toplevel)/apps/backend\" && PATH=\"/usr/local/go/bin:$PATH\" go run ./cmd/backend",
+      "description": "Go API on :8080"
+    },
+    {
+      "name": "web",
+      "command": "bash .cursor/dev-web.sh",
+      "description": "Vite web app on :5173"
+    }
+  ],
+  "ports": [
+    { "name": "web", "port": 5173 },
+    { "name": "backend", "port": 8080 },
+    { "name": "convex", "port": 3210 },
+    { "name": "convex-site", "port": 3211 }
+  ]
+}

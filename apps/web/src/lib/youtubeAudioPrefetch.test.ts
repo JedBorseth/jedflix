@@ -1,9 +1,23 @@
 import { describe, expect, test } from "bun:test";
+import { createStreamClient } from "@jedflix/stream-client";
+import { getYoutubeAudioUrl } from "@/lib/spotify";
 import {
   fetchYoutubeAudioMetadata,
+  neighborTracksForPrefetch,
   prefetchYoutubeAudioTracks,
+  shouldPrefetchNeighborAudio,
   upcomingTracksForPrefetch,
 } from "@/lib/youtubeAudioPrefetch";
+
+function sampleTrack(id: string, title: string) {
+  return {
+    id,
+    title,
+    artists: ["Artist"],
+    albumName: "Album",
+    durationMs: 180_000,
+  };
+}
 
 describe("youtubeAudioPrefetch", () => {
   test("upcomingTracksForPrefetch returns the next two tracks", () => {
@@ -13,7 +27,44 @@ describe("youtubeAudioPrefetch", () => {
     expect(upcomingTracksForPrefetch(queue, 4, 2)).toEqual([]);
   });
 
-  test("prefetchYoutubeAudioTracks issues HEAD requests and skips duplicates", async () => {
+  test("neighborTracksForPrefetch returns previous one and next two", () => {
+    const queue = ["a", "b", "c", "d", "e"];
+    expect(neighborTracksForPrefetch(queue, 0)).toEqual(["b", "c"]);
+    expect(neighborTracksForPrefetch(queue, 1)).toEqual(["a", "c", "d"]);
+    expect(neighborTracksForPrefetch(queue, 4)).toEqual(["d"]);
+    expect(neighborTracksForPrefetch(queue, 4, ["x", "y"])).toEqual([
+      "d",
+      "x",
+      "y",
+    ]);
+    expect(neighborTracksForPrefetch(queue, 3, ["x"])).toEqual(["c", "e", "x"]);
+  });
+
+  test("shouldPrefetchNeighborAudio waits for audible playing, not loading=false", () => {
+    expect(shouldPrefetchNeighborAudio({ playing: false })).toBe(false);
+    expect(shouldPrefetchNeighborAudio({ playing: true })).toBe(true);
+  });
+
+  test("getYoutubeAudioUrl prefetch flag is opt-in", () => {
+    const client = createStreamClient({ apiBase: "/backend" });
+    const playback = client.getYoutubeAudioUrl({
+      artist: "Pixies",
+      title: "Debaser",
+    });
+    const prefetch = client.getYoutubeAudioUrl({
+      artist: "Pixies",
+      title: "Debaser",
+      prefetch: true,
+    });
+    expect(playback).toContain("/youtube/audio?");
+    expect(playback).not.toContain("prefetch=");
+    expect(prefetch).toContain("prefetch=1");
+    expect(
+      getYoutubeAudioUrl({ artist: "Pixies", title: "Debaser" }),
+    ).not.toContain("prefetch=");
+  });
+
+  test("prefetchYoutubeAudioTracks issues HEAD requests with prefetch=1 and skips duplicates", async () => {
     const urls: string[] = [];
     const methods: string[] = [];
     const fetchImpl: typeof fetch = async (input, init) => {
@@ -25,22 +76,7 @@ describe("youtubeAudioPrefetch", () => {
       });
     };
 
-    const tracks = [
-      {
-        id: "1",
-        title: "Song One",
-        artists: ["Artist"],
-        albumName: "Album",
-        durationMs: 180_000,
-      },
-      {
-        id: "2",
-        title: "Song Two",
-        artists: ["Artist"],
-        albumName: "Album",
-        durationMs: 200_000,
-      },
-    ];
+    const tracks = [sampleTrack("1", "Song One"), sampleTrack("2", "Song Two")];
 
     const warmed = new Set<string>();
     const first = await prefetchYoutubeAudioTracks(tracks, {
@@ -51,6 +87,7 @@ describe("youtubeAudioPrefetch", () => {
     expect(first.durationMsByTrackId).toEqual({ "1": 181000, "2": 181000 });
     expect(methods).toEqual(["HEAD", "HEAD"]);
     expect(urls.every((url) => url.includes("/youtube/audio?"))).toBe(true);
+    expect(urls.every((url) => url.includes("prefetch=1"))).toBe(true);
     expect(urls[0]).toContain("album=Album");
 
     const second = await prefetchYoutubeAudioTracks(tracks, {
@@ -69,27 +106,39 @@ describe("youtubeAudioPrefetch", () => {
       calls += 1;
       return new Response(null, { status });
     };
+    const seen = new Set<string>();
     const result = await prefetchYoutubeAudioTracks(
-      [
-        {
-          id: "1",
-          title: "Song One",
-          artists: ["Artist"],
-          albumName: "Album",
-          durationMs: 180_000,
-        },
-        {
-          id: "2",
-          title: "Song Two",
-          artists: ["Artist"],
-          albumName: "Album",
-          durationMs: 200_000,
-        },
-      ],
-      { fetchImpl },
+      [sampleTrack("1", "Song One"), sampleTrack("2", "Song Two")],
+      { fetchImpl, alreadyPrefetched: seen },
     );
     expect(result.warmed).toEqual([]);
     expect(calls).toBe(1);
+    expect(seen.has("1")).toBe(false);
+  });
+
+  test("failed HEAD is not warmed and stays eligible", async () => {
+    let calls = 0;
+    const fetchImpl: typeof fetch = async () => {
+      calls += 1;
+      if (calls === 1) {
+        return new Response(null, { status: 500 });
+      }
+      return new Response(null, { status: 200 });
+    };
+    const seen = new Set<string>();
+    const first = await prefetchYoutubeAudioTracks(
+      [sampleTrack("1", "Song One")],
+      { fetchImpl, alreadyPrefetched: seen },
+    );
+    expect(first.warmed).toEqual([]);
+    expect(seen.has("1")).toBe(false);
+
+    const second = await prefetchYoutubeAudioTracks(
+      [sampleTrack("1", "Song One")],
+      { fetchImpl, alreadyPrefetched: seen },
+    );
+    expect(second.warmed).toEqual(["1"]);
+    expect(calls).toBe(2);
   });
 
   test("omits live album names from the YouTube resolve URL", async () => {
@@ -113,6 +162,7 @@ describe("youtubeAudioPrefetch", () => {
     );
     expect(urls).toHaveLength(1);
     expect(urls[0]).toContain("title=Bone+Machine");
+    expect(urls[0]).toContain("prefetch=1");
     expect(urls[0]).not.toContain("album=");
     expect(urls[0]).not.toContain("durationMs=");
   });

@@ -306,10 +306,10 @@ func TestResolveCacheHitDoesNotStartJobOrTakeSlot(t *testing.T) {
 		t.Fatalf("first resolve: %v", err)
 	}
 
-	if err := r.acquire(context.Background()); err != nil {
+	if err := r.acquire(context.Background(), false); err != nil {
 		t.Fatalf("hold slot: %v", err)
 	}
-	defer r.release()
+	defer r.release(false)
 
 	done := make(chan struct{})
 	var second *StreamInfo
