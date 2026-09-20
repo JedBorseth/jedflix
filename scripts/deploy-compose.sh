@@ -141,6 +141,13 @@ run_plan() {
   build_services=(${build_line})
 
   if ((${#build_services[@]})); then
+    if [[ " ${build_services[*]} " == *" music-ai "* ]]; then
+      avail_docker_kb="$(df -P /var/lib/containerd 2>/dev/null | awk 'NR==2 { print $4 }')"
+      if [ "${avail_docker_kb:-0}" -lt 20971520 ]; then
+        echo "Refusing music-ai rebuild: docker data disk has under 20G free (${avail_docker_kb:-0} KB)." >&2
+        exit 1
+      fi
+    fi
     echo "== Building: ${build_services[*]} =="
     docker compose build "${build_services[@]}"
     echo "== Recreating (no deps, so music infra stays up) =="
@@ -151,7 +158,15 @@ run_plan() {
 
   if [[ "${sync_line}" == 1 ]]; then
     echo "== Applying Compose config without rebuilding images =="
-    docker compose up -d --remove-orphans
+    # --no-build: a missing music-ai image must not trigger a CUDA/torch rebuild
+    # during an unrelated compose-file change (that previously filled the root disk).
+    if ! docker compose up -d --no-build --remove-orphans; then
+      echo "WARN: compose sync failed (often a missing music-ai image). Retrying other services."
+      mapfile -t rest < <(docker compose config --services | grep -vx music-ai || true)
+      if ((${#rest[@]})); then
+        docker compose up -d --no-build --remove-orphans "${rest[@]}"
+      fi
+    fi
   fi
 
   if [[ "${caddy_line}" == 1 ]]; then

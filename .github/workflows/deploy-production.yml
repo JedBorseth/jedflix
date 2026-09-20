@@ -90,8 +90,7 @@ jobs:
               /mnt/disk1/jedflix/models || true
 
             echo "== Disk before cleanup =="
-            df -h / || true
-            df -h /mnt/disk1 || true
+            df -h / /mnt/disk1 /var/lib/containerd /var/lib/docker || true
             docker system df || true
 
             # Free dangling containers/images only. Keep the BuildKit cache so
@@ -99,14 +98,17 @@ jobs:
             # Do NOT prune volumes — caddy_data holds TLS certs; pgdata is on disk1.
             docker container prune -f || true
             docker image prune -f || true
-            avail_kb="$(df -P / | awk 'NR==2 { print $4 }')"
-            if [ "${avail_kb:-0}" -lt 8388608 ]; then
-              echo "Root has under 8G free; pruning BuildKit cache"
+            # Docker data-root lives on /mnt/disk1 (bind-mounted). CUDA exports
+            # need tens of GB there; also keep some headroom on the root SSD.
+            avail_root_kb="$(df -P / | awk 'NR==2 { print $4 }')"
+            avail_docker_kb="$(df -P /var/lib/containerd 2>/dev/null | awk 'NR==2 { print $4 }')"
+            if [ "${avail_root_kb:-0}" -lt 8388608 ] || [ "${avail_docker_kb:-0}" -lt 20971520 ]; then
+              echo "Low disk (root ${avail_root_kb:-0} KB, docker ${avail_docker_kb:-0} KB); pruning BuildKit cache"
               docker builder prune -af || true
             fi
 
             echo "== Disk after cleanup =="
-            df -h / || true
+            df -h / /mnt/disk1 /var/lib/containerd || true
 
             before="$(git rev-parse HEAD)"
             git fetch origin main
@@ -122,7 +124,7 @@ jobs:
             docker image prune -f || true
 
             echo "== Disk after deploy =="
-            df -h / || true
+            df -h / /mnt/disk1 /var/lib/containerd || true
             docker compose ps
 
             echo "== Smoke: backend health via /backend =="
