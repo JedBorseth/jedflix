@@ -19,6 +19,12 @@ import {
   reorderItems,
 } from "@/lib/musicQueue";
 import {
+  MEDIA_HAVE_CURRENT_DATA,
+  musicPlaybackPresentation,
+  nextMusicAudible,
+  type MusicAudibleEvent,
+} from "@/lib/musicPlaybackUi";
+import {
   planQueueSourceSync,
   stripQueueArtwork,
   withCachedArtwork,
@@ -29,12 +35,10 @@ import { useMusicInteractionLog } from "@/lib/musicInteractions";
 import { pickMusicDurationSec } from "@/lib/musicDuration";
 import { youtubeAudioQueryHints } from "@/lib/liveRecording";
 import {
-  AUDIO_HAVE_CURRENT_DATA,
   AUDIO_RETRY_DELAY_MS,
   AUDIO_STALL_TIMEOUT_MS,
   decideAudioErrorAction,
   decideAudioStallAction,
-  isAudibleAudioElement,
   shouldRestartCurrentTrack,
   type AudioErrorAction,
 } from "@/lib/musicPlaybackError";
@@ -48,8 +52,9 @@ import {
 } from "@/lib/infiniteQueueRecommendations";
 import {
   fetchYoutubeAudioMetadata,
+  neighborTracksForPrefetch,
   prefetchYoutubeAudioTracks,
-  upcomingTracksForPrefetch,
+  shouldPrefetchNeighborAudio,
 } from "@/lib/youtubeAudioPrefetch";
 
 export type MusicQueueTrack = {
@@ -203,6 +208,9 @@ function toQueueTrack(
 export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const playIntentRef = useRef(false);
+  // True only after the element has produced data. Do not derive this from
+  // onPlay — iOS fires play() before TTFB.
+  const audibleRef = useRef(false);
   const loadGenerationRef = useRef(0);
   /** Bumped on every playTrack / clear so stale playlist pagination cannot append. */
   const queueSessionRef = useRef(0);
@@ -217,11 +225,6 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const retryTimerRef = useRef(0);
   const stallTimerRef = useRef(0);
   const consecutiveFailSkipRef = useRef(0);
-  /**
-   * True only after the element has produced data (MAR-3 audible flag).
-   * Do not derive this from onPlay — iOS fires play() before TTFB.
-   */
-  const audibleRef = useRef(false);
   const applyPlaybackFailureRef = useRef<
     (
       generation: number,
@@ -234,8 +237,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const catalogEndedRef = useRef(false);
   const [queue, setQueue] = useState<MusicQueueTrack[]>([]);
   const [queueIndex, setQueueIndex] = useState(0);
-  const [playing, setPlaying] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [playIntent, setPlayIntent] = useState(false);
+  const [audible, setAudible] = useState(false);
+  const [hasData, setHasData] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
   const [infiniteQueue, setInfiniteQueueState] = useState(false);
@@ -265,19 +269,57 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     stallTimerRef.current = 0;
   };
 
-  const markAudible = () => {
-    if (audibleRef.current) {
-      return;
-    }
-    audibleRef.current = true;
-    consecutiveFailSkipRef.current = 0;
-    clearStallTimer();
-  };
-
   const current = useMemo(() => {
     const track = queue[queueIndex] ?? null;
     return track ? withCachedArtwork(track) : null;
   }, [queue, queueIndex]);
+
+  const writePlayIntent = useCallback((value: boolean) => {
+    playIntentRef.current = value;
+    setPlayIntent(value);
+  }, []);
+
+  const writeAudible = useCallback((value: boolean) => {
+    if (value && !audibleRef.current) {
+      // Consecutive-skip reset waits for audible data, not onPlay.
+      consecutiveFailSkipRef.current = 0;
+      clearStallTimer();
+    }
+    audibleRef.current = value;
+    setAudible(value);
+  }, []);
+
+  const applyAudibleEvent = useCallback(
+    (
+      event: MusicAudibleEvent,
+      audio: Pick<HTMLMediaElement, "readyState" | "paused">,
+    ) => {
+      setHasData(audio.readyState >= MEDIA_HAVE_CURRENT_DATA);
+      writeAudible(
+        nextMusicAudible({
+          event,
+          readyState: audio.readyState,
+          paused: audio.paused,
+        }),
+      );
+    },
+    [writeAudible],
+  );
+
+  const playbackUi = useMemo(
+    () =>
+      musicPlaybackPresentation({
+        hasCurrent: Boolean(current),
+        playIntent,
+        audible,
+        hasError: Boolean(error),
+        hasData,
+        elapsedSec: currentTime,
+      }),
+    [audible, current, currentTime, error, hasData, playIntent],
+  );
+  const playing = playbackUi.playing;
+  const loading = playbackUi.loading;
 
   const applyPlayResult = useCallback(
     (
@@ -292,24 +334,21 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         // Keep playIntent — iOS lock-screen / background resume often fails once
         // after a pause; callers reload the stream and retry instead of giving up.
         setError(result.error.message);
-        setPlaying(false);
-        setLoading(false);
+        writeAudible(false);
         return;
       }
       if (result.status === "playing" && !audio.paused) {
-        // Consecutive-skip reset waits for audible data, not onPlay.
-        setPlaying(true);
-        setLoading(false);
         setError(null);
+        applyAudibleEvent("canplay", audio);
         return;
       }
       // Aborted or still buffering — keep play intent; loadedmetadata/canplay may retry.
-      // Never mark the UI as playing when the element is paused (iOS Media Session trap).
+      // Never mark audible when the element is paused (iOS Media Session trap).
       if (audio.paused) {
-        setPlaying(false);
+        writeAudible(false);
       }
     },
-    [],
+    [applyAudibleEvent, writeAudible],
   );
 
   const startPlayback = useCallback(
@@ -384,8 +423,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         videoId,
         fresh: options?.retrying,
       });
-      playIntentRef.current = true;
-      audibleRef.current = false;
+      writePlayIntent(true);
+      writeAudible(false);
+      setHasData(false);
       resumeAtSecRef.current =
         options?.resumeAtSec && options.resumeAtSec > 1
           ? options.resumeAtSec
@@ -395,7 +435,6 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       if (!options?.retrying) {
         errorRetryRef.current = 0;
       }
-      setLoading(true);
       setError(null);
       setCurrentTime(resumeAtSecRef.current);
       const catalogSec =
@@ -456,7 +495,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         applyPlaybackFailureRef.current(generation, action);
       }, AUDIO_STALL_TIMEOUT_MS);
     },
-    [logMusic, startPlayback],
+    [logMusic, startPlayback, writeAudible, writePlayIntent],
   );
 
   const playTrack = useCallback(
@@ -644,8 +683,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       }
       queueDirtyRef.current = true;
       if (queue.length === 1) {
-        playIntentRef.current = false;
-        audibleRef.current = false;
+        writePlayIntent(false);
+        writeAudible(false);
+        setHasData(false);
         loadGenerationRef.current += 1;
         clearStallTimer();
         window.clearTimeout(retryTimerRef.current);
@@ -657,8 +697,6 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         }
         setQueue([]);
         setQueueIndex(0);
-        setPlaying(false);
-        setLoading(false);
         setExpanded(false);
         setQueueOpen(false);
         setCurrentTime(0);
@@ -683,7 +721,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         }
       }
     },
-    [loadAndPlay, queue, queueIndex],
+    [loadAndPlay, queue, queueIndex, writeAudible, writePlayIntent],
   );
 
   const clearUpcoming = useCallback(() => {
@@ -806,21 +844,19 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   );
 
   const pause = useCallback(() => {
-    playIntentRef.current = false;
-    audibleRef.current = false;
+    writePlayIntent(false);
+    writeAudible(false);
     clearStallTimer();
     audioRef.current?.pause();
-    setPlaying(false);
-  }, []);
+  }, [writeAudible, writePlayIntent]);
 
   const play = useCallback(() => {
     const audio = audioRef.current;
     if (!audio || !current) {
       return;
     }
-    playIntentRef.current = true;
+    writePlayIntent(true);
     setError(null);
-    setLoading(true);
     // A previous MEDIA_ERR_SRC_NOT_SUPPORTED / background kill leaves the
     // element dead — calling play() again throws. Reload the stream.
     const resumeAt = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
@@ -847,7 +883,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       }
       applyPlayResult(audio, generation, result);
     });
-  }, [applyPlayResult, current, loadAndPlay]);
+  }, [applyPlayResult, current, loadAndPlay, writePlayIntent]);
 
   const toggle = useCallback(() => {
     if (playing) {
@@ -986,14 +1022,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           return true;
         }
       }
-      audibleRef.current = false;
       // Don't clear playIntent — lock-screen Play after a hung/background
       // stream must still be able to reload. Only intentional pause clears it.
-      setPlaying(false);
-      setLoading(false);
+      writeAudible(false);
       return false;
     },
-    [loadAndPlay, next],
+    [loadAndPlay, next, writeAudible],
   );
   applyPlaybackFailureRef.current = applyPlaybackFailure;
 
@@ -1016,15 +1050,15 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       next();
       return;
     }
-    playIntentRef.current = false;
-    audibleRef.current = false;
+    writePlayIntent(false);
+    writeAudible(false);
+    setHasData(false);
     clearStallTimer();
-    setPlaying(false);
     const audio = audioRef.current;
     if (audio && !audio.paused) {
       audio.pause();
     }
-  }, [logMusic, next]);
+  }, [logMusic, next, writeAudible, writePlayIntent]);
 
   const previous = useCallback(() => {
     const audio = audioRef.current;
@@ -1122,8 +1156,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   }, [current, toggle]);
 
   const clear = useCallback(() => {
-    playIntentRef.current = false;
-    audibleRef.current = false;
+    writePlayIntent(false);
+    writeAudible(false);
+    setHasData(false);
     loadGenerationRef.current += 1;
     clearStallTimer();
     window.clearTimeout(retryTimerRef.current);
@@ -1144,15 +1179,13 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     infiniteRefillInFlightRef.current = false;
     setQueue([]);
     setQueueIndex(0);
-    setPlaying(false);
-    setLoading(false);
     setExpanded(false);
     setQueueOpen(false);
     setUpcomingRecommendations([]);
     setCurrentTime(0);
     setDuration(0);
     setError(null);
-  }, []);
+  }, [writeAudible, writePlayIntent]);
 
   const handleSetExpanded = useCallback((nextExpanded: boolean) => {
     setExpanded(nextExpanded);
@@ -1162,15 +1195,14 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (loading) {
+    if (!shouldPrefetchNeighborAudio({ playing })) {
       return;
     }
-    const queued = upcomingTracksForPrefetch(queue, queueIndex, 2);
-    const previewNeed = Math.max(0, 2 - queued.length);
-    const upcoming = [
-      ...queued,
-      ...upcomingRecommendations.slice(0, previewNeed),
-    ];
+    const upcoming = neighborTracksForPrefetch(
+      queue,
+      queueIndex,
+      upcomingRecommendations,
+    );
     if (upcoming.length === 0) {
       return;
     }
@@ -1189,7 +1221,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [loading, queue, queueIndex, upcomingRecommendations]);
+  }, [playing, queue, queueIndex, upcomingRecommendations]);
 
   useEffect(() => {
     if (!infiniteQueue) {
@@ -1206,9 +1238,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     album: current?.albumName,
     artworkUrl: current?.imageUrl,
     enabled: Boolean(current),
-    playbackState: playing ? "playing" : current ? "paused" : "none",
+    playbackState: playbackUi.playbackState,
     durationSec: duration > 0 ? duration : undefined,
-    positionSec: currentTime,
+    positionSec: playbackUi.positionSec,
+    playbackRate: playbackUi.publishPosition ? 1 : undefined,
     onPlay: play,
     onPause: pause,
     onPreviousTrack: previous,
@@ -1306,33 +1339,20 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         preload="metadata"
         playsInline
         onPlay={() => {
-          playIntentRef.current = true;
-          setPlaying(true);
-          setLoading(false);
+          writePlayIntent(true);
           setError(null);
         }}
-        onPause={() => {
-          // Only clear playing when pause was intentional. Src swaps and iOS
-          // background glitches fire pause while playIntent remains — keeping
-          // Media Session in "playing" prevents lock-screen controls from
-          // falling back to skip ±10s.
-          if (!playIntentRef.current) {
-            audibleRef.current = false;
-            setPlaying(false);
-          }
+        onPause={(event) => {
+          // Src swaps fire pause while playIntent remains. Drop audible so the
+          // lock-screen clock stays paused at 0:00; keep next/previous handlers.
+          applyAudibleEvent("pause", event.currentTarget);
         }}
         onWaiting={(event) => {
-          setLoading(true);
-          if (event.currentTarget.readyState < AUDIO_HAVE_CURRENT_DATA) {
-            audibleRef.current = false;
-          }
+          applyAudibleEvent("waiting", event.currentTarget);
         }}
         onCanPlay={(event) => {
-          setLoading(false);
           const audio = event.currentTarget;
-          if (isAudibleAudioElement(audio)) {
-            markAudible();
-          }
+          applyAudibleEvent("canplay", audio);
           if (resumeAtSecRef.current > 1) {
             const max =
               playbackDurationSecRef.current > 0
@@ -1353,8 +1373,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         }}
         onTimeUpdate={(event) => {
           const audio = event.currentTarget;
-          if (audio.readyState >= AUDIO_HAVE_CURRENT_DATA) {
-            markAudible();
+          applyAudibleEvent("timeupdate", audio);
+          if (!audibleRef.current) {
+            return;
           }
           const time = audio.currentTime;
           const trustedSec = playbackDurationSecRef.current;
@@ -1371,7 +1392,6 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         onLoadedMetadata={(event) => {
           const audio = event.currentTarget;
           // Never copy HTML5 audio.duration — proxied YouTube AAC often reports ~2×.
-          setLoading(false);
           if (resumeAtSecRef.current > 1) {
             const max =
               playbackDurationSecRef.current > 0
@@ -1396,7 +1416,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           if (audio.error?.code === 1) {
             return;
           }
-          audibleRef.current = false;
+          applyAudibleEvent("error", audio);
           const generation = loadGenerationRef.current;
           const action = decideAudioErrorAction({
             playIntent: playIntentRef.current,
@@ -1415,7 +1435,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
             setError(message);
           });
         }}
-        onEnded={() => {
+        onEnded={(event) => {
+          applyAudibleEvent("ended", event.currentTarget);
           handleTrackEnded();
         }}
       />

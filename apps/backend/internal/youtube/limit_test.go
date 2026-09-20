@@ -3,6 +3,7 @@ package youtube
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 )
@@ -12,11 +13,11 @@ func TestAcquireWaitsInsteadOfRejecting(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Millisecond)
 	defer cancel()
 
-	if err := r.acquire(ctx); err != nil {
+	if err := r.acquire(ctx, false); err != nil {
 		t.Fatalf("first acquire: %v", err)
 	}
 
-	err := r.acquire(ctx)
+	err := r.acquire(ctx, false)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected wait timeout, got %v", err)
 	}
@@ -25,11 +26,112 @@ func TestAcquireWaitsInsteadOfRejecting(t *testing.T) {
 func TestReleaseFreesSlot(t *testing.T) {
 	r := NewResolverWithLimit(1)
 	ctx := context.Background()
-	if err := r.acquire(ctx); err != nil {
+	if err := r.acquire(ctx, false); err != nil {
 		t.Fatal(err)
 	}
-	r.release()
-	if err := r.acquire(ctx); err != nil {
+	r.release(false)
+	if err := r.acquire(ctx, false); err != nil {
 		t.Fatalf("acquire after release: %v", err)
 	}
+}
+
+func TestPrefetchCannotTakeReservedPlaybackSlot(t *testing.T) {
+	r := NewResolverWithLimit(3)
+	ctx := context.Background()
+
+	if err := r.acquire(ctx, true); err != nil {
+		t.Fatalf("first prefetch: %v", err)
+	}
+	if err := r.acquire(ctx, true); err != nil {
+		t.Fatalf("second prefetch: %v", err)
+	}
+
+	blocked, cancelBlocked := context.WithTimeout(context.Background(), 40*time.Millisecond)
+	defer cancelBlocked()
+	err := r.acquire(blocked, true)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("third prefetch should wait on reserved slot, got %v", err)
+	}
+
+	if err := r.acquire(ctx, false); err != nil {
+		t.Fatalf("playback should still get reserved slot: %v", err)
+	}
+}
+
+func TestPlaybackCanUseAllSlots(t *testing.T) {
+	r := NewResolverWithLimit(3)
+	ctx := context.Background()
+	for i := 0; i < 3; i++ {
+		if err := r.acquire(ctx, false); err != nil {
+			t.Fatalf("playback %d: %v", i, err)
+		}
+	}
+	blocked, cancel := context.WithTimeout(context.Background(), 40*time.Millisecond)
+	defer cancel()
+	if err := r.acquire(blocked, false); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("fourth playback should wait, got %v", err)
+	}
+}
+
+func TestPrefetchReleaseFreesSharedSlot(t *testing.T) {
+	r := NewResolverWithLimit(3)
+	ctx := context.Background()
+	if err := r.acquire(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.acquire(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	r.release(true)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- r.acquire(ctx, true)
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("prefetch after release: %v", err)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("prefetch did not acquire after shared slot release")
+	}
+}
+
+func TestCacheKeyIgnoresPrefetchFlag(t *testing.T) {
+	playback := cacheKey(normalizeRequest(Request{Artist: "Pixies", Title: "Debaser"}))
+	prefetch := cacheKey(normalizeRequest(Request{Artist: "Pixies", Title: "Debaser", Prefetch: true}))
+	if playback != prefetch {
+		t.Fatalf("prefetch must share playback cache key: %q vs %q", playback, prefetch)
+	}
+}
+
+func TestPrefetchAndPlaybackAcquireDoNotDeadlock(t *testing.T) {
+	r := NewResolverWithLimit(3)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := r.acquire(ctx, true); err != nil {
+				t.Errorf("prefetch: %v", err)
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+			r.release(true)
+		}()
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := r.acquire(ctx, false); err != nil {
+			t.Errorf("playback: %v", err)
+			return
+		}
+		r.release(false)
+	}()
+	wg.Wait()
 }
