@@ -3,6 +3,7 @@ import {
   artworkFromImageUrl,
   formatWatchSessionTitle,
   isPlayAbortError,
+  mediaSessionPositionPayload,
   playMediaElement,
   toAbsoluteMediaUrl,
   shouldUpdateMediaPosition,
@@ -133,6 +134,36 @@ describe("shouldUpdateMediaPosition", () => {
         nextPositionSec: 25,
       }),
     ).toBe(true);
+  });
+});
+
+describe("mediaSessionPositionPayload", () => {
+  test("paused/loading does not include playbackRate 1", () => {
+    expect(
+      mediaSessionPositionPayload({
+        duration: 180,
+        position: 0,
+        playing: false,
+      }),
+    ).toEqual({ duration: 180, position: 0 });
+    expect(
+      mediaSessionPositionPayload({
+        duration: 180,
+        position: 12,
+        playing: false,
+        playbackRate: 1,
+      }),
+    ).toEqual({ duration: 180, position: 12 });
+  });
+
+  test("playing includes playbackRate 1 so the lock-screen clock can advance", () => {
+    expect(
+      mediaSessionPositionPayload({
+        duration: 180,
+        position: 12,
+        playing: true,
+      }),
+    ).toEqual({ duration: 180, position: 12, playbackRate: 1 });
   });
 });
 

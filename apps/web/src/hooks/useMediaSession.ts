@@ -4,6 +4,7 @@ import {
   clearMediaSessionActionHandlers,
   configurePlaybackAudioSession,
   hasMediaSessionSupport,
+  mediaSessionPositionPayload,
   setMediaSessionMetadata,
   setMediaSessionPlaybackState,
   setMediaSessionPositionState,
@@ -151,11 +152,13 @@ export function useMediaSession({
 
     lastPositionPublishRef.current = now;
     lastPublishedPositionRef.current = positionSec;
-    setMediaSessionPositionState({
+    const payload = mediaSessionPositionPayload({
       duration: durationSec,
       position: positionSec,
+      playing: playbackState === "playing",
       playbackRate,
     });
+    setMediaSessionPositionState(payload);
   }, [
     durationSec,
     enabled,

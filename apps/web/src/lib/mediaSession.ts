@@ -174,6 +174,30 @@ export function setMediaSessionPlaybackState(
   mediaSession.playbackState = state;
 }
 
+/**
+ * Position payload for Media Session. A 1× `playbackRate` is only included
+ * when audio is actually playing — paused/loading must not imply a running clock.
+ */
+export function mediaSessionPositionPayload(input: {
+  duration: number;
+  position: number;
+  playing: boolean;
+  playbackRate?: number;
+}): { duration: number; position: number; playbackRate?: number } | null {
+  if (!Number.isFinite(input.duration) || input.duration <= 0) {
+    return null;
+  }
+  const position = Math.max(0, Math.min(input.position, input.duration));
+  if (!input.playing) {
+    return { duration: input.duration, position };
+  }
+  const playbackRate =
+    Number.isFinite(input.playbackRate) && (input.playbackRate ?? 0) > 0
+      ? input.playbackRate
+      : 1;
+  return { duration: input.duration, position, playbackRate };
+}
+
 export function setMediaSessionPositionState(
   position: {
     duration: number;
@@ -206,16 +230,19 @@ export function setMediaSessionPositionState(
 
   const duration = position.duration;
   const current = Math.max(0, Math.min(position.position, duration));
-  const playbackRate =
-    Number.isFinite(position.playbackRate) && (position.playbackRate ?? 0) > 0
+  const hasRate =
+    position.playbackRate != null && Number.isFinite(position.playbackRate);
+  const playbackRate = hasRate
+    ? position.playbackRate! > 0
       ? position.playbackRate!
-      : 1;
+      : 1
+    : undefined;
 
   try {
     mediaSession.setPositionState({
       duration,
       position: current,
-      playbackRate,
+      ...(playbackRate != null ? { playbackRate } : {}),
     });
   } catch {
     // Some browsers throw if position > duration during seek transitions.
