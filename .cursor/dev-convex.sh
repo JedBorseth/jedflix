@@ -12,6 +12,12 @@ export PATH="$HOME/.bun/bin:/usr/local/go/bin:/usr/local/bin:$PATH"
 # No Convex account is required in the Cloud Agent; use an anonymous local backend.
 export CONVEX_AGENT_MODE=anonymous
 
+# Readiness sentinel: dev-web.sh waits on this so Vite only starts once all
+# .env.local writes below are finished (the Convex CLI rewrites its managed lines
+# during `convex dev --once`, which would otherwise trigger a Vite reload).
+READY_FILE="/tmp/jedflix-convex-ready"
+rm -f "$READY_FILE"
+
 # Create/refresh the local deployment, push functions, and regenerate
 # convex/_generated. Reuses the existing deployment when one is present.
 bunx convex dev --once
@@ -41,5 +47,8 @@ if [ "${1:-serve}" = "bootstrap" ]; then
   echo "Convex bootstrap complete."
   exit 0
 fi
+
+# All .env.local writes are done; signal dev-web.sh that it is safe to start Vite.
+touch "$READY_FILE"
 
 exec bunx convex dev --tail-logs disable

@@ -9,17 +9,22 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel 2>/dev/null || echo /workspace)"
 export PATH="$HOME/.bun/bin:/usr/local/go/bin:/usr/local/bin:$PATH"
 
-# Vite reads VITE_CONVEX_URL from .env.local. dev-convex.sh writes that line
-# (and finishes all other .env.local edits) before it starts serving, so wait
-# for the line to exist before launching Vite. This prevents Vite from starting
-# mid-write and then restarting/hanging on the .env.local change.
-echo "Waiting for VITE_CONVEX_URL in .env.local before starting Vite..."
+# Vite watches .env.local. dev-convex.sh finishes every .env.local write (its own
+# managed lines plus VITE_*) before it creates this readiness sentinel and starts
+# serving, so waiting for the sentinel means Vite starts against a stable
+# .env.local — no mid-write reload or hang. Falls back to the VITE_CONVEX_URL line
+# after the timeout so the server still comes up if Convex is slow/unavailable.
+READY_FILE="/tmp/jedflix-convex-ready"
+echo "Waiting for Convex readiness before starting Vite..."
 for _ in $(seq 1 90); do
-  if [ -f .env.local ] && grep -q '^VITE_CONVEX_URL=' .env.local; then
-    echo "Convex env is ready; starting Vite."
+  if [ -f "$READY_FILE" ]; then
+    echo "Convex is ready; starting Vite."
     break
   fi
   sleep 2
 done
+if [ ! -f "$READY_FILE" ] && [ -f .env.local ] && grep -q '^VITE_CONVEX_URL=' .env.local; then
+  echo "Readiness sentinel not seen; VITE_CONVEX_URL present, starting Vite anyway."
+fi
 
 exec bunx turbo run dev --filter=@jedflix/web -- --host 0.0.0.0
