@@ -42,8 +42,9 @@ import {
 } from "@/lib/infiniteQueueRecommendations";
 import {
   fetchYoutubeAudioMetadata,
+  neighborTracksForPrefetch,
   prefetchYoutubeAudioTracks,
-  upcomingTracksForPrefetch,
+  shouldPrefetchNeighborAudio,
 } from "@/lib/youtubeAudioPrefetch";
 
 export type MusicQueueTrack = {
@@ -1033,15 +1034,14 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (loading) {
+    if (!shouldPrefetchNeighborAudio({ playing })) {
       return;
     }
-    const queued = upcomingTracksForPrefetch(queue, queueIndex, 2);
-    const previewNeed = Math.max(0, 2 - queued.length);
-    const upcoming = [
-      ...queued,
-      ...upcomingRecommendations.slice(0, previewNeed),
-    ];
+    const upcoming = neighborTracksForPrefetch(
+      queue,
+      queueIndex,
+      upcomingRecommendations,
+    );
     if (upcoming.length === 0) {
       return;
     }
@@ -1060,7 +1060,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [loading, queue, queueIndex, upcomingRecommendations]);
+  }, [playing, queue, queueIndex, upcomingRecommendations]);
 
   useEffect(() => {
     if (!infiniteQueue) {

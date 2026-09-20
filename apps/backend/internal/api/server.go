@@ -852,6 +852,7 @@ func (s *Server) handleYouTubeAudio(w http.ResponseWriter, r *http.Request) {
 		Album:      album,
 		DurationMs: durationMs,
 		VideoID:    videoID,
+		Prefetch:   strings.TrimSpace(r.URL.Query().Get("prefetch")) == "1",
 	}
 	if strings.TrimSpace(r.URL.Query().Get("fresh")) == "1" {
 		s.youtube.Invalidate(req)
