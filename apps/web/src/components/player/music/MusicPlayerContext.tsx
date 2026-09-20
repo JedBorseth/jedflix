@@ -29,8 +29,14 @@ import { useMusicInteractionLog } from "@/lib/musicInteractions";
 import { pickMusicDurationSec } from "@/lib/musicDuration";
 import { youtubeAudioQueryHints } from "@/lib/liveRecording";
 import {
+  AUDIO_HAVE_CURRENT_DATA,
   AUDIO_RETRY_DELAY_MS,
+  AUDIO_STALL_TIMEOUT_MS,
   decideAudioErrorAction,
+  decideAudioStallAction,
+  isAudibleAudioElement,
+  shouldRestartCurrentTrack,
+  type AudioErrorAction,
 } from "@/lib/musicPlaybackError";
 import {
   exclusionIdsFromTracks,
@@ -209,7 +215,20 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const resumeAtSecRef = useRef(0);
   const errorRetryRef = useRef(0);
   const retryTimerRef = useRef(0);
+  const stallTimerRef = useRef(0);
   const consecutiveFailSkipRef = useRef(0);
+  /**
+   * True only after the element has produced data (MAR-3 audible flag).
+   * Do not derive this from onPlay — iOS fires play() before TTFB.
+   */
+  const audibleRef = useRef(false);
+  const applyPlaybackFailureRef = useRef<
+    (
+      generation: number,
+      action: AudioErrorAction,
+      retryDelayMs?: number,
+    ) => boolean
+  >(() => false);
   const metadataAbortRef = useRef<AbortController | null>(null);
   /** Prevents double-advance when catalog end and stream `ended` both fire. */
   const catalogEndedRef = useRef(false);
@@ -241,6 +260,20 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const infiniteRefillInFlightRef = useRef(false);
   const logMusic = useMusicInteractionLog();
 
+  const clearStallTimer = () => {
+    window.clearTimeout(stallTimerRef.current);
+    stallTimerRef.current = 0;
+  };
+
+  const markAudible = () => {
+    if (audibleRef.current) {
+      return;
+    }
+    audibleRef.current = true;
+    consecutiveFailSkipRef.current = 0;
+    clearStallTimer();
+  };
+
   const current = useMemo(() => {
     const track = queue[queueIndex] ?? null;
     return track ? withCachedArtwork(track) : null;
@@ -264,7 +297,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (result.status === "playing" && !audio.paused) {
-        consecutiveFailSkipRef.current = 0;
+        // Consecutive-skip reset waits for audible data, not onPlay.
         setPlaying(true);
         setLoading(false);
         setError(null);
@@ -352,11 +385,13 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         fresh: options?.retrying,
       });
       playIntentRef.current = true;
+      audibleRef.current = false;
       resumeAtSecRef.current =
         options?.resumeAtSec && options.resumeAtSec > 1
           ? options.resumeAtSec
           : 0;
       window.clearTimeout(retryTimerRef.current);
+      clearStallTimer();
       if (!options?.retrying) {
         errorRetryRef.current = 0;
       }
@@ -398,9 +433,28 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       // play() started in the same Media Session turn on iOS and can leave the
       // element in MEDIA_ERR_SRC_NOT_SUPPORTED ("operation is not supported").
       audio.src = src;
+      // play() must stay in the Media Session / skip-gesture turn. The stall
+      // watchdog starts after that call, never instead of it.
       if (options?.immediatePlay) {
         startPlayback(audio, generation);
       }
+      stallTimerRef.current = window.setTimeout(() => {
+        if (generation !== loadGenerationRef.current) {
+          return;
+        }
+        const action = decideAudioStallAction({
+          playIntent: playIntentRef.current,
+          audible: audibleRef.current,
+          msSinceLoad: AUDIO_STALL_TIMEOUT_MS,
+          retryCount: errorRetryRef.current,
+          consecutiveFailSkips: consecutiveFailSkipRef.current,
+          hasNextTrack: queueIndexRef.current < queueRef.current.length - 1,
+        });
+        if (action === "wait") {
+          return;
+        }
+        applyPlaybackFailureRef.current(generation, action);
+      }, AUDIO_STALL_TIMEOUT_MS);
     },
     [logMusic, startPlayback],
   );
@@ -591,7 +645,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       queueDirtyRef.current = true;
       if (queue.length === 1) {
         playIntentRef.current = false;
+        audibleRef.current = false;
         loadGenerationRef.current += 1;
+        clearStallTimer();
+        window.clearTimeout(retryTimerRef.current);
         const audio = audioRef.current;
         if (audio) {
           audio.pause();
@@ -750,6 +807,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
 
   const pause = useCallback(() => {
     playIntentRef.current = false;
+    audibleRef.current = false;
+    clearStallTimer();
     audioRef.current?.pause();
     setPlaying(false);
   }, []);
@@ -879,6 +938,65 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     return true;
   }, [loadAndPlay, logMusic]);
 
+  /**
+   * Shared limiter for media errors and stall timeouts. Returns true when
+   * retry/skip consumed the failure. Stop keeps playIntent so lock-screen Play
+   * can still reload.
+   */
+  const applyPlaybackFailure = useCallback(
+    (
+      generation: number,
+      action: AudioErrorAction,
+      retryDelayMs = 0,
+    ): boolean => {
+      if (generation !== loadGenerationRef.current) {
+        return true;
+      }
+      clearStallTimer();
+      const track = queueRef.current[queueIndexRef.current];
+      if (action === "retry" && track) {
+        errorRetryRef.current += 1;
+        const runRetry = () => {
+          if (generation !== loadGenerationRef.current) {
+            return;
+          }
+          if (!playIntentRef.current) {
+            return;
+          }
+          const currentTrack = queueRef.current[queueIndexRef.current];
+          if (!currentTrack || currentTrack.id !== track.id) {
+            return;
+          }
+          loadAndPlay(currentTrack, {
+            immediatePlay: true,
+            retrying: true,
+          });
+        };
+        window.clearTimeout(retryTimerRef.current);
+        if (retryDelayMs > 0) {
+          retryTimerRef.current = window.setTimeout(runRetry, retryDelayMs);
+        } else {
+          runRetry();
+        }
+        return true;
+      }
+      if (action === "skip") {
+        consecutiveFailSkipRef.current += 1;
+        if (next()) {
+          return true;
+        }
+      }
+      audibleRef.current = false;
+      // Don't clear playIntent — lock-screen Play after a hung/background
+      // stream must still be able to reload. Only intentional pause clears it.
+      setPlaying(false);
+      setLoading(false);
+      return false;
+    },
+    [loadAndPlay, next],
+  );
+  applyPlaybackFailureRef.current = applyPlaybackFailure;
+
   /** Advance on catalog end (Spotify length) or real stream EOF — YouTube often outlasts the song. */
   const handleTrackEnded = useCallback(() => {
     if (catalogEndedRef.current) {
@@ -899,6 +1017,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       return;
     }
     playIntentRef.current = false;
+    audibleRef.current = false;
+    clearStallTimer();
     setPlaying(false);
     const audio = audioRef.current;
     if (audio && !audio.paused) {
@@ -908,7 +1028,13 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
 
   const previous = useCallback(() => {
     const audio = audioRef.current;
-    if (audio && audio.currentTime > 3) {
+    if (
+      audio &&
+      shouldRestartCurrentTrack({
+        audible: audibleRef.current,
+        currentTimeSec: audio.currentTime,
+      })
+    ) {
       audio.currentTime = 0;
       setCurrentTime(0);
       return;
@@ -997,7 +1123,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
 
   const clear = useCallback(() => {
     playIntentRef.current = false;
+    audibleRef.current = false;
     loadGenerationRef.current += 1;
+    clearStallTimer();
+    window.clearTimeout(retryTimerRef.current);
     metadataAbortRef.current?.abort();
     const audio = audioRef.current;
     if (audio) {
@@ -1188,13 +1317,22 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           // Media Session in "playing" prevents lock-screen controls from
           // falling back to skip ±10s.
           if (!playIntentRef.current) {
+            audibleRef.current = false;
             setPlaying(false);
           }
         }}
-        onWaiting={() => setLoading(true)}
+        onWaiting={(event) => {
+          setLoading(true);
+          if (event.currentTarget.readyState < AUDIO_HAVE_CURRENT_DATA) {
+            audibleRef.current = false;
+          }
+        }}
         onCanPlay={(event) => {
           setLoading(false);
           const audio = event.currentTarget;
+          if (isAudibleAudioElement(audio)) {
+            markAudible();
+          }
           if (resumeAtSecRef.current > 1) {
             const max =
               playbackDurationSecRef.current > 0
@@ -1214,7 +1352,11 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           }
         }}
         onTimeUpdate={(event) => {
-          const time = event.currentTarget.currentTime;
+          const audio = event.currentTarget;
+          if (audio.readyState >= AUDIO_HAVE_CURRENT_DATA) {
+            markAudible();
+          }
+          const time = audio.currentTime;
           const trustedSec = playbackDurationSecRef.current;
           if (trustedSec > 0) {
             setCurrentTime(Math.min(time, trustedSec));
@@ -1254,7 +1396,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           if (audio.error?.code === 1) {
             return;
           }
-          const track = queueRef.current[queueIndexRef.current];
+          audibleRef.current = false;
           const generation = loadGenerationRef.current;
           const action = decideAudioErrorAction({
             playIntent: playIntentRef.current,
@@ -1263,37 +1405,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
             hasNextTrack:
               queueIndexRef.current < queueRef.current.length - 1,
           });
-          if (action === "retry" && track) {
-            errorRetryRef.current += 1;
-            window.clearTimeout(retryTimerRef.current);
-            retryTimerRef.current = window.setTimeout(() => {
-              if (generation !== loadGenerationRef.current) {
-                return;
-              }
-              if (!playIntentRef.current) {
-                return;
-              }
-              const current = queueRef.current[queueIndexRef.current];
-              if (!current || current.id !== track.id) {
-                return;
-              }
-              loadAndPlay(current, {
-                immediatePlay: true,
-                retrying: true,
-              });
-            }, AUDIO_RETRY_DELAY_MS);
+          if (applyPlaybackFailure(generation, action, AUDIO_RETRY_DELAY_MS)) {
             return;
           }
-          if (action === "skip") {
-            consecutiveFailSkipRef.current += 1;
-            if (next()) {
-              return;
-            }
-          }
-          // Don't clear playIntent — lock-screen Play after a background stream
-          // kill must still be able to reload. Only intentional pause clears intent.
-          setPlaying(false);
-          setLoading(false);
           void resolveStreamServerAudioError(audio).then((message) => {
             if (generation !== loadGenerationRef.current) {
               return;
