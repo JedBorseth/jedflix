@@ -2,9 +2,13 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    # Bind the LAN NIC only. 0.0.0.0:443 collides with Tailscale Funnel, which
+    # listens on 100.x:443 — after apt restarts Docker/Tailscale, Caddy then
+    # fails to start (EADDRINUSE) and stays down. Router port-forwards WAN 80/443
+    # to this host's LAN address (CADDY_BIND_IP).
     ports:
-      - "80:80"
-      - "443:443"
+      - "${CADDY_BIND_IP:-10.0.0.3}:80:80"
+      - "${CADDY_BIND_IP:-10.0.0.3}:443:443"
     environment:
       DOMAIN: ${DOMAIN}
       ACME_EMAIL: ${ACME_EMAIL:-}
