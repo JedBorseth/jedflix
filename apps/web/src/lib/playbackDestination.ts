@@ -1,15 +1,17 @@
-export type PlaybackPlayer = "web" | "vlc" | "outplayer";
+export type PlaybackDestination = "web" | "vlc" | "outplayer" | "copy";
 
-export function getPlaybackPlayer(
+export function getPlaybackDestination(
   searchParams: URLSearchParams,
-): PlaybackPlayer {
+): PlaybackDestination {
   const player = searchParams.get("player");
-  return player === "vlc" || player === "outplayer" ? player : "web";
+  return player === "vlc" || player === "outplayer" || player === "copy"
+    ? player
+    : "web";
 }
 
 export function getPlaybackDestinationPath(
   to: string,
-  player: PlaybackPlayer,
+  player: PlaybackDestination,
 ): string {
   const url = new URL(to, "https://jedflix.local");
   url.searchParams.set("player", player);

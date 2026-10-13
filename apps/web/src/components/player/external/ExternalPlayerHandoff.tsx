@@ -9,7 +9,7 @@ import {
 } from "@/lib/externalPlayer";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { sortDirectPlaybackSources } from "@/lib/iosPlayback";
-import type { ExternalPlayer } from "@/lib/userSettings";
+import type { PlaybackDestination } from "@/lib/playbackDestination";
 import type { MediaType } from "@/lib/types";
 import { PlayerErrorOverlay } from "../shared/PlayerErrorOverlay";
 import { isFallbackError, MAX_AUTO_FALLBACKS } from "../shared/playbackErrors";
@@ -26,7 +26,7 @@ type ExternalPlayerHandoffProps = {
   episode?: number;
   realDebridApiKey?: string;
   backPath: string;
-  externalPlayer: Exclude<ExternalPlayer, "disabled">;
+  destination: Exclude<PlaybackDestination, "web">;
 };
 
 export function ExternalPlayerHandoff({
@@ -37,7 +37,7 @@ export function ExternalPlayerHandoff({
   episode,
   realDebridApiKey = "",
   backPath,
-  externalPlayer,
+  destination,
 }: ExternalPlayerHandoffProps) {
   const openedUrlRef = useRef<string | null>(null);
   const fallbackAttemptsRef = useRef(0);
@@ -50,7 +50,8 @@ export function ExternalPlayerHandoff({
   const [openFailed, setOpenFailed] = useState(false);
   const [clipboardCopied, setClipboardCopied] = useState(false);
 
-  const playerLabel = getExternalPlayerLabel(externalPlayer);
+  const copyOnly = destination === "copy";
+  const playerLabel = copyOnly ? "Copy stream URL" : getExternalPlayerLabel(destination);
 
   const baseRequest = useMemo(
     () => ({
@@ -59,6 +60,7 @@ export function ExternalPlayerHandoff({
       season,
       episode,
       mediaTitle: title,
+      playbackProfile: "external" as const,
     }),
     [episode, imdbId, mediaType, season, title],
   );
@@ -125,7 +127,17 @@ export function ExternalPlayerHandoff({
     setOpenFailed(false);
     setClipboardCopied(false);
 
-    void openExternalPlayer(externalPlayer, externalPlaybackUrl).then(({ copied }) => {
+    if (destination === "copy") {
+      let cancelled = false;
+      void copyTextToClipboard(toAbsolutePlaybackUrl(externalPlaybackUrl)).then((copied) => {
+        if (!cancelled) setClipboardCopied(copied);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void openExternalPlayer(destination, externalPlaybackUrl).then(({ copied }) => {
       setClipboardCopied(copied);
     });
 
@@ -134,7 +146,7 @@ export function ExternalPlayerHandoff({
     }, 2500);
 
     return () => window.clearTimeout(timeout);
-  }, [externalPlaybackUrl, externalPlayer, ready]);
+  }, [externalPlaybackUrl, destination, ready]);
 
   const absolutePlaybackUrl = useMemo(() => {
     if (!externalPlaybackUrl) {
@@ -189,16 +201,18 @@ export function ExternalPlayerHandoff({
   }, [resolveState.errorCode, resolveState.status, selectedSource, sources]);
 
   const externalUrl =
-    externalPlaybackUrl && ready
-      ? buildExternalPlayerUrl(externalPlayer, externalPlaybackUrl)
+    externalPlaybackUrl && ready && destination !== "copy"
+      ? buildExternalPlayerUrl(destination, externalPlaybackUrl)
       : null;
 
   return (
     <div className="player-container">
       <div className="flex min-h-[100dvh] items-center justify-center bg-black px-6 text-center text-white">
         {showSourcePicker ? null : ready ? (
-          <div className="space-y-4">
-            <h2 className="text-xl font-semibold">Opening in {playerLabel}…</h2>
+          <div className="w-full max-w-lg space-y-4">
+            <h2 className="text-xl font-semibold">
+              {copyOnly ? "Copy stream URL" : `Opening in ${playerLabel}…`}
+            </h2>
             <p className="text-zinc-400">
               {title}
               {mediaType === "tv" && season && episode
@@ -206,11 +220,34 @@ export function ExternalPlayerHandoff({
                 : ""}
             </p>
             {clipboardCopied ? (
-              <p className="text-sm text-emerald-400">Stream URL copied to clipboard.</p>
+              <p role="status" className="text-sm text-emerald-400">Stream URL copied to clipboard.</p>
             ) : absolutePlaybackUrl ? (
               <p className="text-sm text-zinc-500">
-                If {playerLabel} does not open, paste the stream URL manually.
+                {copyOnly
+                  ? "Use the button below to copy the stream URL, or select the link and copy it manually."
+                  : `If ${playerLabel} does not open, paste the stream URL manually.`}
               </p>
+            ) : null}
+            {copyOnly && absolutePlaybackUrl ? (
+              <div className="space-y-3">
+                <input
+                  type="text"
+                  aria-label="Stream URL"
+                  readOnly
+                  value={absolutePlaybackUrl}
+                  onFocus={(event) => event.currentTarget.select()}
+                  className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-base text-zinc-300"
+                />
+                <button
+                  type="button"
+                  className="rounded-md bg-white px-4 py-2 text-black"
+                  onClick={() => {
+                    void copyTextToClipboard(absolutePlaybackUrl).then(setClipboardCopied);
+                  }}
+                >
+                  Copy stream URL
+                </button>
+              </div>
             ) : null}
             {openFailed && externalUrl ? (
               <div className="flex flex-wrap items-center justify-center gap-3">
@@ -269,7 +306,9 @@ export function ExternalPlayerHandoff({
           />
           {selectedSource ? (
             <p className="max-w-md px-4 text-center text-sm text-zinc-400">
-              Preparing {selectedSource.title} for {playerLabel}
+              {copyOnly
+                ? `Preparing the stream URL for ${selectedSource.title}`
+                : `Preparing ${selectedSource.title} for ${playerLabel}`}
             </p>
           ) : null}
         </div>

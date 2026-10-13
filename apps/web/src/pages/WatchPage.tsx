@@ -8,7 +8,7 @@ import { PlayerErrorBoundary } from "@/components/player/shared/PlayerErrorBound
 import { PlayerErrorOverlay } from "@/components/player/shared/PlayerErrorOverlay";
 import { useUserSettings } from "@/hooks/useUserSettings";
 import { isMobileViewport } from "@/lib/mobile";
-import { getPlaybackPlayer } from "@/lib/playbackDestination";
+import { getPlaybackDestination } from "@/lib/playbackDestination";
 import type { MediaItem, MediaType } from "@/lib/types";
 import { getExternalIds, getMediaDetails, getMediaDetailPath } from "@/lib/tmdb";
 
@@ -74,7 +74,7 @@ export function WatchPage() {
   const [error, setError] = useState<string | null>(null);
   const { realDebridApiKey } = useUserSettings();
   const [searchParams] = useSearchParams();
-  const player = getPlaybackPlayer(searchParams);
+  const destination = getPlaybackDestination(searchParams);
 
   const history = useQuery(api.watchHistory.getForUser);
   const savedProgress = useMemo(() => {
@@ -167,7 +167,7 @@ export function WatchPage() {
 
   return (
     <PlayerErrorBoundary backPath={backPath}>
-      {player !== "web" ? (
+      {destination !== "web" ? (
         <ExternalPlayerHandoff
           mediaType={movie.mediaType}
           title={movie.title}
@@ -176,7 +176,7 @@ export function WatchPage() {
           episode={episode}
           realDebridApiKey={realDebridApiKey}
           backPath={backPath}
-          externalPlayer={player}
+          destination={destination}
         />
       ) : isMobileViewport() ? (
         <NativeVideoPlayer {...playerProps} />

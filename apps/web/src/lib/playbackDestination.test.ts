@@ -1,19 +1,22 @@
 import { expect, test } from "bun:test";
 import {
   getPlaybackDestinationPath,
-  getPlaybackPlayer,
+  getPlaybackDestination,
 } from "./playbackDestination";
 
-test("playback defaults to web and accepts only supported external players", () => {
-  expect(getPlaybackPlayer(new URLSearchParams())).toBe("web");
-  expect(getPlaybackPlayer(new URLSearchParams("player=web"))).toBe("web");
-  expect(getPlaybackPlayer(new URLSearchParams("player=vlc"))).toBe("vlc");
-  expect(getPlaybackPlayer(new URLSearchParams("player=outplayer"))).toBe(
+test("playback defaults to web and accepts supported destinations", () => {
+  expect(getPlaybackDestination(new URLSearchParams())).toBe("web");
+  expect(getPlaybackDestination(new URLSearchParams("player=web"))).toBe("web");
+  expect(getPlaybackDestination(new URLSearchParams("player=vlc"))).toBe("vlc");
+  expect(getPlaybackDestination(new URLSearchParams("player=copy"))).toBe(
+    "copy",
+  );
+  expect(getPlaybackDestination(new URLSearchParams("player=outplayer"))).toBe(
     "outplayer",
   );
-  expect(getPlaybackPlayer(new URLSearchParams("player=unsupported"))).toBe(
-    "web",
-  );
+  expect(
+    getPlaybackDestination(new URLSearchParams("player=unsupported")),
+  ).toBe("web");
 });
 
 test("destination URLs preserve other parameters and replace the previous player", () => {

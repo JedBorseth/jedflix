@@ -61,8 +61,9 @@ for (const [label, player] of [
   ["Web", "web"],
   ["VLC", "vlc"],
   ["Outplayer", "outplayer"],
+  ["Copy stream URL", "copy"],
 ]) {
-  test(`${label} launches the chosen player without changing the saved preference`, () => {
+  test(`${label} uses the chosen destination without changing the saved preference`, () => {
     saveUserSettings({ externalPlayer: "outplayer" });
     const router = renderPlayButton();
     fireEvent.click(screen.getByRole("button", { name: "Play" }));

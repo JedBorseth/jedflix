@@ -1,6 +1,6 @@
 import { useState, type ReactElement } from "react";
 import { useNavigate } from "react-router-dom";
-import { DesktopIcon, PlayIcon } from "@radix-ui/react-icons";
+import { CopyIcon, DesktopIcon, PlayIcon } from "@radix-ui/react-icons";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -12,10 +12,10 @@ import {
 } from "@/components/ui/dialog";
 import {
   getPlaybackDestinationPath,
-  type PlaybackPlayer,
+  type PlaybackDestination,
 } from "@/lib/playbackDestination";
 
-const PLAYERS: Array<{ value: PlaybackPlayer; label: string }> = [
+const PLAYERS: Array<{ value: PlaybackDestination; label: string }> = [
   { value: "web", label: "Web" },
   { value: "vlc", label: "VLC" },
   { value: "outplayer", label: "Outplayer" },
@@ -33,9 +33,9 @@ export function PlaybackDestinationMenu({
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
 
-  function selectPlayer(player: PlaybackPlayer) {
+  function selectDestination(destination: PlaybackDestination) {
     setOpen(false);
-    void navigate(getPlaybackDestinationPath(to, player));
+    void navigate(getPlaybackDestinationPath(to, destination));
   }
 
   return (
@@ -45,7 +45,7 @@ export function PlaybackDestinationMenu({
         <DialogHeader className="pr-6 text-left">
           <DialogTitle>Where do you want to watch?</DialogTitle>
           <DialogDescription className="text-zinc-400">
-            Choose a player to start watching.
+            Choose a player or copy a stream URL.
           </DialogDescription>
         </DialogHeader>
         <section aria-labelledby="playback-this-device" className="space-y-3">
@@ -63,13 +63,22 @@ export function PlaybackDestinationMenu({
                 type="button"
                 variant="outline"
                 className="h-16 flex-col gap-2 border-zinc-700 bg-zinc-900 hover:border-zinc-500 hover:bg-zinc-800 hover:text-white"
-                onClick={() => selectPlayer(player.value)}
+                onClick={() => selectDestination(player.value)}
               >
                 <PlayIcon aria-hidden="true" className="h-4 w-4" />
                 {player.label}
               </Button>
             ))}
           </div>
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full gap-2 border-zinc-700 bg-zinc-900 hover:border-zinc-500 hover:bg-zinc-800 hover:text-white"
+            onClick={() => selectDestination("copy")}
+          >
+            <CopyIcon aria-hidden="true" className="h-4 w-4" />
+            Copy stream URL
+          </Button>
         </section>
         <section
           aria-labelledby="playback-tv"
