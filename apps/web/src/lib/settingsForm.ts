@@ -3,7 +3,6 @@ import {
   contentTypesRequiringRealDebrid,
   type ContentType,
   type DeviceType,
-  type ExternalPlayer,
 } from "@/lib/userSettings";
 
 export const DEVICE_TYPE_OPTIONS: Array<{ value: DeviceType; label: string }> = [
@@ -19,12 +18,6 @@ export const CONTENT_TYPE_OPTIONS: Array<{ value: ContentType; label: string }> 
   { value: "video_games", label: "Video Games" },
 ];
 
-export const EXTERNAL_PLAYER_OPTIONS: Array<{ value: ExternalPlayer; label: string }> = [
-  { value: "disabled", label: "Built-in player" },
-  { value: "vlc", label: "VLC" },
-  { value: "outplayer", label: "OutPlayer" },
-];
-
 export const VIRUS_WARNING_TEXT =
   "I understand that torrent sources and third-party stream files may contain malware or other unwanted software, and I accept the risk of scanning and opening media from untrusted releases.";
 
@@ -35,7 +28,6 @@ export type OnboardingFormValues = {
   deviceType: DeviceType | "";
   contentTypes: ContentType[];
   realDebridApiKey: string;
-  externalPlayer: ExternalPlayer | "";
   letterboxdUsername: string;
   virusWarningAccepted: boolean;
   ispWarningAccepted: boolean;
@@ -46,7 +38,6 @@ export type OnboardingStepId =
   | "deviceType"
   | "contentTypes"
   | "realDebridApiKey"
-  | "externalPlayer"
   | "letterboxdUsername"
   | "warnings";
 
@@ -75,11 +66,6 @@ export const ONBOARDING_STEPS: Array<{
     id: "contentTypes",
     title: "What do you want to browse?",
     description: "Pick the library tabs to show. You can change this later.",
-  },
-  {
-    id: "externalPlayer",
-    title: "How do you want to play?",
-    description: "Use the built-in player or hand off to VLC / OutPlayer.",
   },
   {
     id: "letterboxdUsername",
@@ -116,8 +102,6 @@ export function validateOnboardingStep(
     case "realDebridApiKey":
       // Optional — music works without a key. Debrid content types are gated on the next step.
       return undefined;
-    case "externalPlayer":
-      return values.externalPlayer ? undefined : "Select a player preference.";
     case "warnings":
       if (!values.virusWarningAccepted) {
         return "You must accept the virus warning.";

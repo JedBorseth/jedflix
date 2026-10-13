@@ -133,7 +133,6 @@ export function hasRequiredOnboardingFields(settings: UserSettings): boolean {
     !Array.isArray(settings.contentTypes) ||
     settings.contentTypes.length === 0 ||
     !settings.contentTypes.every(isContentType) ||
-    !isExternalPlayer(settings.externalPlayer) ||
     settings.virusWarningAccepted !== true ||
     settings.ispWarningAccepted !== true
   ) {

@@ -33,11 +33,10 @@ import { validateLetterboxdUsername } from "@/lib/letterboxd";
 import {
   CONTENT_TYPE_OPTIONS,
   DEVICE_TYPE_OPTIONS,
-  EXTERNAL_PLAYER_OPTIONS,
   isContentTypeLockedWithoutDebrid,
   toggleContentType,
 } from "@/lib/settingsForm";
-import type { DeviceType, ExternalPlayer } from "@/lib/userSettings";
+import type { DeviceType } from "@/lib/userSettings";
 import { withoutDebridContentTypes } from "@/lib/userSettings";
 
 export function SettingsPage() {
@@ -45,7 +44,6 @@ export function SettingsPage() {
   const party = useOptionalParty();
   const {
     realDebridApiKey,
-    externalPlayer,
     deviceType,
     contentTypes,
     letterboxdUsername,
@@ -280,38 +278,6 @@ export function SettingsPage() {
 
           <Card className="border-zinc-800 bg-zinc-900/60 text-white">
             <CardHeader>
-              <CardTitle>Video Player</CardTitle>
-              <CardDescription className="text-zinc-400">
-                The default video player for streaming movies and shows on our platform. Either play
-                in browser or choose a program to open when clicking on a stream.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <label className="text-sm font-medium text-zinc-200" htmlFor="external-player">
-                External player
-              </label>
-              <Select
-                value={externalPlayer}
-                onValueChange={(value) => {
-                  saveSettings({ externalPlayer: value as ExternalPlayer });
-                }}
-              >
-                <SelectTrigger id="external-player" className="max-w-xs">
-                  <SelectValue placeholder="Disabled" />
-                </SelectTrigger>
-                <SelectContent>
-                  {EXTERNAL_PLAYER_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </CardContent>
-          </Card>
-
-          <Card className="border-zinc-800 bg-zinc-900/60 text-white">
-            <CardHeader>
               <CardTitle>Letterboxd</CardTitle>
               <CardDescription className="text-zinc-400">
                 Public username used to personalize your home feed with recent diary watches.
@@ -395,8 +361,8 @@ export function SettingsPage() {
                   <DialogHeader>
                     <DialogTitle>Reset app settings?</DialogTitle>
                     <DialogDescription className="text-zinc-400">
-                      This clears your Real Debrid API key, device and content preferences, player
-                      settings, and Letterboxd username from this browser and from your account if
+                      This clears your Real Debrid API key, device and content preferences, and
+                      Letterboxd username from this browser and from your account if
                       you are signed in. Onboarding will start again.
                     </DialogDescription>
                   </DialogHeader>

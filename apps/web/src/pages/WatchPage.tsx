@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { useQuery } from "convex/react";
 import { api } from "@convex/_generated/api";
 import { ExternalPlayerHandoff } from "@/components/player/external/ExternalPlayerHandoff";
@@ -8,6 +8,7 @@ import { PlayerErrorBoundary } from "@/components/player/shared/PlayerErrorBound
 import { PlayerErrorOverlay } from "@/components/player/shared/PlayerErrorOverlay";
 import { useUserSettings } from "@/hooks/useUserSettings";
 import { isMobileViewport } from "@/lib/mobile";
+import { getPlaybackPlayer } from "@/lib/playbackDestination";
 import type { MediaItem, MediaType } from "@/lib/types";
 import { getExternalIds, getMediaDetails, getMediaDetailPath } from "@/lib/tmdb";
 
@@ -71,7 +72,9 @@ export function WatchPage() {
   const [movie, setMovie] = useState<MediaItem | null>();
   const [imdbId, setImdbId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const { realDebridApiKey, externalPlayer } = useUserSettings();
+  const { realDebridApiKey } = useUserSettings();
+  const [searchParams] = useSearchParams();
+  const player = getPlaybackPlayer(searchParams);
 
   const history = useQuery(api.watchHistory.getForUser);
   const savedProgress = useMemo(() => {
@@ -164,7 +167,7 @@ export function WatchPage() {
 
   return (
     <PlayerErrorBoundary backPath={backPath}>
-      {externalPlayer !== "disabled" ? (
+      {player !== "web" ? (
         <ExternalPlayerHandoff
           mediaType={movie.mediaType}
           title={movie.title}
@@ -173,7 +176,7 @@ export function WatchPage() {
           episode={episode}
           realDebridApiKey={realDebridApiKey}
           backPath={backPath}
-          externalPlayer={externalPlayer}
+          externalPlayer={player}
         />
       ) : isMobileViewport() ? (
         <NativeVideoPlayer {...playerProps} />

@@ -91,6 +91,17 @@ describe("userSettings onboarding fields", () => {
     expect(isOnboardingComplete(getUserSettings())).toBe(true);
   });
 
+  test("onboarding completes without a saved player preference", () => {
+    expect(isOnboardingComplete({
+      deviceType: "desktop",
+      contentTypes: ["movies_shows"],
+      realDebridApiKey: "key",
+      virusWarningAccepted: true,
+      ispWarningAccepted: true,
+      onboardingCompleted: true,
+    })).toBe(true);
+  });
+
   test("movies require a Real Debrid key to complete onboarding", () => {
     saveUserSettings({
       deviceType: "desktop",
@@ -144,7 +155,6 @@ describe("settingsForm helpers", () => {
         deviceType: "",
         contentTypes: [],
         realDebridApiKey: "",
-        externalPlayer: "",
         letterboxdUsername: "",
         virusWarningAccepted: false,
         ispWarningAccepted: false,
@@ -156,7 +166,6 @@ describe("settingsForm helpers", () => {
         deviceType: "desktop",
         contentTypes: ["movies_shows"],
         realDebridApiKey: "key",
-        externalPlayer: "vlc",
         letterboxdUsername: "jed",
         virusWarningAccepted: true,
         ispWarningAccepted: true,
@@ -168,7 +177,6 @@ describe("settingsForm helpers", () => {
         deviceType: "desktop",
         contentTypes: ["music"],
         realDebridApiKey: "",
-        externalPlayer: "disabled",
         letterboxdUsername: "",
         virusWarningAccepted: true,
         ispWarningAccepted: true,
@@ -182,7 +190,6 @@ describe("settingsForm helpers", () => {
         deviceType: "desktop",
         contentTypes: ["movies_shows"],
         realDebridApiKey: "",
-        externalPlayer: "disabled",
         letterboxdUsername: "",
         virusWarningAccepted: false,
         ispWarningAccepted: false,
@@ -196,7 +203,6 @@ describe("settingsForm helpers", () => {
         deviceType: "desktop",
         contentTypes: [],
         realDebridApiKey: "",
-        externalPlayer: "",
         letterboxdUsername: "",
         virusWarningAccepted: false,
         ispWarningAccepted: false,
@@ -209,7 +215,6 @@ describe("settingsForm helpers", () => {
       deviceType: "" as const,
       contentTypes: [],
       realDebridApiKey: "",
-      externalPlayer: "" as const,
       letterboxdUsername: "",
       virusWarningAccepted: false,
       ispWarningAccepted: false,

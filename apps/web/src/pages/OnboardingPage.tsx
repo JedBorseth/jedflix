@@ -8,7 +8,6 @@ import { validateLetterboxdUsername } from "@/lib/letterboxd";
 import {
   CONTENT_TYPE_OPTIONS,
   DEVICE_TYPE_OPTIONS,
-  EXTERNAL_PLAYER_OPTIONS,
   ISP_WARNING_TEXT,
   ONBOARDING_STEPS,
   type OnboardingFormValues,
@@ -19,7 +18,7 @@ import {
   validateOnboardingValues,
   VIRUS_WARNING_TEXT,
 } from "@/lib/settingsForm";
-import type { DeviceType, ExternalPlayer } from "@/lib/userSettings";
+import type { DeviceType } from "@/lib/userSettings";
 import { withoutDebridContentTypes } from "@/lib/userSettings";
 import { cn } from "@/lib/utils";
 import "./onboarding.css";
@@ -27,7 +26,6 @@ import "./onboarding.css";
 const REAL_DEBRID_API_KEY_URL = "https://real-debrid.com/apitoken";
 const REAL_DEBRID_AFFILIATE_URL = "http://real-debrid.com/?id=10515937";
 const WELCOME_EXIT_MS = 700;
-const EXTERNAL_PLAYER_RECOMMENDED: ExternalPlayer[] = ["vlc", "outplayer"];
 
 export function OnboardingPage() {
   const navigate = useNavigate();
@@ -42,7 +40,6 @@ export function OnboardingPage() {
       deviceType: settings.deviceType ?? "",
       contentTypes: settings.contentTypes ?? [],
       realDebridApiKey: settings.realDebridApiKey ?? "",
-      externalPlayer: settings.externalPlayer ?? "",
       letterboxdUsername: settings.letterboxdUsername ?? "",
       virusWarningAccepted: settings.virusWarningAccepted === true,
       ispWarningAccepted: settings.ispWarningAccepted === true,
@@ -58,7 +55,6 @@ export function OnboardingPage() {
         deviceType: value.deviceType as DeviceType,
         contentTypes: value.contentTypes,
         realDebridApiKey: value.realDebridApiKey.trim() || undefined,
-        externalPlayer: value.externalPlayer as ExternalPlayer,
         letterboxdUsername: value.letterboxdUsername.trim() || undefined,
         virusWarningAccepted: true,
         ispWarningAccepted: true,
@@ -425,42 +421,6 @@ function StepFields({
             </div>
           )}
         </form.Field>
-      );
-    case "externalPlayer":
-      return (
-        <form.Subscribe selector={(state) => state.values.deviceType}>
-          {(deviceType) => (
-            <form.Field name="externalPlayer">
-              {(field) => {
-                const isMobileDevice = deviceType === "mobile";
-                return (
-                  <div className="space-y-3">
-                    {isMobileDevice ? (
-                      <p className="text-sm text-zinc-400">
-                        On mobile, an external player is recommended for more
-                        reliable playback.
-                      </p>
-                    ) : null}
-                    <div className="grid gap-3 sm:grid-cols-3">
-                      {EXTERNAL_PLAYER_OPTIONS.map((option) => (
-                        <ChoiceButton
-                          key={option.value}
-                          selected={field.state.value === option.value}
-                          label={option.label}
-                          recommended={
-                            isMobileDevice &&
-                            EXTERNAL_PLAYER_RECOMMENDED.includes(option.value)
-                          }
-                          onClick={() => field.handleChange(option.value)}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                );
-              }}
-            </form.Field>
-          )}
-        </form.Subscribe>
       );
     case "letterboxdUsername":
       return (

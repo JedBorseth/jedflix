@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import type { MouseEvent } from "react";
 import { Button } from "@/components/ui/button";
+import { PlaybackDestinationMenu } from "./PlaybackDestinationMenu";
 import { useHasRealDebridApiKey } from "@/hooks/useHasRealDebridApiKey";
 import { blockDebridMediaNavigation } from "@/lib/debridAccess";
 import { cn } from "@/lib/utils";
@@ -41,25 +42,43 @@ export function MediaPlayButton({
           Not Released
         </span>
       ) : null}
-      <Button
-        asChild
-        size="lg"
-        className={cn(
-          "bg-white text-black hover:bg-zinc-200",
-          locked && "cursor-not-allowed opacity-50",
-          className,
-        )}
-      >
-        {useAnchor ? (
-          <a href={to} aria-disabled={locked} onClick={handleClick}>
+      {!useAnchor && to.startsWith("/watch/") ? (
+        <PlaybackDestinationMenu to={to}>
+          <Button
+            type="button"
+            size="lg"
+            aria-disabled={locked}
+            onClick={handleClick}
+            className={cn(
+              "bg-white text-black hover:bg-zinc-200",
+              locked && "cursor-not-allowed opacity-50",
+              className,
+            )}
+          >
             {label}
-          </a>
-        ) : (
-          <Link to={to} aria-disabled={locked} onClick={handleClick}>
-            {label}
-          </Link>
-        )}
-      </Button>
+          </Button>
+        </PlaybackDestinationMenu>
+      ) : (
+        <Button
+          asChild
+          size="lg"
+          className={cn(
+            "bg-white text-black hover:bg-zinc-200",
+            locked && "cursor-not-allowed opacity-50",
+            className,
+          )}
+        >
+          {useAnchor ? (
+            <a href={to} aria-disabled={locked} onClick={handleClick}>
+              {label}
+            </a>
+          ) : (
+            <Link to={to} aria-disabled={locked} onClick={handleClick}>
+              {label}
+            </Link>
+          )}
+        </Button>
+      )}
     </div>
   );
 }
