@@ -1,14 +1,11 @@
 import { useLayoutEffect } from "react";
 import { useLocation } from "react-router-dom";
-import { isMobileViewport } from "@/lib/mobile";
 
 export function ScrollToTopOnNavigate() {
   const { pathname } = useLocation();
 
   useLayoutEffect(() => {
-    if (isMobileViewport()) {
-      window.scrollTo(0, 0);
-    }
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
   }, [pathname]);
 
   return null;
