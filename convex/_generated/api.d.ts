@@ -9,6 +9,7 @@
  */
 
 import type * as auth from "../auth.js";
+import type * as authProviders from "../authProviders.js";
 import type * as env from "../env.js";
 import type * as http from "../http.js";
 import type * as jedsPicks from "../jedsPicks.js";
@@ -36,6 +37,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
+  authProviders: typeof authProviders;
   env: typeof env;
   http: typeof http;
   jedsPicks: typeof jedsPicks;
