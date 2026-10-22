@@ -333,6 +333,15 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (result.status === "error") {
+        if (result.error.name === "NotAllowedError") {
+          // A fresh guest device needs a gesture. Do not treat autoplay policy as
+          // a broken stream and let the retry watchdog skip the party's song.
+          clearStallTimer();
+          window.clearTimeout(retryTimerRef.current);
+          setError("Tap Play to start audio on this device.");
+          writeAudible(false);
+          return;
+        }
         // Keep playIntent — iOS lock-screen / background resume often fails once
         // after a pause; callers reload the stream and retry instead of giving up.
         setError(result.error.message);
