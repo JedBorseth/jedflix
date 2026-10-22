@@ -160,6 +160,9 @@ export function PartyProvider({ children }: { children: ReactNode }) {
       failedTrackIdRef.current = localTrackId;
     } else if (!playerError && player.playing) {
       failedTrackIdRef.current = null;
+      // Loading or an autoplay prompt may have held this device behind the
+      // party clock. Reconcile once audio actually starts, even without a new seek.
+      lastAppliedPositionAtRef.current = null;
     }
   }, [localTrackId, player.playing, playerError]);
 
@@ -387,6 +390,7 @@ export function PartyProvider({ children }: { children: ReactNode }) {
     localCurrentTime,
     localLoading,
     localTrackId,
+    player.playing,
     party?.isPlaying,
     party?.positionMs,
     party?.positionUpdatedAt,

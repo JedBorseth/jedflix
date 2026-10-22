@@ -37,7 +37,7 @@ const state = vi.hoisted(() => ({
     queueIndex: 0,
     playing: false,
     loading: false,
-    error: null,
+    error: null as string | null,
     currentTime: 0,
     playTrack: vi.fn(),
     pause: vi.fn(),
@@ -127,9 +127,14 @@ beforeEach(() => {
   state.player.current = null;
   state.player.queue = [];
   state.player.playing = false;
+  state.player.loading = false;
+  state.player.error = null;
   vi.clearAllMocks();
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 test("a fresh invite automatically joins once and skips setup", async () => {
   render(
@@ -353,4 +358,42 @@ test("server errors remain readable across separate Convex client bundles", () =
   expect(partyErrorMessage(new Error("Internal server stack"))).not.toContain(
     "Internal server stack",
   );
+});
+
+test("guest audio catches up to the party clock after a slow initial load", () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(100000);
+  getGuestPartyToken(true);
+  state.queries.set(
+    "party:getGuestState",
+    partyFixture({ isPlaying: true, positionMs: 0 }),
+  );
+  state.player.loading = true;
+  const view = render(app());
+  vi.setSystemTime(125000);
+  state.player.current = track;
+  state.player.queue = [track];
+  state.player.loading = false;
+  state.player.playing = true;
+  view.rerender(app());
+  expect(state.player.seek).toHaveBeenCalledWith(25);
+  expect(state.mutations.get("party:setPosition")).not.toHaveBeenCalled();
+});
+
+test("tapping Play after an autoplay block restores the current party position", () => {
+  getGuestPartyToken(true);
+  state.queries.set(
+    "party:getGuestState",
+    partyFixture({ isPlaying: true, positionMs: 30000 }),
+  );
+  state.player.current = track;
+  state.player.queue = [track];
+  state.player.error = "Tap Play to start audio on this device.";
+  const view = render(app());
+  expect(state.player.seek).not.toHaveBeenCalled();
+  state.player.error = null;
+  state.player.playing = true;
+  view.rerender(app());
+  expect(state.player.seek).toHaveBeenCalledWith(expect.any(Number));
+  expect(state.player.seek.mock.calls.at(-1)?.[0]).toBeGreaterThanOrEqual(30);
 });
