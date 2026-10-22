@@ -33,6 +33,9 @@ jobs:
       - name: Run tests
         run: bun run test
 
+      - name: Test audiobook proxy recovery
+        run: python3 scripts/warp-proxy.test.py
+
   deploy:
     needs: test
     runs-on: ubuntu-latest

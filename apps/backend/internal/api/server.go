@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"github.com/jedborseth/jeds-movies/backend/internal/abb"
 	"github.com/jedborseth/jeds-movies/backend/internal/config"
 	"github.com/jedborseth/jeds-movies/backend/internal/demord"
 	"github.com/jedborseth/jeds-movies/backend/internal/lastfm"
@@ -190,6 +191,25 @@ func (s *Server) handleSources(w http.ResponseWriter, r *http.Request) {
 
 	sources, err := s.resolver.ListSources(req)
 	if err != nil {
+		var fetchErr *abb.FetchError
+		if errors.As(err, &fetchErr) {
+			status := http.StatusServiceUnavailable
+			code := "abb_unavailable"
+			message := "AudiobookBay is temporarily unreachable. Please try again shortly."
+			switch fetchErr.StatusCode {
+			case http.StatusTooManyRequests:
+				status = http.StatusTooManyRequests
+				code = "abb_rate_limited"
+				message = "AudiobookBay is rate limiting searches. Please wait before trying again."
+			case http.StatusForbidden, http.StatusUnauthorized:
+				status = http.StatusBadGateway
+				code = "abb_blocked"
+				message = "AudiobookBay is blocking search requests. Please try again later."
+			}
+			log.Printf("source listing failed: provider=abb code=%s upstream_status=%d", code, fetchErr.StatusCode)
+			writeJSON(w, status, map[string]string{"error": message, "code": code})
+			return
+		}
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unable to list sources"})
 		return
 	}

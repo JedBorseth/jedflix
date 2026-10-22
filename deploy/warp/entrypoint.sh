@@ -28,6 +28,9 @@ warp-svc --accept-tos &
 WARP_PID=$!
 
 cleanup() {
+	if [[ -n "${WATCHDOG_PID:-}" ]]; then
+		kill "${WATCHDOG_PID}" 2>/dev/null || true
+	fi
 	kill "${WARP_PID}" 2>/dev/null || true
 }
 trap cleanup EXIT
@@ -90,13 +93,16 @@ guard() {
 			ensure_proxy_mode || true
 		fi
 		status="$(warp-cli --accept-tos status 2>/dev/null || true)"
-		if ! echo "${status}" | grep -qi connected; then
+		if ! echo "${status}" | grep -qiE '^Status update:[[:space:]]*Connected([[:space:]]|$)'; then
 			echo "WARP not connected; reconnecting in proxy mode" >&2
 			ensure_proxy_mode || true
 		fi
 	done
 }
 guard &
+
+/usr/local/bin/watchdog.sh "${WARP_PID}" &
+WATCHDOG_PID=$!
 
 wait "${WARP_PID}"
 kill "${SOCAT_PID}" 2>/dev/null || true

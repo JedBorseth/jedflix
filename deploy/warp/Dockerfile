@@ -10,13 +10,13 @@ RUN apt-get update \
 	&& apt-get install -y --no-install-recommends cloudflare-warp \
 	&& rm -rf /var/lib/apt/lists/*
 
-COPY entrypoint.sh healthcheck.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/healthcheck.sh
+COPY entrypoint.sh healthcheck.sh abb-connectivity.sh watchdog.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/*.sh
 
 # SOCKS5 is exposed only on the Compose network. Do not publish this port on the host.
 EXPOSE 40000
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
+HEALTHCHECK --interval=60s --timeout=20s --start-period=60s --retries=3 \
 	CMD ["/usr/local/bin/healthcheck.sh"]
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
