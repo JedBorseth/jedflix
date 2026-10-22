@@ -17,7 +17,7 @@ export function RecentlyPlayedMusicGrid({ tracks }: RecentlyPlayedMusicGridProps
     return null;
   }
 
-  function playRecent(track: RecentMusicTrack, index: number) {
+  function playRecent(index: number) {
     const queue: MusicQueueTrack[] = tracks.map((item) => ({
       id: item.id,
       title: item.title,
@@ -55,7 +55,7 @@ export function RecentlyPlayedMusicGrid({ tracks }: RecentlyPlayedMusicGridProps
             <SwipeableTrackRow
               key={`${track.id}-${track.playedAt}`}
               className="rounded-md"
-              onPlay={() => playRecent(track, index)}
+              onPlay={() => playRecent(index)}
               onAddToQueue={() => musicPlayer.addToQueue(queueTrack)}
               onPlayNext={() => musicPlayer.playNext(queueTrack)}
               onLike={() => void likeTrack(queueTrack)}

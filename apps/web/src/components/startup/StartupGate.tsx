@@ -2,11 +2,16 @@ import { useCallback, useLayoutEffect, useState, type ReactNode } from "react";
 import gsap from "gsap";
 import { StartupAnimation } from "./StartupAnimation";
 import { useAppReady } from "./useAppReady";
+import { isPartyJoinPath } from "@/lib/partyClient";
 import { isTvPairingPath } from "@/lib/tvRdKey";
 import "./StartupAnimation.css";
 
 function shouldSkipStartupIntro(): boolean {
-  return typeof window !== "undefined" && isTvPairingPath(window.location.pathname);
+  return (
+    typeof window !== "undefined" &&
+    (isTvPairingPath(window.location.pathname) ||
+      isPartyJoinPath(window.location.pathname))
+  );
 }
 
 type StartupGateProps = {
@@ -37,7 +42,11 @@ export function StartupGate({ children }: StartupGateProps) {
       return;
     }
     // Opacity only — never set transform on the shell (breaks position:fixed nav).
-    gsap.set(appShell, { opacity: 0, visibility: "hidden", clearProps: "transform" });
+    gsap.set(appShell, {
+      opacity: 0,
+      visibility: "hidden",
+      clearProps: "transform",
+    });
   }, [appShell, overlayMounted]);
 
   const handleIntroComplete = useCallback(() => {

@@ -70,6 +70,12 @@ export function shouldSyncPosition(
 /** A member that has not sent a heartbeat within this window is treated as gone. */
 export const MEMBER_ONLINE_WINDOW_MS = 45_000;
 
+/**
+ * Skip rewriting lastSeenAt more often than this. Must stay below
+ * MEMBER_ONLINE_WINDOW_MS so the party panel still shows members as online.
+ */
+export const HEARTBEAT_WRITE_MIN_INTERVAL_MS = 30_000;
+
 /** Members stale for this long are pruned, which also lets the poller wind down. */
 export const MEMBER_STALE_WINDOW_MS = 5 * 60_000;
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
+import { useOptionalParty } from "@/components/party/partyContext";
 import { api } from "@convex/_generated/api";
 import {
   clearUserSettings,
@@ -22,10 +23,14 @@ const LOCAL_ONLY_KEYS = [
 ] as const satisfies ReadonlyArray<keyof UserSettings>;
 
 export function useUserSettings() {
+  const partyContext = useOptionalParty();
+  const guestInParty = partyContext?.isGuest && partyContext.party !== null;
   const remoteSettings = useQuery(api.userSettings.getForUser);
   const upsertRemote = useMutation(api.userSettings.upsert);
   const clearRemote = useMutation(api.userSettings.clear);
-  const [settings, setSettings] = useState<UserSettings>(() => getUserSettings());
+  const [settings, setSettings] = useState<UserSettings>(() =>
+    getUserSettings(),
+  );
   const lastSyncedRemoteAtRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -85,7 +90,9 @@ export function useUserSettings() {
     realDebridApiKey: settings.realDebridApiKey ?? "",
     externalPlayer: settings.externalPlayer ?? "disabled",
     deviceType: settings.deviceType,
-    contentTypes: settings.contentTypes ?? [],
+    contentTypes: guestInParty
+      ? ["music" as const]
+      : settings.contentTypes ?? [],
     letterboxdUsername: settings.letterboxdUsername ?? "",
     youtubeMusicSearch: settings.youtubeMusicSearch === true,
     virusWarningAccepted: settings.virusWarningAccepted === true,
@@ -107,7 +114,10 @@ function pickLocalOnlyFields(settings: UserSettings): Partial<UserSettings> {
   return result;
 }
 
-function remotePayload(settings: UserSettings, partial?: Partial<UserSettings>) {
+function remotePayload(
+  settings: UserSettings,
+  partial?: Partial<UserSettings>,
+) {
   const payload: {
     realDebridApiKey?: string | null;
     externalPlayer?: "disabled" | "vlc" | "outplayer";

@@ -1,7 +1,10 @@
 const CLIENT_ID_KEY = "jedflix.party.clientId";
 
 function randomId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
     return crypto.randomUUID();
   }
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -49,4 +52,58 @@ export function getDeviceLabel(): string {
     return "Unknown device";
   }
   return `${detectBrowser(ua)} on ${detectPlatform(ua)}`;
+}
+
+const GUEST_TOKEN_KEY = "jedflix.party.guestToken";
+let memoryGuestToken: string | null = null;
+
+/** A private per-tab credential; it is never placed in links or member lists. */
+export function getGuestPartyToken(create = false): string | null {
+  try {
+    memoryGuestToken =
+      window.sessionStorage.getItem(GUEST_TOKEN_KEY) ?? memoryGuestToken;
+  } catch {
+    /* Storage may be disabled in a fresh/private browser. */
+  }
+  if (!memoryGuestToken && create) {
+    const bytes = crypto.getRandomValues(new Uint8Array(32));
+    memoryGuestToken = Array.from(bytes, (byte) =>
+      byte.toString(16).padStart(2, "0"),
+    ).join("");
+    try {
+      window.sessionStorage.setItem(GUEST_TOKEN_KEY, memoryGuestToken);
+    } catch {
+      /* Keep in memory. */
+    }
+  }
+  return memoryGuestToken;
+}
+
+export function clearGuestPartyToken() {
+  memoryGuestToken = null;
+  try {
+    window.sessionStorage.removeItem(GUEST_TOKEN_KEY);
+  } catch {
+    /* Storage is optional. */
+  }
+}
+
+export function partyJoinPath(code?: string): string {
+  return code ? `/party/${encodeURIComponent(code)}` : "/party";
+}
+
+export function isPartyJoinPath(pathname: string): boolean {
+  return pathname === "/party" || pathname.startsWith("/party/");
+}
+
+export function partyErrorMessage(error: unknown): string {
+  // Convex's auth/client bundles can contain separate copies of the error class.
+  if (
+    error instanceof Error &&
+    error.name === "ConvexError" &&
+    "data" in error &&
+    typeof error.data === "string"
+  )
+    return error.data;
+  return "Could not connect to the party. Please try again.";
 }

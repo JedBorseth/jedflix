@@ -6,6 +6,9 @@ import { ArtistCard } from "@/components/browse/ArtistCard";
 import { RecentlyPlayedMusicGrid } from "@/components/browse/RecentlyPlayedMusicGrid";
 import { JedsPicksRow } from "@/components/jedsPicks/JedsPicksRow";
 import { AppLink } from "@/components/layout/AppLink";
+import { useOptionalParty } from "@/components/party/partyContext";
+import { useMusicPlayer } from "@/components/player/music/MusicPlayerContext";
+import { Button } from "@/components/ui/button";
 import { PartyStatusButton } from "@/components/party/PartyStatusButton";
 import { PosterRowSkeleton } from "@/components/ui/skeleton";
 import { shuffleItems } from "@/lib/musicSearch";
@@ -35,6 +38,10 @@ async function loadMusicBrowsePage(): Promise<MusicCatalogRow[]> {
 }
 
 export function MusicPage() {
+  const partyContext = useOptionalParty();
+  const player = useMusicPlayer();
+  const needsAudioTap = partyContext?.isGuest && partyContext.party?.isPlaying &&
+    partyContext.party.track && !player.playing;
   const browseQuery = useQuery({
     queryKey: catalogQueryKeys.spotify.browse(),
     queryFn: loadMusicBrowsePage,
@@ -65,6 +72,11 @@ export function MusicPage() {
             Coming soon
           </AppLink>
         </div>
+
+        {needsAudioTap ? <div className="mx-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 md:mx-12">
+          <p className="text-sm text-emerald-100">You're in the party. Your browser may need a tap to start audio.</p>
+          <Button onClick={player.play}>Tap to listen</Button>
+        </div> : null}
 
         {recentTracks.length > 0 ? (
           <RecentlyPlayedMusicGrid tracks={recentTracks} />

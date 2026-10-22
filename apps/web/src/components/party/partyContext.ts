@@ -2,7 +2,9 @@ import type { FunctionReturnType } from "convex/server";
 import { createContext, useContext, type Context } from "react";
 import type { api } from "@convex/_generated/api";
 
-export type PartyState = NonNullable<FunctionReturnType<typeof api.party.getState>>;
+export type PartyState = NonNullable<
+  FunctionReturnType<typeof api.party.getState>
+>;
 export type PartyMember = PartyState["members"][number];
 export type PartySpotifyTarget = PartyState["spotifyTargets"][number];
 
@@ -10,6 +12,7 @@ export type PartyContextValue = {
   clientId: string;
   party: PartyState | null;
   loading: boolean;
+  isGuest: boolean;
   panelOpen: boolean;
   setPanelOpen: (open: boolean) => void;
   createParty: () => Promise<string>;
@@ -27,7 +30,9 @@ const partyGlobal = globalThis as PartyGlobal;
 
 export const PartyContext =
   partyGlobal[PARTY_CONTEXT_KEY] ??
-  (partyGlobal[PARTY_CONTEXT_KEY] = createContext<PartyContextValue | null>(null));
+  (partyGlobal[PARTY_CONTEXT_KEY] = createContext<PartyContextValue | null>(
+    null,
+  ));
 
 export function useParty(): PartyContextValue {
   const value = useContext(PartyContext);

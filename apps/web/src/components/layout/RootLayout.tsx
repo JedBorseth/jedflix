@@ -17,12 +17,17 @@ import {
   useMusicPlayer,
 } from "@/components/player/music/MusicPlayerContext";
 import { cn } from "@/lib/utils";
+import { isPartyJoinPath } from "@/lib/partyClient";
 import { isTvPairingPath } from "@/lib/tvRdKey";
 
 const HIDE_CHROME_PATHS = ["/sign-in", "/onboarding"];
 
 function shouldShowBottomNav(pathname: string) {
-  if (HIDE_CHROME_PATHS.includes(pathname) || isTvPairingPath(pathname)) {
+  if (
+    HIDE_CHROME_PATHS.includes(pathname) ||
+    isTvPairingPath(pathname) ||
+    isPartyJoinPath(pathname)
+  ) {
     return false;
   }
 
@@ -34,7 +39,11 @@ function shouldShowBottomNav(pathname: string) {
 }
 
 function shouldShowNavbar(pathname: string) {
-  if (pathname === "/onboarding" || isTvPairingPath(pathname)) {
+  if (
+    pathname === "/onboarding" ||
+    isTvPairingPath(pathname) ||
+    isPartyJoinPath(pathname)
+  ) {
     return false;
   }
 
@@ -90,9 +99,18 @@ export function RootLayout() {
             {showMusicChrome ? <MusicPlayerBar /> : null}
             {showBottomNav ? <MobileBottomNav /> : null}
           </div>
-          {isTvPairingPath(pathname) ? null : <PartyPanel />}
-          {isTvPairingPath(pathname) ? null : <SpotifyImportProgress />}
-          <Toaster theme="dark" position="bottom-right" richColors closeButton />
+          {isTvPairingPath(pathname) || isPartyJoinPath(pathname) ? null : (
+            <PartyPanel />
+          )}
+          {isTvPairingPath(pathname) || isPartyJoinPath(pathname) ? null : (
+            <SpotifyImportProgress />
+          )}
+          <Toaster
+            theme="dark"
+            position="bottom-right"
+            richColors
+            closeButton
+          />
         </OnboardingGate>
       </PartyProvider>
     </MusicPlayerProvider>

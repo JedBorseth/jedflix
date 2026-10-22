@@ -7,7 +7,6 @@ import { WatchHistoryRow } from "@/components/browse/WatchHistoryRow";
 import { JedsPicksRow } from "@/components/jedsPicks/JedsPicksRow";
 import { HeroBannerSkeleton } from "@/components/ui/skeleton";
 import { catalogQueryKeys } from "@/lib/queryClient";
-import type { MediaType } from "@/lib/types";
 import {
   buildHomeCatalogRows,
   buildMediaCatalogRows,
@@ -16,7 +15,7 @@ import {
 } from "@/lib/tmdb";
 
 type BrowsePageProps = {
-  mediaType?: MediaType | "all";
+  mediaType?: "movie" | "tv" | "all";
 };
 
 export function BrowsePage({ mediaType = "all" }: BrowsePageProps) {

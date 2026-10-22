@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useForm } from "@tanstack/react-form";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useUserSettings } from "@/hooks/useUserSettings";
@@ -27,6 +27,13 @@ const REAL_DEBRID_API_KEY_URL = "https://real-debrid.com/apitoken";
 const REAL_DEBRID_AFFILIATE_URL = "http://real-debrid.com/?id=10515937";
 const WELCOME_EXIT_MS = 700;
 
+function useOnboardingForm(options: {
+  defaultValues: OnboardingFormValues;
+  onSubmit: ({ value }: { value: OnboardingFormValues }) => Promise<void>;
+}) {
+  return useForm(options);
+}
+
 export function OnboardingPage() {
   const navigate = useNavigate();
   const { settings, saveSettings } = useUserSettings();
@@ -35,7 +42,7 @@ export function OnboardingPage() {
   const [isVerifying, setIsVerifying] = useState(false);
   const [isWelcomeExiting, setIsWelcomeExiting] = useState(false);
 
-  const form = useForm({
+  const form = useOnboardingForm({
     defaultValues: {
       deviceType: settings.deviceType ?? "",
       contentTypes: settings.contentTypes ?? [],
@@ -173,6 +180,7 @@ export function OnboardingPage() {
           </div>
         ) : null}
 
+        {isFirst ? <Link to="/party" className="mb-4 text-center text-sm text-zinc-400 underline hover:text-white">Joining a music party? Enter a code without setup</Link> : null}
         <div className="onboarding-body">
           <div
             key={step.id}
@@ -296,7 +304,7 @@ function StepFields({
   form,
 }: {
   stepId: OnboardingStepId;
-  form: ReturnType<typeof useForm<OnboardingFormValues>>;
+  form: ReturnType<typeof useOnboardingForm>;
 }) {
   switch (stepId) {
     case "deviceType":

@@ -1,12 +1,30 @@
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 import { api } from "@convex/_generated/api";
-import { PartyContext, type PartyContextValue } from "@/components/party/partyContext";
+import {
+  PartyContext,
+  type PartyContextValue,
+} from "@/components/party/partyContext";
 import {
   useMusicPlayer,
   type MusicQueueTrack,
 } from "@/components/player/music/MusicPlayerContext";
-import { getDeviceLabel, getPartyClientId } from "@/lib/partyClient";
+import { withCachedArtwork } from "@/lib/musicQueueArtwork";
+import {
+  clearGuestPartyToken,
+  getGuestPartyToken,
+  getDeviceLabel,
+  getPartyClientId,
+} from "@/lib/partyClient";
 import {
   estimatedPositionMs,
   POSITION_SYNC_GRACE_MS,
@@ -28,17 +46,48 @@ function toPartyTrack(track: MusicQueueTrack) {
     artistIds: track.artistIds,
     albumName: track.albumName,
     albumId: track.albumId,
-    imageUrl: track.imageUrl,
+    imageUrl: withCachedArtwork(track).imageUrl,
     durationMs: track.durationMs,
   };
 }
 
 export function PartyProvider({ children }: { children: ReactNode }) {
-  const { isAuthenticated } = useConvexAuth();
+  const { isAuthenticated, isLoading: authLoading } = useConvexAuth();
+  const navigate = useNavigate();
+  const [guestToken, setGuestToken] = useState(() => getGuestPartyToken());
+  const [joining, setJoining] = useState(false);
+  const isGuest = !isAuthenticated && guestToken !== null;
   const clientId = useMemo(() => getPartyClientId(), []);
   const player = useMusicPlayer();
-  const partyResult = useQuery(api.party.getState, isAuthenticated ? { clientId } : "skip");
-  const party = partyResult ?? null;
+  const partyResult = useQuery(
+    api.party.getState,
+    isAuthenticated ? { clientId } : "skip",
+  );
+  const guestResult = useQuery(
+    api.party.getGuestState,
+    !authLoading && isGuest ? { guestToken } : "skip",
+  );
+  const activeResult = isAuthenticated ? partyResult : guestResult;
+  const party = activeResult ?? null;
+  const credentials = useMemo(
+    () => ({ clientId, ...(isGuest ? { guestToken } : {}) }),
+    [clientId, guestToken, isGuest],
+  );
+  const previousPartyRef = useRef<typeof party>(null);
+  useEffect(() => {
+    if (activeResult === undefined || joining) return;
+    if (previousPartyRef.current && !party) {
+      playerRef.current.clear();
+      toast.info("The party has ended.");
+      setPanelOpen(false);
+      if (isGuest) void navigate("/party", { replace: true });
+    }
+    if (isGuest && !party) {
+      clearGuestPartyToken();
+      setGuestToken(null);
+    }
+    previousPartyRef.current = party;
+  }, [activeResult, isGuest, joining, navigate, party]);
 
   const [panelOpen, setPanelOpen] = useState(false);
 
@@ -46,20 +95,28 @@ export function PartyProvider({ children }: { children: ReactNode }) {
   const join = useMutation(api.party.join);
   const leave = useMutation(api.party.leave);
   const heartbeat = useMutation(api.party.heartbeat);
+  const joinGuest = useMutation(api.party.joinGuest);
+  const leaveGuest = useMutation(api.party.leaveGuest);
+  const heartbeatGuest = useMutation(api.party.heartbeatGuest);
   const setTrack = useMutation(api.party.setTrack);
   const setPlaying = useMutation(api.party.setPlaying);
   const setPosition = useMutation(api.party.setPosition);
+  const setQueue = useMutation(api.party.setQueue);
 
   // The player context changes identity on every timeupdate, so read it through
   // a ref and keep the sync effect keyed to the fields that actually matter.
   const playerRef = useRef(player);
   playerRef.current = player;
 
-  const baselineRef = useRef<{ local: PartySnapshot | null; remote: PartySnapshot | null }>({
+  const baselineRef = useRef<{
+    local: PartySnapshot | null;
+    remote: PartySnapshot | null;
+  }>({
     local: null,
     remote: null,
   });
   const queueSignatureRef = useRef<string | null>(null);
+  const queuesRef = useRef<{ local: string; remote: string } | null>(null);
   /** Skip reporting the next local currentTime jump — we caused it via apply. */
   const suppressSeekReportRef = useRef(false);
   /** Re-apply a remote seek once audio finishes loading (currentTime often resets). */
@@ -79,18 +136,22 @@ export function PartyProvider({ children }: { children: ReactNode }) {
     if (!inParty) {
       return;
     }
-    const tick = () => void heartbeat({ clientId }).catch(() => undefined);
+    const tick = () =>
+      void (
+        isGuest ? heartbeatGuest({ guestToken }) : heartbeat({ clientId })
+      ).catch(() => undefined);
     tick();
     const timer = window.setInterval(tick, HEARTBEAT_INTERVAL_MS);
     return () => window.clearInterval(timer);
-  }, [clientId, heartbeat, inParty]);
+  }, [clientId, guestToken, heartbeat, heartbeatGuest, inParty, isGuest]);
 
   const localTrackId = player.current?.id ?? null;
   const playerError = player.error;
   // Count `loading` as playing only while the party itself is still playing.
   // That covers the silent gap after picking a track without letting a Spotify
   // pause get overwritten by a still-resolving audio load.
-  const localPlaying = player.playing || (player.loading && (party?.isPlaying ?? true));
+  const localPlaying =
+    player.playing || (player.loading && (party?.isPlaying ?? true));
   const localCurrentTime = player.currentTime;
   const localLoading = player.loading;
 
@@ -102,16 +163,19 @@ export function PartyProvider({ children }: { children: ReactNode }) {
     }
   }, [localTrackId, player.playing, playerError]);
 
-  const applyPartyPosition = useCallback((positionMs: number, opts?: { immediate?: boolean }) => {
-    const targetSec = Math.max(0, positionMs / 1000);
-    suppressSeekReportRef.current = true;
-    pendingSeekSecRef.current = targetSec;
-    // Seeking before the element has a playable source throws / marks it broken.
-    if (opts?.immediate !== false && !playerRef.current.loading) {
-      playerRef.current.seek(targetSec);
-      localTimeProbeRef.current = { timeSec: targetSec, wallMs: Date.now() };
-    }
-  }, []);
+  const applyPartyPosition = useCallback(
+    (positionMs: number, opts?: { immediate?: boolean }) => {
+      const targetSec = Math.max(0, positionMs / 1000);
+      suppressSeekReportRef.current = true;
+      pendingSeekSecRef.current = targetSec;
+      // Seeking before the element has a playable source throws / marks it broken.
+      if (opts?.immediate !== false && !playerRef.current.loading) {
+        playerRef.current.seek(targetSec);
+        localTimeProbeRef.current = { timeSec: targetSec, wallMs: Date.now() };
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!party) {
@@ -124,7 +188,8 @@ export function PartyProvider({ children }: { children: ReactNode }) {
     }
 
     const activePlayer = playerRef.current;
-    const failedTrack = failedTrackIdRef.current === localTrackId && localTrackId !== null;
+    const failedTrack =
+      failedTrackIdRef.current === localTrackId && localTrackId !== null;
     // Treat a failed stream as still "on" the party track for sync decisions so we
     // neither push a fake pause nor keep re-applying play() on a dead source.
     const local: PartySnapshot = {
@@ -141,22 +206,31 @@ export function PartyProvider({ children }: { children: ReactNode }) {
       lastLocal: baselineRef.current.local,
       lastRemote: baselineRef.current.remote,
     });
-    baselineRef.current = { local: decision.nextLocal, remote: decision.nextRemote };
+    baselineRef.current = {
+      local: decision.nextLocal,
+      remote: decision.nextRemote,
+    };
 
     if (decision.action === "apply") {
       if (remote.trackId !== local.trackId) {
         if (party.track) {
           // Keep the party track playable even when it is not already in the
           // mirrored queue (common when someone picks a song on Spotify).
-          const queue = party.queue.some((track) => track.id === party.track!.id)
+          const queue = party.queue.some(
+            (track) => track.id === party.track!.id,
+          )
             ? party.queue
             : [party.track, ...party.queue];
           failedTrackIdRef.current = null;
           activePlayer.playTrack(party.track, queue);
-          queueSignatureRef.current = queueSignature(queue.map((track) => track.id));
-          // playTrack always starts audio, so record that as the expected local
-          // state. If the party is paused the next pass will pause us.
-          baselineRef.current.local = { trackId: party.track.id, playing: true };
+          queueSignatureRef.current = queueSignature(
+            queue.map((track) => track.id),
+          );
+          if (!remote.playing) activePlayer.pause();
+          baselineRef.current.local = {
+            trackId: party.track.id,
+            playing: remote.playing,
+          };
           const positionMs = estimatedPositionMs({
             positionMs: party.positionMs,
             positionUpdatedAt: party.positionUpdatedAt,
@@ -195,7 +269,7 @@ export function PartyProvider({ children }: { children: ReactNode }) {
         const queueChanged = signature !== queueSignatureRef.current;
         queueSignatureRef.current = signature;
         void setTrack({
-          clientId,
+          ...credentials,
           track: toPartyTrack(activePlayer.current),
           queueIndex: 0,
           queue: queueChanged ? upcoming.map(toPartyTrack) : undefined,
@@ -204,18 +278,80 @@ export function PartyProvider({ children }: { children: ReactNode }) {
         // Our YouTube stream failed — do not pause the whole party / Spotify.
         return;
       } else {
-        void setPlaying({ clientId, isPlaying: local.playing }).catch(() => undefined);
+        void setPlaying({ ...credentials, isPlaying: local.playing }).catch(
+          () => undefined,
+        );
       }
     }
   }, [
     applyPartyPosition,
-    clientId,
+    credentials,
     localPlaying,
     localTrackId,
     party,
     playerError,
     setPlaying,
     setTrack,
+  ]);
+
+  // Queue edits sync separately so adding/reordering songs never restarts audio.
+  const localQueueSignature = queueSignature(
+    player.queue
+      .slice(player.queueIndex, player.queueIndex + MAX_PARTY_QUEUE)
+      .map((track) => track.id),
+  );
+  const remoteQueueSignature = party
+    ? queueSignature(party.queue.map((track) => track.id))
+    : "";
+  useEffect(() => {
+    if (!party) {
+      queuesRef.current = null;
+      return;
+    }
+    if (!party.track || localTrackId !== party.track.id) {
+      queuesRef.current = null;
+      return;
+    }
+    const previous = queuesRef.current;
+    const remoteChanged = !previous || previous.remote !== remoteQueueSignature;
+    const localChanged = previous && previous.local !== localQueueSignature;
+    if (localQueueSignature === remoteQueueSignature) {
+      queuesRef.current = {
+        local: localQueueSignature,
+        remote: remoteQueueSignature,
+      };
+    } else if (
+      remoteChanged &&
+      party.queue.some((track) => track.id === localTrackId)
+    ) {
+      playerRef.current.syncPartyQueue(party.queue);
+      queuesRef.current = {
+        local: remoteQueueSignature,
+        remote: remoteQueueSignature,
+      };
+    } else if (localChanged) {
+      const active = playerRef.current;
+      const tracks = active.queue
+        .slice(active.queueIndex, active.queueIndex + MAX_PARTY_QUEUE)
+        .map(toPartyTrack);
+      queuesRef.current = {
+        local: localQueueSignature,
+        remote: remoteQueueSignature,
+      };
+      void setQueue({ ...credentials, tracks }).catch(() => undefined);
+    } else if (!previous) {
+      queuesRef.current = {
+        local: localQueueSignature,
+        remote: remoteQueueSignature,
+      };
+    }
+  }, [
+    credentials,
+    localQueueSignature,
+    localTrackId,
+    party,
+    remoteQueueSignature,
+    setQueue,
   ]);
 
   // Seek to a remote position when the party clock moved and we drifted > 5s.
@@ -276,7 +412,10 @@ export function PartyProvider({ children }: { children: ReactNode }) {
   // Detect local seeks (scrub / skip) and publish them when drift exceeds grace.
   useEffect(() => {
     if (!party?.track || localTrackId !== party.track.id) {
-      localTimeProbeRef.current = { timeSec: localCurrentTime, wallMs: Date.now() };
+      localTimeProbeRef.current = {
+        timeSec: localCurrentTime,
+        wallMs: Date.now(),
+      };
       return;
     }
 
@@ -309,9 +448,9 @@ export function PartyProvider({ children }: { children: ReactNode }) {
     }
 
     lastAppliedPositionAtRef.current = null;
-    void setPosition({ clientId, positionMs }).catch(() => undefined);
+    void setPosition({ ...credentials, positionMs }).catch(() => undefined);
   }, [
-    clientId,
+    credentials,
     localCurrentTime,
     localPlaying,
     localTrackId,
@@ -324,6 +463,7 @@ export function PartyProvider({ children }: { children: ReactNode }) {
 
   const resetSyncBaseline = useCallback(() => {
     baselineRef.current = { local: null, remote: null };
+    queuesRef.current = null;
     queueSignatureRef.current = null;
     lastAppliedPositionAtRef.current = null;
     pendingSeekSecRef.current = null;
@@ -339,23 +479,64 @@ export function PartyProvider({ children }: { children: ReactNode }) {
 
   const joinParty = useCallback(
     async (code: string) => {
-      resetSyncBaseline();
-      const result = await join({ code, clientId, deviceLabel: getDeviceLabel() });
-      return result.code;
+      setJoining(true);
+      try {
+        resetSyncBaseline();
+        if (isAuthenticated) {
+          const result = await join({
+            code,
+            clientId,
+            deviceLabel: getDeviceLabel(),
+          });
+          return result.code;
+        }
+        const token = getGuestPartyToken(true)!;
+        const result = await joinGuest({
+          code,
+          guestToken: token,
+          deviceLabel: getDeviceLabel(),
+        });
+        setGuestToken(token);
+        return result.code;
+      } finally {
+        setJoining(false);
+      }
     },
-    [clientId, join, resetSyncBaseline],
+    [clientId, isAuthenticated, join, joinGuest, resetSyncBaseline],
   );
 
   const leaveParty = useCallback(async () => {
-    await leave({ clientId });
+    if (isGuest) {
+      await leaveGuest({ guestToken });
+      clearGuestPartyToken();
+      setGuestToken(null);
+      void navigate("/party", { replace: true });
+    } else {
+      await leave({ clientId });
+    }
+    previousPartyRef.current = null;
+    playerRef.current.clear();
+    setPanelOpen(false);
     resetSyncBaseline();
-  }, [clientId, leave, resetSyncBaseline]);
+  }, [
+    clientId,
+    guestToken,
+    isGuest,
+    leave,
+    leaveGuest,
+    navigate,
+    resetSyncBaseline,
+  ]);
 
   const value = useMemo<PartyContextValue>(
     () => ({
       clientId,
       party,
-      loading: isAuthenticated && partyResult === undefined,
+      loading:
+        authLoading ||
+        joining ||
+        ((isAuthenticated || isGuest) && activeResult === undefined),
+      isGuest,
       panelOpen,
       setPanelOpen,
       createParty,
@@ -365,14 +546,19 @@ export function PartyProvider({ children }: { children: ReactNode }) {
     [
       clientId,
       createParty,
+      activeResult,
+      authLoading,
       isAuthenticated,
+      isGuest,
+      joining,
       joinParty,
       leaveParty,
       panelOpen,
       party,
-      partyResult,
     ],
   );
 
-  return <PartyContext.Provider value={value}>{children}</PartyContext.Provider>;
+  return (
+    <PartyContext.Provider value={value}>{children}</PartyContext.Provider>
+  );
 }

@@ -391,7 +391,7 @@ export function VideoJsPlayer({
     if (!nextEpisode) {
       return;
     }
-    navigate(getWatchPath("tv", movieId, nextEpisode.season, nextEpisode.episode));
+    void navigate(getWatchPath("tv", movieId, nextEpisode.season, nextEpisode.episode));
   }, [movieId, navigate, nextEpisode]);
 
   const sessionTitle = formatWatchSessionTitle(

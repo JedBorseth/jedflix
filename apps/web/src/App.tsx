@@ -18,6 +18,7 @@ import { MusicPage } from "@/pages/MusicPage";
 import { LikedSongsPage } from "@/pages/LikedSongsPage";
 import { PlaylistDetailPage } from "@/pages/PlaylistDetailPage";
 import { MyListPage } from "@/pages/MyListPage";
+import { PartyJoinPage } from "@/pages/PartyJoinPage";
 import { OnboardingPage } from "@/pages/OnboardingPage";
 import { SignInForm } from "@/components/auth/SignInForm";
 import { SearchPage } from "@/pages/SearchPage";
@@ -72,6 +73,8 @@ const router = createBrowserRouter([
     element: <RootLayout />,
     errorElement: <RouteErrorPage />,
     children: [
+      { path: "/party", element: <PartyJoinPage /> },
+      { path: "/party/:code", element: <PartyJoinPage /> },
       { path: "/onboarding", element: <OnboardingPage /> },
       { path: "/", element: <BrowsePage /> },
       { path: "/movies", element: <BrowsePage mediaType="movie" /> },

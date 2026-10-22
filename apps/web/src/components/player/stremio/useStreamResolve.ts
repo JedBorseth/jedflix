@@ -45,7 +45,7 @@ function sourceKey(source: StreamSource | null, request: ResolveRequest | null):
   ].join(":");
 }
 
-export function useStreamResolve(request: ResolveRequest | null, source: StreamSource | null = null) {
+export function useStreamResolve(request: ResolveRequest | null, source: StreamSource | null = null): StreamResolveState {
   const [state, setState] = useState<StreamResolveState>({ status: "idle" });
   const requestKey = useMemo(() => sourceKey(source, request), [request, source]);
 

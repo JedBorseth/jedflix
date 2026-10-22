@@ -50,7 +50,7 @@ export function RouteErrorPage() {
       <h1 className="text-2xl font-semibold md:text-3xl">{title}</h1>
       <p className="max-w-md text-sm text-zinc-400 md:text-base">{detail}</p>
       <div className="mt-2 flex flex-wrap items-center justify-center gap-3">
-        <Button type="button" variant="outline" onClick={() => navigate(-1)}>
+        <Button type="button" variant="outline" onClick={() => void navigate(-1)}>
           Go back
         </Button>
         <Button asChild>

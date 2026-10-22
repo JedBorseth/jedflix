@@ -252,7 +252,7 @@ export function ListenPage() {
       setSelected(source);
       persistStreamChoice(source);
       if (forcePicker && workId) {
-        navigate(getListenPath(workId), { replace: true });
+        void navigate(getListenPath(workId), { replace: true });
       }
     },
     [forcePicker, navigate, persistStreamChoice, workId],

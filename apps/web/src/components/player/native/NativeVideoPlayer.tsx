@@ -488,7 +488,7 @@ export function NativeVideoPlayer({
                 type="button"
                 className="player-next-episode-button"
                 onClick={() => {
-                  navigate(
+                  void navigate(
                     getWatchPath("tv", movieId, nextEpisode.season, nextEpisode.episode),
                   );
                 }}

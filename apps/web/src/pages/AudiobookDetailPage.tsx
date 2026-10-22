@@ -151,7 +151,7 @@ export function AudiobookDetailPage() {
     ? displayBook.authorKeys
     : [];
   const description =
-    book?.description && book.description !== (displayBook as BookItem).description
+    book?.description && book.description !== displayBook.description
       ? book.description
       : ("description" in displayBook && displayBook.description) || "No description available.";
   const subjects =

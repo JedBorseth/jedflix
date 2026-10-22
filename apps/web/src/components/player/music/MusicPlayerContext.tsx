@@ -116,6 +116,8 @@ type MusicPlayerContextValue = {
    */
   extendQueueFromSource: (next: MusicQueueTrack[], generation: number) => void;
   reorderQueue: (fromIndex: number, toIndex: number) => void;
+  /** Mirror party queue edits without restarting the current audio. */
+  syncPartyQueue: (tracks: MusicQueueTrack[]) => void;
   removeFromQueue: (index: number) => void;
   /** Drop every track after the one currently playing. */
   clearUpcoming: () => void;
@@ -527,6 +529,20 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     },
     [loadAndPlay, logMusic],
   );
+
+  const syncPartyQueue = useCallback((tracks: MusicQueueTrack[]) => {
+    const currentId = queueRef.current[queueIndexRef.current]?.id;
+    const index = tracks.findIndex((track) => track.id === currentId);
+    if (index < 0) return;
+    const history = queueRef.current.slice(0, queueIndexRef.current);
+    const next = [...history, ...tracks.slice(index)];
+    const nextIndex = history.length;
+    queueDirtyRef.current = true;
+    queueRef.current = next;
+    queueIndexRef.current = nextIndex;
+    setQueue(stripQueueArtwork(next, nextIndex));
+    setQueueIndex(nextIndex);
+  }, []);
 
   const extendQueueFromSource = useCallback(
     (next: MusicQueueTrack[], generation: number) => {
@@ -1276,6 +1292,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       addUpcomingToQueue,
       extendQueueFromSource,
       reorderQueue,
+      syncPartyQueue,
       removeFromQueue,
       clearUpcoming,
       setInfiniteQueue,
@@ -1321,6 +1338,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       queueOpen,
       removeFromQueue,
       reorderQueue,
+      syncPartyQueue,
       seek,
       setMuted,
       setVolume,
@@ -1444,6 +1462,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   );
 }
 
+// The shared context intentionally exports hooks alongside its provider.
+// eslint-disable-next-line react-refresh/only-export-components
 export function useMusicPlayer(): MusicPlayerContextValue {
   const value = useContext(MusicPlayerContext);
   if (!value) {
@@ -1452,6 +1472,7 @@ export function useMusicPlayer(): MusicPlayerContextValue {
   return value;
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useOptionalMusicPlayer(): MusicPlayerContextValue | null {
   return useContext(MusicPlayerContext);
 }

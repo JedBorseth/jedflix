@@ -241,6 +241,7 @@ export default defineSchema({
     // Guards against duplicate Spotify poll loops after restarts.
     pollRunning: v.boolean(),
     pollGeneration: v.number(),
+    expiryScheduled: v.optional(v.boolean()),
     createdAt: v.number(),
   })
     .index("by_code", ["code"])
@@ -279,10 +280,23 @@ export default defineSchema({
     deviceLabel: v.string(),
     lastSeenAt: v.number(),
     joinedAt: v.number(),
+    userName: v.optional(v.string()),
   })
     .index("by_party", ["partyId"])
     .index("by_party_and_client", ["partyId", "clientId"])
     .index("by_user_and_client", ["userId", "clientId"]),
+
+  /** Anonymous members authorized by a private session credential. */
+  partyGuests: defineTable({
+    partyId: v.id("parties"),
+    tokenHash: v.string(),
+    deviceLabel: v.string(),
+    userName: v.string(),
+    lastSeenAt: v.number(),
+    joinedAt: v.number(),
+  })
+    .index("by_party", ["partyId"])
+    .index("by_token_hash", ["tokenHash"]),
 
   /** A Spotify account mirroring a party, plus the Connect device it drives. */
   partySpotifyTargets: defineTable({
@@ -297,6 +311,8 @@ export default defineSchema({
     lastObservedTrackId: v.optional(v.string()),
     lastError: v.optional(v.string()),
     updatedAt: v.number(),
+    accountName: v.optional(v.string()),
+    userName: v.optional(v.string()),
   })
     .index("by_party", ["partyId"])
     .index("by_party_and_account", ["partyId", "accountId"])
