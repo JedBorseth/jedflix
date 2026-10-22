@@ -7,6 +7,8 @@ import { CacheFirst } from "workbox-strategies";
 
 declare let self: ServiceWorkerGlobalScope;
 
+// Custom workers must activate updates explicitly for registerType: "autoUpdate".
+void self.skipWaiting();
 clientsClaim();
 precacheAndRoute(self.__WB_MANIFEST);
 
