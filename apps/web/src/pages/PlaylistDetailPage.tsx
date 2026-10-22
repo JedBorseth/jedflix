@@ -454,9 +454,6 @@ function PlaylistDetail({ playlistId }: { playlistId: Id<"playlists"> }) {
                     isActive && "bg-zinc-900 text-white",
                   )}
                 >
-                  <span className="w-8 shrink-0 text-center text-sm text-zinc-500">
-                    {isActive && musicPlayer.playing ? "▶" : index + 1}
-                  </span>
                   <ProgressiveCoverImage
                     src={track.imageUrl}
                     alt=""

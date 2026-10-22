@@ -262,9 +262,6 @@ export function AlbumDetailPage() {
                       isActive && "bg-zinc-900 text-white",
                     )}
                   >
-                    <span className="w-8 shrink-0 text-center text-sm text-zinc-500">
-                      {isActive && musicPlayer.playing ? "▶" : track.trackNumber || index + 1}
-                    </span>
                     <div className="min-w-0 flex-1">
                       <p
                         className={cn(

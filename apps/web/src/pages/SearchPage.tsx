@@ -288,15 +288,6 @@ export function SearchPage() {
     activeQuery.data === undefined &&
     !activeQuery.isError;
 
-  const emptyHint =
-    searchKind === "books"
-      ? "Search for a book or author."
-      : searchKind === "music"
-        ? youtubeMusicSearch
-          ? "Search for a song, album, or artist (Spotify + YouTube)."
-          : "Search for a song, album, or artist."
-        : "Search for a movie, show, or cast member.";
-
   function isDebridLocked(item: SuccessfulSearchItem): boolean {
     return (item.kind === "movie" || item.kind === "show") && !hasDebridKey;
   }
@@ -375,14 +366,7 @@ export function SearchPage() {
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
       <main className="pt-navbar mx-auto max-w-7xl px-4 pb-chrome md:px-12">
-        <div className="mx-auto max-w-4xl">
-          <div className="text-center">
-            <h1 className="mb-2 text-3xl font-bold">Search</h1>
-            <p className="mb-8 text-zinc-400">
-              {query ? `Results for "${query}"` : emptyHint}
-            </p>
-          </div>
-
+        <div className="mx-auto max-w-4xl pt-6">
           {error ? <p className="text-center text-zinc-400">{error}</p> : null}
           {musicQueryPending ? (
             <p className="text-center text-zinc-400">Keep typing to search music.</p>

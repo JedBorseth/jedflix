@@ -269,7 +269,7 @@ export function youtubeHitToSearchTrack(track: {
   };
 }
 
-/** Fisher–Yates shuffle (copy). Used for music-home artist shelves only. */
+/** Fisher–Yates shuffle (copy). */
 export function shuffleItems<T>(items: readonly T[]): T[] {
   const next = [...items];
   for (let i = next.length - 1; i > 0; i -= 1) {

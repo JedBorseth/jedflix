@@ -36,7 +36,7 @@ export function RecentlyPlayedMusicGrid({ tracks }: RecentlyPlayedMusicGridProps
 
   return (
     <section className="px-4 md:px-12">
-      <h2 className="mb-3 text-lg font-semibold text-white md:text-xl">Recently Played</h2>
+      <h2 className="mb-3 text-lg font-semibold text-white md:text-xl">Jump Back in</h2>
       <div className="grid grid-cols-2 gap-2 md:gap-3">
         {tracks.map((track, index) => {
           const isActive = musicPlayer.current?.id === track.id;
