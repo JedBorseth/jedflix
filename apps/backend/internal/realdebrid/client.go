@@ -190,7 +190,7 @@ func (c *Client) WaitReady(
 		}
 		if onProgress != nil {
 			status := strings.ReplaceAll(info.Status, "_", " ")
-			if info.Progress > 0 {
+			if info.Progress > 0 || info.Status == "downloading" {
 				onProgress(fmt.Sprintf("Downloading on Real Debrid… %.0f%% (%s)", info.Progress, status))
 			} else {
 				onProgress(fmt.Sprintf("Waiting for Real Debrid… (%s)", status))

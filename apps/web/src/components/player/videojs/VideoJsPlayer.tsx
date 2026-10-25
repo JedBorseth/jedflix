@@ -461,6 +461,7 @@ export function VideoJsPlayer({
           {resolving ? (
             <ResolveProgressHint
               active
+              onChooseAnotherStream={resetToSourcePicker}
               progress={fallbackProgress ?? resolveState.progress}
               className="flex flex-col items-center"
             />

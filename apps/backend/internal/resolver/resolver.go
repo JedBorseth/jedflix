@@ -485,6 +485,10 @@ func (s *Service) resolveVideo(
 	report("Waiting for Real Debrid download…")
 	info, err = rd.WaitReady(resolveCtx, torrentID, timeout, nil, report)
 	if err != nil {
+		// Keep a pending download in RD even after our resolve job stops waiting.
+		if resolveCtx.Err() != nil || strings.Contains(err.Error(), "timed out") {
+			cleanupTorrent = false
+		}
 		if resolveCtx.Err() != nil {
 			return nil, &ResolveError{Code: "timeout", Message: "Real Debrid torrent timed out."}
 		}
@@ -599,6 +603,10 @@ func (s *Service) resolveBook(
 	report("Waiting for Real Debrid download…")
 	info, err = rd.WaitReady(resolveCtx, torrentID, timeout, nil, report)
 	if err != nil {
+		// Keep a pending download in RD even after our resolve job stops waiting.
+		if resolveCtx.Err() != nil || strings.Contains(err.Error(), "timed out") {
+			cleanupTorrent = false
+		}
 		if resolveCtx.Err() != nil {
 			return nil, &ResolveError{Code: "timeout", Message: "Real Debrid torrent timed out."}
 		}

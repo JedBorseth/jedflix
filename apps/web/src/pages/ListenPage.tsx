@@ -382,10 +382,11 @@ export function ListenPage() {
                 <ResolveProgressHint
                   active
                   progress={resolveState.progress ?? "Resolving with Real Debrid..."}
+                  onChooseAnotherStream={() => {
+                    setNeedSourceSearch(true);
+                    setSelected(null);
+                  }}
                 />
-                <p className="mt-2 text-xs text-zinc-500">
-                  Multi-file packs may take longer while every audio file is unrestricted.
-                </p>
               </div>
             ) : null}
 

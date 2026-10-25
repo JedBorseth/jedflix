@@ -411,6 +411,12 @@ export function NativeVideoPlayer({
           {resolving ? (
             <ResolveProgressHint
               active
+              onChooseAnotherStream={() => {
+                setSelectedSource(null);
+                setFallbackProgress(null);
+                fallbackAttemptsRef.current = 0;
+                setShowSourcePicker(true);
+              }}
               progress={fallbackProgress ?? resolveState.progress}
               className="flex flex-col items-center"
             />
