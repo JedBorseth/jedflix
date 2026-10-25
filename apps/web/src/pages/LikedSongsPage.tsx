@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Authenticated,
   Unauthenticated,
+  useConvex,
   usePaginatedQuery,
   useQuery,
 } from "convex/react";
-import { HeartFilledIcon } from "@radix-ui/react-icons";
+import { HeartFilledIcon, PlayIcon } from "@radix-ui/react-icons";
 import { Link } from "react-router-dom";
 import { api } from "@convex/_generated/api";
 import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
@@ -17,6 +18,7 @@ import {
 import { SwipeableTrackRow } from "@/components/player/music/SwipeableTrackRow";
 import { Button } from "@/components/ui/button";
 import { useLikeTrack } from "@/hooks/useLikeTrack";
+import { shuffleItems } from "@/lib/musicSearch";
 import { formatTrackDuration } from "@/lib/spotify";
 import { cn } from "@/lib/utils";
 
@@ -24,25 +26,47 @@ const PAGE_SIZE = 100;
 /** Prefetch the next Convex page only when playback is near the end of loaded tracks. */
 const QUEUE_PREFETCH_REMAINING = 15;
 
+type LikedSongsHeaderProps = {
+  onShufflePlay?: () => void;
+  busy?: boolean;
+};
+
+function LikedSongsHeader({ onShufflePlay, busy = false }: LikedSongsHeaderProps) {
+  return (
+    <div className="mb-8 flex items-center gap-4 px-4 md:px-12">
+      <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-rose-600 to-rose-900 md:h-24 md:w-24">
+        <HeartFilledIcon className="h-8 w-8 text-white md:h-10 md:w-10" />
+      </div>
+      <div className="flex min-w-0 flex-1 items-center justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-xs font-medium uppercase tracking-wide text-zinc-400">
+            Playlist
+          </p>
+          <h1 className="truncate text-3xl font-bold tracking-tight">Liked Songs</h1>
+        </div>
+        {onShufflePlay ? (
+          <button
+            type="button"
+            onClick={onShufflePlay}
+            disabled={busy}
+            aria-busy={busy}
+            aria-label="Shuffle play liked songs"
+            className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-red-600 text-black shadow-lg transition hover:scale-105 hover:bg-red-500 disabled:cursor-wait disabled:opacity-60 disabled:hover:scale-100"
+          >
+            <PlayIcon className="h-6 w-6 translate-x-0.5 fill-current" />
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export function LikedSongsPage() {
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
       <main className="pt-navbar mx-auto max-w-6xl pb-chrome">
-        <div className="px-4 md:px-12">
-          <div className="mb-8 flex items-center gap-4">
-            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-rose-600 to-rose-900 md:h-24 md:w-24">
-              <HeartFilledIcon className="h-8 w-8 text-white md:h-10 md:w-10" />
-            </div>
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-zinc-400">
-                Playlist
-              </p>
-              <h1 className="text-3xl font-bold tracking-tight">Liked Songs</h1>
-            </div>
-          </div>
-        </div>
-
         <Unauthenticated>
+          <LikedSongsHeader />
           <div className="mx-4 rounded-lg border border-zinc-800 bg-zinc-900/50 p-8 text-center md:mx-12">
             <p className="mb-4 text-zinc-300">Sign in to see your liked songs.</p>
             <Button asChild className="bg-red-600 hover:bg-red-700">
@@ -66,10 +90,12 @@ function LikedSongsList() {
     {},
     { initialNumItems: PAGE_SIZE },
   );
+  const convex = useConvex();
   const musicPlayer = useMusicPlayer();
   const likeTrack = useLikeTrack();
   const activeTrackId = musicPlayer.current?.id;
   const queueSessionRef = useRef<number | null>(null);
+  const [shuffleBusy, setShuffleBusy] = useState(false);
 
   const queue: MusicQueueTrack[] = useMemo(
     () =>
@@ -126,31 +152,75 @@ function LikedSongsList() {
     [musicPlayer, queue],
   );
 
+  const playShuffled = useCallback(async () => {
+    if (shuffleBusy) {
+      return;
+    }
+    setShuffleBusy(true);
+    try {
+      const allTracks = await convex.query(api.likedSongs.list, {});
+      const allQueue: MusicQueueTrack[] = allTracks.map((track) => ({
+        id: track.id,
+        title: track.title,
+        artists: track.artists,
+        artistIds: track.artistIds,
+        albumName: track.albumName,
+        albumId: track.albumId,
+        imageUrl: track.imageUrl,
+        durationMs: track.durationMs,
+      }));
+      if (allQueue.length === 0) {
+        return;
+      }
+      const shuffled = shuffleItems(allQueue);
+      const first = shuffled[0];
+      if (!first) {
+        return;
+      }
+      musicPlayer.playTrack(first, shuffled);
+      // The shuffled queue already holds every liked song, so don't let the
+      // paginated source replace it.
+      queueSessionRef.current = null;
+    } finally {
+      setShuffleBusy(false);
+    }
+  }, [convex, musicPlayer, shuffleBusy]);
+
   if (status === "LoadingFirstPage" || likedCount === undefined) {
     return (
-      <div className="px-4 md:px-12">
-        <p className="text-sm text-zinc-500">Loading liked songs…</p>
-      </div>
+      <section>
+        <LikedSongsHeader />
+        <div className="px-4 md:px-12">
+          <p className="text-sm text-zinc-500">Loading liked songs…</p>
+        </div>
+      </section>
     );
   }
 
   if (likedCount === 0) {
     return (
-      <div className="mx-4 rounded-lg border border-zinc-800 bg-zinc-900/50 p-8 text-center md:mx-12">
-        <p className="mb-2 text-zinc-300">No liked songs yet.</p>
-        <p className="mb-4 text-sm text-zinc-500">
-          Swipe left on any song to add it here, or import Liked Songs from Spotify
-          in My Library.
-        </p>
-        <Button asChild variant="outline" className="border-zinc-600">
-          <Link to="/music/library">My Library</Link>
-        </Button>
-      </div>
+      <section>
+        <LikedSongsHeader />
+        <div className="mx-4 rounded-lg border border-zinc-800 bg-zinc-900/50 p-8 text-center md:mx-12">
+          <p className="mb-2 text-zinc-300">No liked songs yet.</p>
+          <p className="mb-4 text-sm text-zinc-500">
+            Swipe left on any song to add it here, or import Liked Songs from Spotify
+            in My Library.
+          </p>
+          <Button asChild variant="outline" className="border-zinc-600">
+            <Link to="/music/library">My Library</Link>
+          </Button>
+        </div>
+      </section>
     );
   }
 
   return (
     <section>
+      <LikedSongsHeader
+        onShufflePlay={() => void playShuffled()}
+        busy={shuffleBusy}
+      />
       <p className="mb-4 px-4 text-sm text-zinc-400 md:px-12">
         {likedCount.toLocaleString()} {likedCount === 1 ? "song" : "songs"}
         {results.length < likedCount
@@ -180,9 +250,6 @@ function LikedSongsList() {
                   isActive && "bg-zinc-900 text-white",
                 )}
               >
-                <span className="w-8 shrink-0 text-center text-sm text-zinc-500">
-                  {isActive && musicPlayer.playing ? "▶" : index + 1}
-                </span>
                 <ProgressiveCoverImage
                   src={track.imageUrl}
                   alt=""

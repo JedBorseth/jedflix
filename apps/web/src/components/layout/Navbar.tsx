@@ -11,6 +11,8 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Authenticated, Unauthenticated } from "convex/react";
 import { AppLink } from "@/components/layout/AppLink";
 import { MobileNavMenu } from "@/components/layout/MobileNavMenu";
+import { useMusicPlayer } from "@/components/player/music/MusicPlayerContext";
+import { SearchResultRow } from "@/components/search/SearchResultRow";
 import { UserMenu } from "@/components/UserMenu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,12 +23,16 @@ import {
   GearIcon,
   MagnifyingGlassIcon,
 } from "@radix-ui/react-icons";
+import { useHasRealDebridApiKey } from "@/hooks/useHasRealDebridApiKey";
 import { useUserSettings } from "@/hooks/useUserSettings";
+import { blockDebridMediaNavigation } from "@/lib/debridAccess";
 import {
-  getRecentSearchesSnapshot,
-  recordRecentSearch,
-  subscribeRecentSearches,
-} from "@/lib/recentSearches";
+  getSuccessfulSearchesSnapshot,
+  recordSuccessfulSearch,
+  subscribeSuccessfulSearches,
+  successfulSearchKindLabel,
+  type SuccessfulSearchItem,
+} from "@/lib/successfulSearches";
 import {
   searchDebounceMs,
   shouldLiveSearch,
@@ -88,8 +94,11 @@ export function Navbar() {
   const { contentTypes } = useUserSettings();
   const location = useLocation();
   const navigate = useNavigate();
+  const musicPlayer = useMusicPlayer();
+  const hasDebridKey = useHasRealDebridApiKey();
   const inputRef = useRef<HTMLInputElement>(null);
   const searchOriginRef = useRef("/");
+  const lastPathnameRef = useRef(location.pathname);
   const isOnSearchPage = location.pathname.startsWith("/search");
   const [isSearchOpen, setIsSearchOpen] = useState(isOnSearchPage);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
@@ -114,21 +123,21 @@ export function Navbar() {
       : activeSearchMode === "music"
         ? "Search songs, albums, or artists"
         : "Search movies, shows, or cast";
-  const getRecentSnapshot = useCallback(
-    () => getRecentSearchesSnapshot(activeSearchMode),
+  const getSuccessfulSnapshot = useCallback(
+    () => getSuccessfulSearchesSnapshot(activeSearchMode),
     [activeSearchMode],
   );
-  const recentSearches = useSyncExternalStore(
-    subscribeRecentSearches,
-    getRecentSnapshot,
-    getRecentSnapshot,
+  const successfulSearches = useSyncExternalStore(
+    subscribeSuccessfulSearches,
+    getSuccessfulSnapshot,
+    getSuccessfulSnapshot,
   );
-  const showRecentSearches =
-    isSearchOpen && isSearchFocused && recentSearches.length > 0;
-
-  function rememberQuery(value: string) {
-    recordRecentSearch(activeSearchMode, value);
-  }
+  const showSuccessfulSearches =
+    isSearchOpen &&
+    isSearchFocused &&
+    !query.trim() &&
+    !isOnSearchPage &&
+    successfulSearches.length > 0;
 
   function rememberSearchOrigin(path = `${location.pathname}${location.search}`) {
     if (!path.startsWith("/search")) {
@@ -146,10 +155,9 @@ export function Navbar() {
     return "/";
   }
 
-  // Hydrate from the URL when a Did-you-mean chip (or back/forward) changes it.
+  // Hydrate from the URL on back/forward or an external search navigation.
   // While the input is focused, ignore stale debounce URL updates that are still
-  // a prefix/extension of what the user is typing, but always adopt corrections
-  // like "the offive" → "The Office".
+  // a prefix/extension of what the user is typing.
   useEffect(() => {
     if (!isOnSearchPage) {
       return;
@@ -174,6 +182,22 @@ export function Navbar() {
       return urlQuery;
     });
   }, [isOnSearchPage, location.search]);
+
+  // The navbar stays mounted across routes. Reset the bar whenever the user
+  // leaves search results so a leftover query does not run again on the next
+  // route change (or fire from an in-flight debounce timer).
+  useEffect(() => {
+    if (lastPathnameRef.current === location.pathname) {
+      return;
+    }
+    lastPathnameRef.current = location.pathname;
+    if (location.pathname.startsWith("/search")) {
+      return;
+    }
+    setIsSearchOpen(false);
+    setIsSearchFocused(false);
+    setQuery("");
+  }, [location.pathname]);
 
   // After expand, ensure focus lands on the already-mounted input.
   useLayoutEffect(() => {
@@ -220,7 +244,6 @@ export function Navbar() {
       }
 
       const nextPath = buildSearchPath(trimmed, activeSearchMode);
-      recordRecentSearch(activeSearchMode, trimmed);
       if (current === nextPath) {
         return;
       }
@@ -269,7 +292,6 @@ export function Navbar() {
       return;
     }
 
-    rememberQuery(trimmedQuery);
     const nextPath = buildSearchPath(trimmedQuery, activeSearchMode);
     const current = `${location.pathname}${location.search}`;
     if (current !== nextPath) {
@@ -277,15 +299,29 @@ export function Navbar() {
     }
   }
 
-  function applyRecentSearch(value: string) {
-    rememberQuery(value);
-    setQuery(value);
-    setIsSearchOpen(true);
+  function applySuccessfulSearch(item: SuccessfulSearchItem) {
+    if (
+      (item.kind === "movie" || item.kind === "show") &&
+      !hasDebridKey &&
+      blockDebridMediaNavigation()
+    ) {
+      return;
+    }
+
+    recordSuccessfulSearch(activeSearchMode, item);
     setIsSearchFocused(false);
-    const nextPath = buildSearchPath(value, activeSearchMode);
-    const current = `${location.pathname}${location.search}`;
-    if (current !== nextPath) {
-      void navigate(nextPath, { replace: isOnSearchPage });
+    inputRef.current?.blur();
+
+    if (item.track) {
+      musicPlayer.playTrack(item.track, [item.track]);
+      if (!isOnSearchPage) {
+        setIsSearchOpen(false);
+      }
+      return;
+    }
+
+    if (item.href) {
+      void navigate(item.href);
     }
   }
 
@@ -436,27 +472,24 @@ export function Navbar() {
                   </button>
                 ) : null}
               </div>
-              {showRecentSearches ? (
+              {showSuccessfulSearches ? (
                 <ul
                   className="absolute left-0 right-0 top-full z-[60] mt-1 overflow-hidden rounded-md border border-zinc-700 bg-zinc-950/95 py-1 shadow-xl shadow-black/50"
                   aria-label="Recent searches"
                 >
-                  {recentSearches.map((recentQuery) => (
-                    <li key={recentQuery}>
-                      <button
-                        type="button"
-                        className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm text-zinc-200 transition hover:bg-zinc-800 hover:text-white"
+                  {successfulSearches.map((item) => (
+                    <li key={item.id}>
+                      <SearchResultRow
+                        compact
+                        title={item.title}
+                        subtitle={item.subtitle}
+                        imageUrl={item.imageUrl}
+                        trailing={successfulSearchKindLabel(item.kind)}
                         onMouseDown={(event) => {
                           event.preventDefault();
                         }}
-                        onClick={() => applyRecentSearch(recentQuery)}
-                      >
-                        <MagnifyingGlassIcon
-                          className="h-4 w-4 shrink-0 text-zinc-500"
-                          aria-hidden
-                        />
-                        <span className="truncate">{recentQuery}</span>
-                      </button>
+                        onClick={() => applySuccessfulSearch(item)}
+                      />
                     </li>
                   ))}
                 </ul>

@@ -230,18 +230,17 @@ func (c *Client) fetchHTML(pathOrURL string) (string, error) {
 
 	res, err := c.httpClient.Do(req)
 	if err != nil {
-		return "", err
+		return "", &FetchError{Cause: err}
 	}
 	defer res.Body.Close()
 
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(res.Body, 512))
-		return "", fmt.Errorf("AudiobookBay fetch failed: %d %s", res.StatusCode, strings.TrimSpace(string(body)))
+		return "", &FetchError{StatusCode: res.StatusCode}
 	}
 
 	body, err := io.ReadAll(io.LimitReader(res.Body, 2<<20)) // 2 MiB cap
 	if err != nil {
-		return "", err
+		return "", &FetchError{Cause: err}
 	}
 	return string(body), nil
 }

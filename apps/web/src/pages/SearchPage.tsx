@@ -1,29 +1,41 @@
-import { useMemo, useEffect } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useSyncExternalStore,
+  type MouseEvent,
+} from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate, useSearchParams } from "react-router-dom";
-import { AuthorCard } from "@/components/browse/AuthorCard";
-import { BookCard } from "@/components/browse/BookCard";
-import { MovieCard } from "@/components/browse/MovieCard";
-import { PersonCard } from "@/components/browse/PersonCard";
-import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
-import { AppLink } from "@/components/layout/AppLink";
+import { useSearchParams } from "react-router-dom";
+import {
+  SearchResultRow,
+  SearchResultRowBody,
+} from "@/components/search/SearchResultRow";
 import {
   useMusicPlayer,
   type MusicQueueTrack,
 } from "@/components/player/music/MusicPlayerContext";
 import { SwipeableTrackRow } from "@/components/player/music/SwipeableTrackRow";
-import { PosterGridSkeleton } from "@/components/ui/skeleton";
-import { useMusicInteractionLog } from "@/lib/musicInteractions";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useHasRealDebridApiKey } from "@/hooks/useHasRealDebridApiKey";
 import { useLikeTrack } from "@/hooks/useLikeTrack";
+import { useMusicInteractionLog } from "@/lib/musicInteractions";
 import { useUserSettings } from "@/hooks/useUserSettings";
+import { blockDebridMediaNavigation } from "@/lib/debridAccess";
 import {
   applyServerMusicRanking,
   type RankedMusicHit,
 } from "@/lib/musicSearch";
-import { searchBooksAll } from "@/lib/openlibrary";
+import {
+  getAuthorPath,
+  getBookDetailPath,
+  searchBooksAll,
+  type AuthorSummary,
+  type BookItem,
+} from "@/lib/openlibrary";
 import { catalogQueryKeys } from "@/lib/queryClient";
 import { MUSIC_SEARCH_MIN_CHARS, shouldLiveSearch } from "@/lib/searchDebounce";
-import { buildSpellSuggestions } from "@/lib/searchSuggestions";
+import { searchResultRowClassName } from "@/lib/searchResultRowStyles";
 import {
   formatTrackDuration,
   getAlbumDetailPath,
@@ -31,20 +43,20 @@ import {
   searchMusicAll,
   type MusicSearchTrack,
 } from "@/lib/spotify";
-import { searchAll } from "@/lib/tmdb";
-import { cn } from "@/lib/utils";
+import {
+  getSuccessfulSearchesSnapshot,
+  recordSuccessfulSearch,
+  subscribeSuccessfulSearches,
+  successfulSearchKindLabel,
+  type SuccessfulSearchItem,
+} from "@/lib/successfulSearches";
+import { getMediaDetailPath, getPersonPath, searchAll } from "@/lib/tmdb";
+import type { MediaItem, PersonSummary } from "@/lib/types";
 
 type SearchKind = "media" | "books" | "music";
 
-function buildSearchPath(query: string, kind: SearchKind): string {
-  const params = new URLSearchParams({ q: query });
-  if (kind === "books") {
-    params.set("type", "books");
-  } else if (kind === "music") {
-    params.set("type", "music");
-  }
-  return `/search?${params.toString()}`;
-}
+type RankedAlbum = Extract<RankedMusicHit, { kind: "album" }>["album"];
+type RankedArtist = Extract<RankedMusicHit, { kind: "artist" }>["artist"];
 
 function searchTrackToQueueTrack(track: MusicSearchTrack): MusicQueueTrack {
   return {
@@ -60,12 +72,122 @@ function searchTrackToQueueTrack(track: MusicSearchTrack): MusicQueueTrack {
   };
 }
 
+function mediaToItem(movie: MediaItem): SuccessfulSearchItem {
+  return {
+    id: `media:${movie.mediaType}:${movie.id}`,
+    kind: movie.mediaType === "tv" ? "show" : "movie",
+    title: movie.title,
+    subtitle: movie.year ? String(movie.year) : undefined,
+    imageUrl: movie.posterUrl,
+    href: getMediaDetailPath(movie),
+  };
+}
+
+function personToItem(person: PersonSummary): SuccessfulSearchItem {
+  return {
+    id: `person:${person.id}`,
+    kind: "person",
+    title: person.name,
+    subtitle: person.knownFor,
+    imageUrl: person.profileUrl,
+    href: getPersonPath(person.id),
+  };
+}
+
+function bookToItem(book: BookItem): SuccessfulSearchItem {
+  return {
+    id: `book:${book.id}`,
+    kind: "book",
+    title: book.title,
+    subtitle: book.authors.length > 0 ? book.authors.join(", ") : undefined,
+    imageUrl: book.coverUrl,
+    href: getBookDetailPath(book),
+  };
+}
+
+function authorToItem(author: AuthorSummary): SuccessfulSearchItem {
+  return {
+    id: `author:${author.id}`,
+    kind: "author",
+    title: author.name,
+    subtitle: author.topWork,
+    imageUrl: author.photoUrl,
+    href: getAuthorPath(author.id),
+  };
+}
+
+function trackToItem(
+  track: MusicSearchTrack,
+  queueTrack: MusicQueueTrack,
+): SuccessfulSearchItem {
+  const artists = track.artists.join(", ") || "Unknown artist";
+  return {
+    id: `track:${track.id}`,
+    kind: "track",
+    title: track.name,
+    subtitle: `${artists} · ${formatTrackDuration(track.durationMs)}`,
+    imageUrl: track.imageUrl,
+    track: {
+      id: queueTrack.id,
+      title: queueTrack.title,
+      artists: queueTrack.artists,
+      artistIds: queueTrack.artistIds,
+      albumName: queueTrack.albumName,
+      albumId: queueTrack.albumId,
+      imageUrl: queueTrack.imageUrl,
+      durationMs: queueTrack.durationMs,
+      youtubeVideoId: queueTrack.youtubeVideoId,
+    },
+  };
+}
+
+function albumToItem(album: RankedAlbum): SuccessfulSearchItem {
+  return {
+    id: `album:${album.id}`,
+    kind: "album",
+    title: album.name,
+    subtitle: album.artists.length > 0 ? album.artists.join(", ") : undefined,
+    imageUrl: album.imageUrl,
+    href: getAlbumDetailPath(album),
+  };
+}
+
+function artistToItem(artist: RankedArtist): SuccessfulSearchItem {
+  return {
+    id: `artist:${artist.id}`,
+    kind: "artist",
+    title: artist.name,
+    subtitle: artist.genres.length > 0 ? artist.genres.slice(0, 2).join(", ") : undefined,
+    imageUrl: artist.imageUrl,
+    href: getArtistPath(artist.id),
+  };
+}
+
+function SearchRowsSkeleton({ count = 6 }: { count?: number }) {
+  return (
+    <div className="-mx-4 md:-mx-12">
+      {Array.from({ length: count }).map((_, index) => (
+        <div
+          key={index}
+          className="flex items-center gap-3 px-4 py-3 md:px-12"
+        >
+          <Skeleton className="h-14 w-14 shrink-0" />
+          <div className="flex-1 space-y-2">
+            <Skeleton className="h-4 w-1/2" />
+            <Skeleton className="h-3 w-1/3" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function SearchPage() {
   const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
   const musicPlayer = useMusicPlayer();
   const likeTrack = useLikeTrack();
   const logMusic = useMusicInteractionLog();
+  const hasDebridKey = useHasRealDebridApiKey();
   const { youtubeMusicSearch } = useUserSettings();
   const query = searchParams.get("q")?.trim() ?? "";
   const typeParam = searchParams.get("type");
@@ -99,11 +221,6 @@ export function SearchPage() {
       : "Unable to search"
     : null;
 
-  const bookResults = searchKind === "books" && query ? (booksQuery.data?.books ?? []) : [];
-  const authorResults = searchKind === "books" && query ? (booksQuery.data?.authors ?? []) : [];
-  const mediaResults = searchKind === "media" && query ? (mediaQuery.data?.media ?? []) : [];
-  const peopleResults = searchKind === "media" && query ? (mediaQuery.data?.people ?? []) : [];
-
   const rankedMusicHits = useMemo(() => {
     if (searchKind !== "music" || !query || !musicQuery.data) {
       return [] as RankedMusicHit[];
@@ -118,302 +235,162 @@ export function SearchPage() {
     logMusic({ kind: "search", query });
   }, [logMusic, query, searchKind]);
 
-  const trackQueue = useMemo(() => {
-    return rankedMusicHits
-      .filter((hit): hit is Extract<RankedMusicHit, { kind: "track" }> => hit.kind === "track")
-      .map((hit) => searchTrackToQueueTrack(hit.track));
-  }, [rankedMusicHits]);
+  const resultItems = useMemo(() => {
+    if (!query) {
+      return [] as SuccessfulSearchItem[];
+    }
+    if (searchKind === "books") {
+      return [
+        ...(booksQuery.data?.authors ?? []).map(authorToItem),
+        ...(booksQuery.data?.books ?? []).map(bookToItem),
+      ];
+    }
+    if (searchKind === "music") {
+      return rankedMusicHits.map((hit) => {
+        if (hit.kind === "track") {
+          return trackToItem(hit.track, searchTrackToQueueTrack(hit.track));
+        }
+        if (hit.kind === "album") {
+          return albumToItem(hit.album);
+        }
+        return artistToItem(hit.artist);
+      });
+    }
+    return [
+      ...(mediaQuery.data?.media ?? []).map(mediaToItem),
+      ...(mediaQuery.data?.people ?? []).map(personToItem),
+    ];
+  }, [query, searchKind, booksQuery.data, mediaQuery.data, rankedMusicHits]);
+
+  const trackQueue = useMemo(
+    () => resultItems.flatMap((item) => (item.track ? [item.track] : [])),
+    [resultItems],
+  );
+
+  const getHistorySnapshot = useCallback(
+    () => getSuccessfulSearchesSnapshot(searchKind),
+    [searchKind],
+  );
+  const searchHistory = useSyncExternalStore(
+    subscribeSuccessfulSearches,
+    getHistorySnapshot,
+    getHistorySnapshot,
+  );
+
+  const visibleItems = query ? resultItems : searchHistory;
+  const hasResults = resultItems.length > 0;
 
   const musicQueryPending =
-    searchKind === "music" && query.trim().length > 0 && query.trim().length < MUSIC_SEARCH_MIN_CHARS;
+    searchKind === "music" && query.length > 0 && query.length < MUSIC_SEARCH_MIN_CHARS;
   const isLoading =
     Boolean(query) &&
     !musicQueryPending &&
     activeQuery.data === undefined &&
     !activeQuery.isError;
-  const hasResults =
-    searchKind === "books"
-      ? bookResults.length > 0 || authorResults.length > 0
-      : searchKind === "music"
-        ? rankedMusicHits.length > 0
-        : mediaResults.length > 0 || peopleResults.length > 0;
 
-  // Did-you-mean is title-only and separate from people/artist/author hits.
-  const spellSuggestions = useMemo(() => {
-    if (!query || isLoading) {
-      return [];
-    }
-    if (searchKind === "books") {
-      return buildSpellSuggestions(
-        query,
-        (booksQuery.data?.books ?? []).map((book) => book.title),
-      );
-    }
-    if (searchKind === "music") {
-      return buildSpellSuggestions(
-        query,
-        rankedMusicHits.map((hit) => {
-          if (hit.kind === "track") {
-            return hit.track.name;
-          }
-          if (hit.kind === "album") {
-            return hit.album.name;
-          }
-          return hit.artist.name;
-        }),
-      );
-    }
-    return buildSpellSuggestions(
-      query,
-      (mediaQuery.data?.media ?? []).map((item) => item.title),
-    );
-  }, [query, isLoading, searchKind, booksQuery.data, rankedMusicHits, mediaQuery.data]);
-
-  const emptyHint =
-    searchKind === "books"
-      ? "Search for a book or author."
-      : searchKind === "music"
-        ? youtubeMusicSearch
-          ? "Search for a song, album, or artist (Spotify + YouTube)."
-          : "Search for a song, album, or artist."
-        : "Search for a movie, show, or cast member.";
-
-  function applySpellSuggestion(suggestionQuery: string) {
-    void navigate(buildSearchPath(suggestionQuery, searchKind), {
-      replace: true,
-    });
+  function isDebridLocked(item: SuccessfulSearchItem): boolean {
+    return (item.kind === "movie" || item.kind === "show") && !hasDebridKey;
   }
 
-  function playSearchTrack(trackId: string) {
-    const index = trackQueue.findIndex((track) => track.id === trackId);
-    const track = index >= 0 ? trackQueue[index] : undefined;
+  function openItem(item: SuccessfulSearchItem, event: MouseEvent<HTMLElement>) {
+    if (isDebridLocked(item) && blockDebridMediaNavigation()) {
+      event.preventDefault();
+      return;
+    }
+    recordSuccessfulSearch(searchKind, item);
+  }
+
+  function playItem(item: SuccessfulSearchItem) {
+    const track = item.track;
     if (!track) {
       return;
     }
-    musicPlayer.playTrack(track, trackQueue);
-    logMusic({
-      kind: "click",
-      query,
-      trackId: track.id,
-      title: track.title,
-      artists: track.artists,
-      resultId: track.id,
-      resultKind: "track",
-    });
+    const index = trackQueue.findIndex((entry) => entry.id === track.id);
+    const queue = index >= 0 ? trackQueue : [track];
+    musicPlayer.playTrack(track, queue);
+    recordSuccessfulSearch(searchKind, item);
+    if (query) {
+      logMusic({
+        kind: "click",
+        query,
+        trackId: track.id,
+        title: track.title,
+        artists: track.artists,
+        resultId: track.id,
+        resultKind: "track",
+      });
+    }
+  }
+
+  function renderItem(item: SuccessfulSearchItem) {
+    const kindLabel = successfulSearchKindLabel(item.kind);
+    const track = item.track;
+
+    if (item.kind === "track" && track) {
+      const isActive = musicPlayer.current?.id === track.id;
+      return (
+        <SwipeableTrackRow
+          key={item.id}
+          onPlay={() => playItem(item)}
+          onAddToQueue={() => musicPlayer.addToQueue(track)}
+          onPlayNext={() => musicPlayer.playNext(track)}
+          onLike={() => void likeTrack(track)}
+        >
+          <div className={searchResultRowClassName({ isActive })}>
+            <SearchResultRowBody
+              imageUrl={item.imageUrl}
+              title={item.title}
+              subtitle={item.subtitle}
+              trailing={kindLabel}
+              isActive={isActive}
+            />
+          </div>
+        </SwipeableTrackRow>
+      );
+    }
+
+    return (
+      <SearchResultRow
+        key={item.id}
+        to={item.href}
+        title={item.title}
+        subtitle={item.subtitle}
+        imageUrl={item.imageUrl}
+        trailing={kindLabel}
+        disabled={isDebridLocked(item)}
+        onClick={(event) => openItem(item, event)}
+      />
+    );
   }
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
       <main className="pt-navbar mx-auto max-w-7xl px-4 pb-chrome md:px-12">
-        <div className="mx-auto max-w-4xl text-center">
-          <h1 className="mb-2 text-3xl font-bold">Search</h1>
-          <p className="mb-8 text-zinc-400">
-            {query ? `Results for "${query}"` : emptyHint}
-          </p>
+        <div className="mx-auto max-w-4xl pt-6">
+          {error ? <p className="text-center text-zinc-400">{error}</p> : null}
+          {musicQueryPending ? (
+            <p className="text-center text-zinc-400">Keep typing to search music.</p>
+          ) : null}
+          {isLoading ? <SearchRowsSkeleton /> : null}
+          {!isLoading && !error && !hasResults && query && !musicQueryPending ? (
+            <p className="text-center text-zinc-400">No results found.</p>
+          ) : null}
 
-          {spellSuggestions.length > 0 ? (
+          {visibleItems.length > 0 ? (
             <section
-              className="mb-10 rounded-lg border border-zinc-800 bg-zinc-900/50 px-4 py-4 text-left"
-              aria-label="Did you mean"
+              className="-mx-4 text-left md:-mx-12"
+              aria-label={query ? "Search results" : "Recent searches"}
             >
-              <p className="mb-3 text-sm font-medium text-zinc-400">Did you mean?</p>
-              <ul className="flex flex-col gap-2">
-                {spellSuggestions.map((suggestion) => (
-                  <li key={suggestion.query}>
-                    <button
-                      type="button"
-                      className="w-full rounded-md px-3 py-2 text-left text-base font-medium text-white transition hover:bg-zinc-800"
-                      onClick={() => applySpellSuggestion(suggestion.query)}
-                    >
-                      {suggestion.label}
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              {!query ? (
+                <h2 className="mb-2 px-4 text-lg font-semibold text-white md:px-12 md:text-xl">
+                  Recent searches
+                </h2>
+              ) : null}
+              <div className="divide-y divide-zinc-900">
+                {visibleItems.map(renderItem)}
+              </div>
             </section>
           ) : null}
-
-          {error ? <p className="text-zinc-400">{error}</p> : null}
-          {musicQueryPending ? (
-            <p className="text-zinc-400">Keep typing to search music.</p>
-          ) : null}
-          {isLoading ? <PosterGridSkeleton count={8} /> : null}
-          {!isLoading && !hasResults && query && !musicQueryPending ? (
-            <p className="text-zinc-400">No results found.</p>
-          ) : null}
-
-          {searchKind === "books" ? (
-            <>
-              {!isLoading && authorResults.length > 0 ? (
-                <section className="mb-10 text-left">
-                  <h2 className="mb-4 text-lg font-semibold text-white md:text-xl">
-                    Authors
-                  </h2>
-                  <div className="flex flex-wrap justify-center gap-4">
-                    {authorResults.map((author) => (
-                      <AuthorCard key={author.id} author={author} />
-                    ))}
-                  </div>
-                </section>
-              ) : null}
-
-              {!isLoading && bookResults.length > 0 ? (
-                <section className="text-left">
-                  <h2 className="mb-4 text-lg font-semibold text-white md:text-xl">
-                    Books
-                  </h2>
-                  <div className="flex flex-wrap justify-center gap-4">
-                    {bookResults.map((book) => (
-                      <BookCard key={book.id} book={book} />
-                    ))}
-                  </div>
-                </section>
-              ) : null}
-            </>
-          ) : searchKind === "music" ? (
-            !isLoading && rankedMusicHits.length > 0 ? (
-              <section className="-mx-4 text-left md:-mx-12">
-                <h2 className="mb-4 px-4 text-lg font-semibold text-white md:px-12 md:text-xl">
-                  Top results
-                </h2>
-                <div className="divide-y divide-zinc-900">
-                  {rankedMusicHits.map((hit) => {
-                    if (hit.kind === "track") {
-                      const queueTrack = searchTrackToQueueTrack(hit.track);
-                      const isActive = musicPlayer.current?.id === hit.track.id;
-                      return (
-                        <SwipeableTrackRow
-                          key={hit.id}
-                          onPlay={() => playSearchTrack(hit.track.id)}
-                          onAddToQueue={() => musicPlayer.addToQueue(queueTrack)}
-                          onPlayNext={() => musicPlayer.playNext(queueTrack)}
-                          onLike={() => void likeTrack(queueTrack)}
-                        >
-                          <div
-                            className={cn(
-                              "flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-zinc-900/80 md:px-12",
-                              isActive && "bg-zinc-900 text-white",
-                            )}
-                          >
-                            <ProgressiveCoverImage
-                              src={hit.track.imageUrl}
-                              alt=""
-                              className="h-12 w-12 shrink-0 rounded object-cover"
-                            />
-                            <div className="min-w-0 flex-1">
-                              <p
-                                className={cn(
-                                  "truncate text-sm",
-                                  isActive ? "text-red-400" : "text-white",
-                                )}
-                              >
-                                {hit.track.name}
-                              </p>
-                              <p className="truncate text-xs text-zinc-500">
-                                Song · {hit.track.artists.join(", ") || "Unknown artist"}
-                                {hit.track.source === "youtube" ? " · YouTube" : ""}
-                              </p>
-                            </div>
-                            <span className="shrink-0 text-xs text-zinc-500">
-                              {formatTrackDuration(hit.track.durationMs)}
-                            </span>
-                          </div>
-                        </SwipeableTrackRow>
-                      );
-                    }
-
-                    if (hit.kind === "album") {
-                      return (
-                        <AppLink
-                          key={hit.id}
-                          to={getAlbumDetailPath(hit.album)}
-                          state={{ preview: hit.album }}
-                          onClick={() =>
-                            logMusic({
-                              kind: "click",
-                              query,
-                              title: hit.album.name,
-                              artists: hit.album.artists,
-                              resultId: hit.album.id,
-                              resultKind: "album",
-                            })
-                          }
-                          className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-zinc-900/80 md:px-12"
-                        >
-                          <ProgressiveCoverImage
-                            src={hit.album.imageUrl}
-                            alt=""
-                            className="h-12 w-12 shrink-0 rounded object-cover"
-                          />
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm text-white">{hit.album.name}</p>
-                            <p className="truncate text-xs text-zinc-500">
-                              Album · {hit.album.artists.join(", ") || "Unknown artist"}
-                            </p>
-                          </div>
-                        </AppLink>
-                      );
-                    }
-
-                    return (
-                      <AppLink
-                        key={hit.id}
-                        to={getArtistPath(hit.artist.id)}
-                        onClick={() =>
-                          logMusic({
-                            kind: "click",
-                            query,
-                            title: hit.artist.name,
-                            resultId: hit.artist.id,
-                            resultKind: "artist",
-                          })
-                        }
-                        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-zinc-900/80 md:px-12"
-                      >
-                        <ProgressiveCoverImage
-                          src={hit.artist.imageUrl}
-                          alt=""
-                          className="h-12 w-12 shrink-0 rounded-full object-cover"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm text-white">{hit.artist.name}</p>
-                          <p className="truncate text-xs text-zinc-500">Artist</p>
-                        </div>
-                      </AppLink>
-                    );
-                  })}
-                </div>
-              </section>
-            ) : null
-          ) : (
-            <>
-              {!isLoading && mediaResults.length > 0 ? (
-                <section className="mb-10 text-left">
-                  <h2 className="mb-4 text-lg font-semibold text-white md:text-xl">
-                    Titles
-                  </h2>
-                  <div className="flex flex-wrap justify-center gap-4">
-                    {mediaResults.map((movie) => (
-                      <MovieCard key={`${movie.mediaType}-${movie.id}`} movie={movie} />
-                    ))}
-                  </div>
-                </section>
-              ) : null}
-
-              {!isLoading && peopleResults.length > 0 ? (
-                <section className="text-left">
-                  <h2 className="mb-4 text-lg font-semibold text-white md:text-xl">
-                    People
-                  </h2>
-                  <div className="flex flex-wrap justify-center gap-4">
-                    {peopleResults.map((person) => (
-                      <PersonCard key={person.id} person={person} />
-                    ))}
-                  </div>
-                </section>
-              ) : null}
-            </>
-          )}
         </div>
       </main>
     </div>

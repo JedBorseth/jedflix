@@ -94,6 +94,8 @@ services:
     build:
       context: ./deploy/warp
     restart: unless-stopped
+    environment:
+      ABB_BASE_URL: ${ABB_BASE_URL:-https://audiobookbay.lu}
     cap_add:
       - NET_ADMIN
       - MKNOD
