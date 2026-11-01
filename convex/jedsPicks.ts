@@ -1,6 +1,6 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { internalQuery, mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc } from "./_generated/dataModel";
 
@@ -37,6 +37,17 @@ const pickReturnValidator = v.object({
   workId: v.optional(v.string()),
   catalogId: v.optional(v.string()),
   addedAt: v.number(),
+});
+
+const tvPicksResponseValidator = v.object({
+  version: v.literal(1),
+  updatedAt: v.number(),
+  picks: v.array(
+    v.object({
+      tmdbId: v.number(),
+      type: v.union(v.literal("movie"), v.literal("series")),
+    }),
+  ),
 });
 
 type PickKind = "movie" | "tv" | "audiobook" | "album" | "artist";
@@ -133,6 +144,11 @@ function toPickReturn(doc: Doc<"jedsPicks">) {
   };
 }
 
+async function listPickDocs(ctx: QueryCtx) {
+  const items = await ctx.db.query("jedsPicks").take(MAX_PICKS);
+  return items.sort((a, b) => b.addedAt - a.addedAt);
+}
+
 export const canManage = query({
   args: {},
   returns: v.boolean(),
@@ -145,8 +161,39 @@ export const list = query({
   args: {},
   returns: v.array(pickReturnValidator),
   handler: async (ctx) => {
-    const items = await ctx.db.query("jedsPicks").take(MAX_PICKS);
-    return items.sort((a, b) => b.addedAt - a.addedAt).map(toPickReturn);
+    const items = await listPickDocs(ctx);
+    return items.map(toPickReturn);
+  },
+});
+
+export const tvPicks = internalQuery({
+  args: {},
+  returns: tvPicksResponseValidator,
+  handler: async (ctx) => {
+    const items = await listPickDocs(ctx);
+    const picks: Array<{
+      tmdbId: number;
+      type: "movie" | "series";
+    }> = [];
+    let updatedAt = 0;
+
+    for (const item of items) {
+      if (item.kind !== "movie" && item.kind !== "tv") {
+        continue;
+      }
+      if (typeof item.movieId !== "number" || !Number.isFinite(item.movieId)) {
+        continue;
+      }
+      picks.push({
+        tmdbId: item.movieId,
+        type: item.kind === "tv" ? "series" : "movie",
+      });
+      if (item.addedAt > updatedAt) {
+        updatedAt = item.addedAt;
+      }
+    }
+
+    return { version: 1 as const, updatedAt, picks };
   },
 });
 

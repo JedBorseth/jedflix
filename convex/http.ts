@@ -9,6 +9,22 @@ const http = httpRouter();
 
 auth.addHttpRoutes(http);
 
+http.route({
+  path: "/tv/jeds-picks",
+  method: "GET",
+  handler: httpAction(async (ctx) => {
+    const feed = await ctx.runQuery(internal.jedsPicks.tvPicks, {});
+    return new Response(JSON.stringify(feed), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "public, max-age=300",
+        "Access-Control-Allow-Origin": "*",
+      },
+    });
+  }),
+});
+
 function appUrl(path: string, params: Record<string, string>): string {
   const siteUrl = readEnv("SITE_URL") ?? "http://localhost:5173";
   const url = new URL(path, siteUrl);
