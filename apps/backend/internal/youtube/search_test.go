@@ -77,3 +77,14 @@ func TestExtractVideoID(t *testing.T) {
 		}
 	}
 }
+
+func TestMapCatalogEntryFiltersMusicVideos(t *testing.T) {
+	for _, entry := range []catalogSearchEntry{
+		{ID: "abc123XYZAB", Title: "Artist - Song (Official 4K Video)", Duration: 240, Uploader: "Artist"},
+		{ID: "abc123XYZAC", Title: "Artist - Song", Duration: 240, Uploader: "ArtistVEVO"},
+	} {
+		if _, ok := mapCatalogEntry(entry); ok {
+			t.Fatalf("expected music video filtered from catalog search: %+v", entry)
+		}
+	}
+}

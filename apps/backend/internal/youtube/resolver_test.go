@@ -334,3 +334,59 @@ func TestResolveCacheHitDoesNotStartJobOrTakeSlot(t *testing.T) {
 		t.Fatalf("cached results: %+v %+v", first, second)
 	}
 }
+
+func TestIsMusicVideoTitleCatchesCommonSpellings(t *testing.T) {
+	videos := []string{
+		"The Weeknd - Blinding Lights (Official Video)",
+		"Artist - Song (Official 4K Video)",
+		"Artist - Song [Official HD Music Video]",
+		"Artist - Song (Official Lyric Video)",
+		"Artist - Song (Lyric Video)",
+		"Artist - Song (Official Visualizer)",
+		"Artist - Song (MV)",
+		"Artist - Song (Videoclip Oficial)",
+	}
+	for _, title := range videos {
+		if !isMusicVideoTitle(title) {
+			t.Errorf("expected music video: %q", title)
+		}
+	}
+	songs := []string{
+		"The Weeknd - Blinding Lights (Official Audio)",
+		"Lana Del Rey - Video Games (Official Audio)",
+		"Blinding Lights",
+		"Artist - Song (Lyrics)",
+	}
+	for _, title := range songs {
+		if isMusicVideoTitle(title) {
+			t.Errorf("expected song, not video: %q", title)
+		}
+	}
+}
+
+func TestPickBestEntryNeverFallsBackToMusicVideo(t *testing.T) {
+	req := Request{Artist: "Childish Gambino", Title: "This Is America", DurationMs: 225_000}
+	entries := []searchEntry{
+		{ID: "mv", Title: "Childish Gambino - This Is America (Official Video)", Duration: 245, ViewCount: 900_000_000},
+		{ID: "vevo", Title: "Childish Gambino - This Is America", Duration: 226, Uploader: "ChildishGambinoVEVO"},
+		{ID: "lyricmv", Title: "Childish Gambino - This Is America (Official Lyric Video)", Duration: 226},
+		{ID: "essay", Title: "Hidden Meanings Behind This Is America Explained", Duration: 291},
+	}
+	if best := pickBestEntry(entries, req); best != nil {
+		t.Fatalf("expected no pick when only videos are available, got %+v", best)
+	}
+
+	entries = append(entries, searchEntry{ID: "audio", Title: "Childish Gambino - This Is America (Audio)", Duration: 226, Uploader: "fan"})
+	best := pickBestEntry(entries, req)
+	if best == nil || best.ID != "audio" {
+		t.Fatalf("expected audio upload, got %+v", best)
+	}
+}
+
+func TestPickBestEntryAllowsVideoWordWhenRequested(t *testing.T) {
+	req := Request{Artist: "Artist", Title: "Music Video"}
+	entries := []searchEntry{{ID: "song", Title: "Artist - Music Video (Official Audio)", Duration: 200}}
+	if best := pickBestEntry(entries, req); best == nil || best.ID != "song" {
+		t.Fatalf("expected song titled like a video kept, got %+v", best)
+	}
+}

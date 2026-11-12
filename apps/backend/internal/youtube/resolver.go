@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -322,21 +323,31 @@ func (r *Resolver) resolveUncached(ctx context.Context, req Request) (*StreamInf
 		return r.resolveUncachedFn(ctx, req)
 	}
 
-	var best *searchEntry
 	if req.VideoID != "" {
-		best = &searchEntry{ID: req.VideoID}
-	} else {
-		entries, err := r.search(ctx, req)
-		if err != nil {
-			return nil, err
-		}
-		best = pickBestEntry(entries, req)
-		if best == nil {
-			return nil, ErrNotFound
-		}
+		info, _, err := r.extractStream(ctx, &searchEntry{ID: req.VideoID})
+		return info, err
 	}
 
-	return r.extractStream(ctx, best)
+	// YouTube Music's Songs results are the released recordings, never music
+	// videos, so they are the first choice.
+	if info, err := r.resolveFromMusicSongs(ctx, req); err == nil {
+		return info, nil
+	} else if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
+
+	// Fallback for songs YouTube Music lacks: plain YouTube search, which
+	// rejects music videos outright (see pickBestEntry).
+	entries, err := r.search(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	best := pickBestEntry(entries, req)
+	if best == nil {
+		return nil, ErrNotFound
+	}
+	info, _, err := r.extractStream(ctx, best)
+	return info, err
 }
 
 func cacheKey(req Request) string {
@@ -450,12 +461,17 @@ func (r *Resolver) search(ctx context.Context, req Request) ([]searchEntry, erro
 	if n <= 0 {
 		n = defaultSearchCount
 	}
-	query := fmt.Sprintf("ytsearch%d:%s", n, buildSearchQuery(req))
+	return r.flatSearch(ctx, fmt.Sprintf("ytsearch%d:%s", n, buildSearchQuery(req)), n)
+}
+
+// flatSearch lists up to limit search hits for target without extracting them.
+func (r *Resolver) flatSearch(ctx context.Context, target string, limit int) ([]searchEntry, error) {
 	args := append(r.commonArgs(),
 		"--flat-playlist",
 		"--dump-json",
 		"--ignore-no-formats-error",
-		query,
+		"--playlist-end", fmt.Sprintf("%d", limit),
+		target,
 	)
 	cmd := exec.CommandContext(ctx, r.ytdlpPath, args...)
 	var stdout, stderr bytes.Buffer
@@ -508,13 +524,13 @@ func pickBestEntry(entries []searchEntry, req Request) *searchEntry {
 	if best != nil {
 		return best
 	}
-	// Soft fallback: allow music videos / duration outliers if every candidate was filtered.
-	// Still refuse concert uploads unless the requested track title is itself live.
+	// Soft fallback: allow duration outliers when nothing matched closely, but
+	// never music videos, trailers, or concert uploads (unless the requested
+	// title is itself live).
 	bestScore = -1e9
 	for i := range entries {
 		entry := &entries[i]
-		title := strings.ToLower(entry.Title)
-		if entry.WasLive || strings.Contains(title, "official trailer") {
+		if entry.WasLive || isMusicVideo(entry, req) || isNonMusicTitle(entry.Title) {
 			continue
 		}
 		if isUnwantedLiveTitle(entry, req) {
@@ -529,31 +545,46 @@ func pickBestEntry(entries []searchEntry, req Request) *searchEntry {
 	if best != nil {
 		return best
 	}
-	for i := range entries {
-		entry := &entries[i]
-		if isUnwantedLiveTitle(entry, req) || entry.WasLive {
-			continue
+	if wantsLiveYouTube(req) {
+		for i := range entries {
+			if !isMusicVideo(&entries[i], req) {
+				return &entries[i]
+			}
 		}
-		return entry
-	}
-	if wantsLiveYouTube(req) && len(entries) > 0 {
-		return &entries[0]
 	}
 	return nil
 }
 
+// musicVideoTitlePattern matches music video uploads in their usual spellings:
+// "Official Video", "Official 4K Music Video", "Lyric Video", "Visualizer", "(MV)".
+var musicVideoTitlePattern = regexp.MustCompile(`(?i)\b(official\s+(?:[a-z0-9]+\s+){0,3}video|music\s+video|lyrics?\s+video|video\s*clip|clip\s+officiel|visuali[sz]er|performance\s+video|dance\s+video)\b|[\(\[]\s*m/?v\s*[\)\]]`)
+
+var nonMusicTitlePhrases = []string{
+	"official trailer", "behind the scenes", "interview", "reaction",
+	"live stream", "livestream", "karaoke", "explained", "made famous by",
+}
+
 func isMusicVideoTitle(title string) bool {
+	return musicVideoTitlePattern.MatchString(title)
+}
+
+// isVevoChannel reports VEVO uploads, which are music videos.
+func isVevoChannel(channel string) bool {
+	return strings.HasSuffix(strings.ToLower(strings.TrimSpace(channel)), "vevo")
+}
+
+// isMusicVideo reports uploads that are videos rather than the released song.
+// A requested title that itself reads like a video title is left alone.
+func isMusicVideo(entry *searchEntry, req Request) bool {
+	if isMusicVideoTitle(req.Title) {
+		return false
+	}
+	return isMusicVideoTitle(entry.Title) || isVevoChannel(entry.Uploader) || isVevoChannel(entry.Channel)
+}
+
+func isNonMusicTitle(title string) bool {
 	title = strings.ToLower(title)
-	for _, bad := range []string{
-		"official music video",
-		"official video",
-		"music video",
-		"(official video)",
-		"[official video]",
-		"(mv)",
-		"[mv]",
-		" visualizer",
-	} {
+	for _, bad := range nonMusicTitlePhrases {
 		if strings.Contains(title, bad) {
 			return true
 		}
@@ -566,15 +597,12 @@ func isAudioPreferredTitle(title, channel string) bool {
 	for _, good := range []string{
 		"official audio",
 		"audio only",
-		"lyric",
-		" - topic",
-		"topic",
 	} {
 		if strings.Contains(combined, good) {
 			return true
 		}
 	}
-	return strings.HasSuffix(strings.ToLower(strings.TrimSpace(channel)), "- topic")
+	return topicChannelArtist(channel) != ""
 }
 
 func isLikelyLiveOrNonMusic(entry *searchEntry, req Request) bool {
@@ -585,11 +613,8 @@ func isLikelyLiveOrNonMusic(entry *searchEntry, req Request) bool {
 	if status == "is_live" || status == "is_upcoming" {
 		return true
 	}
-	title := strings.ToLower(entry.Title)
-	for _, bad := range []string{"official trailer", "behind the scenes", "interview", "reaction", "live stream", "livestream", "karaoke"} {
-		if strings.Contains(title, bad) {
-			return true
-		}
+	if isNonMusicTitle(entry.Title) || isMusicVideo(entry, req) {
+		return true
 	}
 	if isUnwantedLiveTitle(entry, req) {
 		return true
@@ -598,21 +623,13 @@ func isLikelyLiveOrNonMusic(entry *searchEntry, req Request) bool {
 		return true
 	}
 
-	// When we know the Spotify length, drop obvious music videos that are much longer
-	// (intros/outro skits) than the track.
+	// When we know the catalog length, drop uploads that run much longer than
+	// the track (intros, outros, skits).
 	if req.DurationMs > 0 && entry.Duration > 0 {
 		wantSec := float64(req.DurationMs) / 1000.0
-		delta := entry.Duration - wantSec
-		if isMusicVideoTitle(entry.Title) && delta > 25 {
+		if entry.Duration-wantSec > maxFloat(45, wantSec*0.25) {
 			return true
 		}
-		if delta > maxFloat(45, wantSec*0.25) {
-			return true
-		}
-	} else if isMusicVideoTitle(entry.Title) {
-		// Without a duration target, still prefer skipping clear MVs in the first pass
-		// by filtering them; soft fallback above can still pick them if needed.
-		return true
 	}
 	return false
 }
@@ -655,9 +672,6 @@ func scoreEntry(entry *searchEntry, req Request) float64 {
 	if isAudioPreferredTitle(rawTitle, rawChannel) {
 		score += 35
 	}
-	if isMusicVideoTitle(rawTitle) {
-		score -= 40
-	}
 
 	if req.DurationMs > 0 && entry.Duration > 0 {
 		wantSec := float64(req.DurationMs) / 1000.0
@@ -698,16 +712,21 @@ func maxFloat(a, b float64) float64 {
 	return b
 }
 
-func (r *Resolver) extractStream(ctx context.Context, entry *searchEntry) (*StreamInfo, error) {
-	target := entry.WebpageURL
-	if target == "" {
-		target = entry.URL
-	}
-	if target == "" && entry.ID != "" {
+func (r *Resolver) extractStream(ctx context.Context, entry *searchEntry) (*StreamInfo, songMeta, error) {
+	// Use the regular watch page even for YouTube Music hits so every track
+	// goes through the same yt-dlp client and format list.
+	target := ""
+	if entry.ID != "" {
 		target = "https://www.youtube.com/watch?v=" + entry.ID
 	}
 	if target == "" {
-		return nil, ErrNotFound
+		target = entry.WebpageURL
+	}
+	if target == "" {
+		target = entry.URL
+	}
+	if target == "" {
+		return nil, songMeta{}, ErrNotFound
 	}
 
 	// Prefer AAC/MP4/MP3 for HTML5 audio (Safari/iOS reject webm/opus).
@@ -750,7 +769,7 @@ func (r *Resolver) extractStream(ctx context.Context, entry *searchEntry) (*Stre
 					msg = err.Error()
 				}
 			}
-			return nil, fmt.Errorf("%w: extract: %s", ErrResolveFail, msg)
+			return nil, songMeta{}, fmt.Errorf("%w: extract: %s", ErrResolveFail, msg)
 		}
 	}
 
@@ -761,11 +780,16 @@ func (r *Resolver) extractStream(ctx context.Context, entry *searchEntry) (*Stre
 		Ext              string        `json:"ext"`
 		ACodec           string        `json:"acodec"`
 		Duration         float64       `json:"duration"`
+		Track            string        `json:"track"`
+		Artist           string        `json:"artist"`
+		Artists          []string      `json:"artists"`
+		Channel          string        `json:"channel"`
+		Uploader         string        `json:"uploader"`
 		RequestedFormats []formatProbe `json:"requested_formats"`
 		Formats          []formatProbe `json:"formats"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
-		return nil, fmt.Errorf("%w: decode extract: %v", ErrResolveFail, err)
+		return nil, songMeta{}, fmt.Errorf("%w: decode extract: %v", ErrResolveFail, err)
 	}
 
 	streamURL := payload.URL
@@ -811,7 +835,7 @@ func (r *Resolver) extractStream(ctx context.Context, entry *searchEntry) (*Stre
 		}
 	}
 	if streamURL == "" {
-		return nil, fmt.Errorf("%w: no browser-compatible audio format (need m4a/mp3/aac)", ErrNotFound)
+		return nil, songMeta{}, fmt.Errorf("%w: no browser-compatible audio format (need m4a/mp3/aac)", ErrNotFound)
 	}
 
 	videoID := payload.ID
@@ -829,14 +853,33 @@ func (r *Resolver) extractStream(ctx context.Context, entry *searchEntry) (*Stre
 		DurationMsFromStreamURL(streamURL),
 	)
 
-	return &StreamInfo{
+	info := &StreamInfo{
 		URL:         streamURL,
 		ContentType: contentTypeFor(ext, acodec),
 		Title:       title,
 		VideoID:     videoID,
 		Ext:         ext,
 		DurationMs:  durationMs,
-	}, nil
+	}
+	meta := songMeta{
+		Title:    title,
+		Track:    payload.Track,
+		Artist:   payload.Artist,
+		Artists:  payload.Artists,
+		Channel:  payload.Channel,
+		Uploader: payload.Uploader,
+		Duration: firstPositive(payload.Duration, entry.Duration),
+	}
+	return info, meta, nil
+}
+
+func firstPositive(values ...float64) float64 {
+	for _, v := range values {
+		if v > 0 {
+			return v
+		}
+	}
+	return 0
 }
 
 func contentTypeFor(ext, acodec string) string {
