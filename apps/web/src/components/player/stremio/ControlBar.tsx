@@ -1,6 +1,7 @@
 // Copyright (C) 2017-2023 Smart code 203358507
 // Adapted for JedFlix
 
+import { formatPlaybackClock } from "@/lib/playbackClock";
 import { useState } from "react";
 import { toDisplaySeconds, toPlayerTimeMs } from "./time";
 
@@ -21,16 +22,7 @@ type ControlBarProps = {
 };
 
 function formatTime(totalSeconds: number): string {
-  const safeSeconds = Math.floor(Math.max(0, totalSeconds));
-  const hours = Math.floor(safeSeconds / 3600);
-  const minutes = Math.floor((safeSeconds % 3600) / 60);
-  const seconds = safeSeconds % 60;
-  const paddedMinutes = minutes.toString().padStart(2, "0");
-  const paddedSeconds = seconds.toString().padStart(2, "0");
-  if (hours > 0) {
-    return `${hours}:${paddedMinutes}:${paddedSeconds}`;
-  }
-  return `${minutes}:${paddedSeconds}`;
+  return formatPlaybackClock(totalSeconds, true);
 }
 
 function PlayIcon() {

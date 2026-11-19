@@ -57,11 +57,11 @@ function queryTimelineElements(overlay: HTMLElement) {
 
   return {
     overlay,
-    word: word as unknown as HTMLElement,
-    leadLetter: leadLetter as unknown as HTMLElement,
-    trailingLetters: trailingLetters as unknown as HTMLElement[],
-    bloom: bloom as unknown as HTMLElement,
-    shineBand: shineBand as unknown as HTMLElement,
+    word,
+    leadLetter,
+    trailingLetters,
+    bloom,
+    shineBand,
   };
 }
 

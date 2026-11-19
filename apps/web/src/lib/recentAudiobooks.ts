@@ -1,3 +1,4 @@
+import { canUseStorage, createLocalStorageSnapshot } from "@/lib/localStorageSnapshot";
 import type { StreamSource } from "@/lib/streamApi";
 
 const STORAGE_KEY = "jedflix.audiobooks.recent";
@@ -30,13 +31,6 @@ export type RecentAudiobook = {
 };
 
 const EMPTY_RECENT: RecentAudiobook[] = [];
-
-let cachedRaw: string | null = null;
-let cachedBooks: RecentAudiobook[] = EMPTY_RECENT;
-
-function canUseStorage() {
-  return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
-}
 
 function isSavedStream(value: unknown): value is SavedAudiobookStream {
   if (!value || typeof value !== "object") {
@@ -84,38 +78,14 @@ function parseBooks(raw: string | null): RecentAudiobook[] {
   }
 }
 
-function writeBooks(list: RecentAudiobook[]): RecentAudiobook[] {
-  if (!canUseStorage()) {
-    return EMPTY_RECENT;
-  }
-  const serialized = JSON.stringify(list);
-  try {
-    window.localStorage.setItem(STORAGE_KEY, serialized);
-  } catch {
-    // Quota / private mode — ignore.
-  }
-  cachedRaw = serialized;
-  cachedBooks = list;
-  notifyRecentAudiobooksChanged();
-  return list;
-}
+const storage = createLocalStorageSnapshot(
+  STORAGE_KEY,
+  RECENT_EVENT,
+  EMPTY_RECENT,
+  parseBooks,
+);
 
-/**
- * Snapshot for useSyncExternalStore — must return a stable reference when
- * storage content is unchanged.
- */
-export function getRecentAudiobooksSnapshot(): RecentAudiobook[] {
-  if (!canUseStorage()) {
-    return EMPTY_RECENT;
-  }
-  const raw = window.localStorage.getItem(STORAGE_KEY);
-  if (raw === cachedRaw) {
-    return cachedBooks;
-  }
-  cachedRaw = raw;
-  cachedBooks = parseBooks(raw);
-  return cachedBooks;
-}
+export const getRecentAudiobooksSnapshot = storage.getSnapshot;
 
 export function loadRecentAudiobooks(): RecentAudiobook[] {
   return getRecentAudiobooksSnapshot();
@@ -219,7 +189,7 @@ export function recordRecentAudiobook(
     selectedStream: book.selectedStream ?? existing?.selectedStream,
   };
   const rest = getRecentAudiobooksSnapshot().filter((item) => item.id !== next.id);
-  return writeBooks([next, ...rest].slice(0, MAX_RECENT));
+  return storage.write([next, ...rest].slice(0, MAX_RECENT));
 }
 
 export function saveRecentAudiobookStream(
@@ -415,31 +385,9 @@ export function prependLastUsedAudiobookSource(
   return [lastUsed, ...rest];
 }
 
-export function notifyRecentAudiobooksChanged() {
-  if (typeof window === "undefined") {
-    return;
-  }
-  window.dispatchEvent(new Event(RECENT_EVENT));
-}
-
-export function subscribeRecentAudiobooks(onStoreChange: () => void) {
-  if (typeof window === "undefined") {
-    return () => {};
-  }
-  const handler = () => onStoreChange();
-  window.addEventListener("storage", handler);
-  window.addEventListener(RECENT_EVENT, handler);
-  return () => {
-    window.removeEventListener("storage", handler);
-    window.removeEventListener(RECENT_EVENT, handler);
-  };
-}
-
-/** Test helper — clears in-memory snapshot cache. */
-export function resetRecentAudiobooksCacheForTests() {
-  cachedRaw = null;
-  cachedBooks = EMPTY_RECENT;
-}
+export const notifyRecentAudiobooksChanged = storage.notify;
+export const subscribeRecentAudiobooks = storage.subscribe;
+export const resetRecentAudiobooksCacheForTests = storage.reset;
 
 export const RECENT_AUDIOBOOKS_LIMIT = MAX_RECENT;
 export const RECENT_AUDIOBOOKS_EVENT = RECENT_EVENT;

@@ -36,13 +36,13 @@ function mountOverlay() {
 function collectElements(overlay: HTMLElement) {
   return {
     overlay,
-    word: requireEl<HTMLElement>(overlay, "[data-startup='word']"),
-    leadLetter: requireEl<HTMLElement>(overlay, "[data-startup='letter-j']"),
+    word: requireEl<SVGGElement>(overlay, "[data-startup='word']"),
+    leadLetter: requireEl<SVGGElement>(overlay, "[data-startup='letter-j']"),
     trailingLetters: ["e", "d", "f", "l", "i", "x"].map((letter) =>
-      requireEl<HTMLElement>(overlay, `[data-startup='letter-${letter}']`),
+      requireEl<SVGGElement>(overlay, `[data-startup='letter-${letter}']`),
     ),
-    bloom: requireEl<HTMLElement>(overlay, "[data-startup='bloom']"),
-    shineBand: requireEl<HTMLElement>(overlay, "[data-startup='shine']"),
+    bloom: requireEl<SVGGElement>(overlay, "[data-startup='bloom']"),
+    shineBand: requireEl<SVGRectElement>(overlay, "[data-startup='shine']"),
   };
 }
 

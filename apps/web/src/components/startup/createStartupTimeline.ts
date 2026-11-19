@@ -3,11 +3,11 @@ import { LETTER_X, TRAILING_LETTERS, offsetToCenter } from "./logoLayout";
 
 export type StartupTimelineElements = {
   overlay: HTMLElement;
-  word: HTMLElement;
-  leadLetter: HTMLElement;
-  trailingLetters: HTMLElement[];
-  bloom: HTMLElement;
-  shineBand: HTMLElement;
+  word: SVGGElement;
+  leadLetter: SVGGElement;
+  trailingLetters: SVGGElement[];
+  bloom: SVGGElement;
+  shineBand: SVGRectElement;
   softGlowFilter?: SVGFilterElement | null;
 };
 
@@ -201,8 +201,8 @@ export function createStartupTimeline(
   tl.to(
     trailingLetters,
     {
-      x: (_i, target) => {
-        const index = trailingLetters.indexOf(target as HTMLElement);
+      x: (_index, target: SVGGElement) => {
+        const index = trailingLetters.indexOf(target);
         return trackingSpread[index] ?? 2;
       },
       duration: 0.22,

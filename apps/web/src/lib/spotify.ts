@@ -1,3 +1,4 @@
+import { formatPlaybackClock } from "@/lib/playbackClock";
 import {
   createStreamClient,
   type SpotifyAlbum,
@@ -125,13 +126,7 @@ export function getYoutubeAudioUrl(params: {
 }
 
 export function formatTrackDuration(durationMs: number): string {
-  if (!Number.isFinite(durationMs) || durationMs <= 0) {
-    return "0:00";
-  }
-  const totalSec = Math.floor(durationMs / 1000);
-  const minutes = Math.floor(totalSec / 60);
-  const seconds = totalSec % 60;
-  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+  return formatPlaybackClock(Number.isFinite(durationMs) ? durationMs / 1000 : 0);
 }
 
 export function pickRandomAlbum(albums: AlbumItem[]): AlbumItem | undefined {

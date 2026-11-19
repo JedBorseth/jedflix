@@ -1,3 +1,4 @@
+import { formatPlaybackClock } from "@/lib/playbackClock";
 import {
   ChevronDownIcon,
   Cross2Icon,
@@ -24,13 +25,7 @@ import { getAlbumDetailPath, getArtistPath } from "@/lib/spotify";
 import { cn } from "@/lib/utils";
 
 function formatClock(sec: number) {
-  if (!Number.isFinite(sec) || sec < 0) {
-    return "0:00";
-  }
-  const total = Math.floor(sec);
-  const minutes = Math.floor(total / 60);
-  const seconds = total % 60;
-  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+  return formatPlaybackClock(Number.isFinite(sec) ? sec : 0);
 }
 
 const SWIPE_DISTANCE = 72;

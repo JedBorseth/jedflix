@@ -1,3 +1,4 @@
+import { createLocalStorageSnapshot } from "@/lib/localStorageSnapshot";
 import type { SearchMode } from "@/lib/searchDebounce";
 
 export const SUCCESSFUL_SEARCHES_LIMIT = 5;
@@ -75,13 +76,6 @@ const EMPTY_STORE: SuccessfulSearchStore = {
   books: EMPTY_BOOKS,
   music: EMPTY_MUSIC,
 };
-
-let cachedRaw: string | null = null;
-let cachedStore: SuccessfulSearchStore = EMPTY_STORE;
-
-function canUseStorage() {
-  return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
-}
 
 function emptyList(category: SuccessfulSearchCategory): SuccessfulSearchItem[] {
   return EMPTY_BY_CATEGORY[category];
@@ -238,48 +232,26 @@ function parseStore(raw: string | null): SuccessfulSearchStore {
   }
 }
 
-function readStore(): SuccessfulSearchStore {
-  if (!canUseStorage()) {
-    return EMPTY_STORE;
-  }
-  const raw = window.localStorage.getItem(SUCCESSFUL_SEARCHES_STORAGE_KEY);
-  if (raw === cachedRaw) {
-    return cachedStore;
-  }
-  cachedRaw = raw;
-  cachedStore = parseStore(raw);
-  return cachedStore;
-}
+const storage = createLocalStorageSnapshot(
+  SUCCESSFUL_SEARCHES_STORAGE_KEY,
+  SUCCESSFUL_SEARCHES_EVENT,
+  EMPTY_STORE,
+  parseStore,
+);
 
-function writeStore(store: SuccessfulSearchStore): SuccessfulSearchStore {
-  if (!canUseStorage()) {
-    return EMPTY_STORE;
-  }
+function writeStore(store: SuccessfulSearchStore) {
   const next: SuccessfulSearchStore = {
     media: store.media.length > 0 ? store.media : EMPTY_MEDIA,
     books: store.books.length > 0 ? store.books : EMPTY_BOOKS,
     music: store.music.length > 0 ? store.music : EMPTY_MUSIC,
   };
-  const serialized = JSON.stringify({
-    media: next.media,
-    books: next.books,
-    music: next.music,
-  });
-  try {
-    window.localStorage.setItem(SUCCESSFUL_SEARCHES_STORAGE_KEY, serialized);
-  } catch {
-    // Quota / private mode — ignore.
-  }
-  cachedRaw = serialized;
-  cachedStore = next;
-  notifySuccessfulSearchesChanged();
-  return next;
+  return storage.write(next);
 }
 
 export function getSuccessfulSearchesSnapshot(
   category: SuccessfulSearchCategory,
 ): SuccessfulSearchItem[] {
-  const list = readStore()[category];
+  const list = storage.getSnapshot()[category];
   return list.length > 0 ? list : emptyList(category);
 }
 
@@ -301,7 +273,7 @@ export function recordSuccessfulSearch(
     return getSuccessfulSearchesSnapshot(category);
   }
 
-  const store = readStore();
+  const store = storage.getSnapshot();
   const current = store[category];
   const nextList = [
     sanitized,
@@ -315,28 +287,6 @@ export function recordSuccessfulSearch(
   return nextList;
 }
 
-export function notifySuccessfulSearchesChanged() {
-  if (typeof window === "undefined") {
-    return;
-  }
-  window.dispatchEvent(new Event(SUCCESSFUL_SEARCHES_EVENT));
-}
-
-export function subscribeSuccessfulSearches(onStoreChange: () => void) {
-  if (typeof window === "undefined") {
-    return () => {};
-  }
-  const handler = () => onStoreChange();
-  window.addEventListener("storage", handler);
-  window.addEventListener(SUCCESSFUL_SEARCHES_EVENT, handler);
-  return () => {
-    window.removeEventListener("storage", handler);
-    window.removeEventListener(SUCCESSFUL_SEARCHES_EVENT, handler);
-  };
-}
-
-/** Test helper — clears in-memory snapshot cache. */
-export function resetSuccessfulSearchesCacheForTests() {
-  cachedRaw = null;
-  cachedStore = EMPTY_STORE;
-}
+export const notifySuccessfulSearchesChanged = storage.notify;
+export const subscribeSuccessfulSearches = storage.subscribe;
+export const resetSuccessfulSearchesCacheForTests = storage.reset;

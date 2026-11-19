@@ -19,23 +19,6 @@ const streamClient = createStreamClient({
   apiBase: getBackendApiBase(),
 });
 
-export const bookSubjectRows = [
-  { title: "NYT Bestsellers", subject: "new_york_times_bestseller" },
-  { title: "Hugo Award Winners", subject: "hugo_award" },
-  { title: "Pulitzer Prize", subject: "pulitzer_prize_winner" },
-  { title: "Classics", subject: "classics" },
-  { title: "Science Fiction", subject: "science_fiction" },
-  { title: "Fantasy", subject: "fantasy" },
-  { title: "Mystery", subject: "mystery" },
-  { title: "Thrillers", subject: "thriller" },
-  { title: "Romance", subject: "romance" },
-  { title: "Horror", subject: "horror" },
-  { title: "True Crime", subject: "true_crime" },
-  { title: "Biography", subject: "biography" },
-  { title: "History", subject: "history" },
-  { title: "Young Adult", subject: "young_adult_fiction" },
-] as const;
-
 export function getBookDetailPath(book: Pick<BookItem, "id">) {
   return `/audiobook/${book.id}`;
 }
@@ -93,16 +76,6 @@ export async function getWorkDetails(workId: string): Promise<BookDetails> {
 
 export async function getAuthorDetails(authorId: string): Promise<AuthorDetails> {
   return streamClient.fetchOpenLibraryAuthor(authorId);
-}
-
-/** @deprecated Prefer getAudiobookBrowse for the home page. */
-export async function getSubjectBooks(
-  subject: string,
-  _options: { limit?: number; offset?: number } = {},
-): Promise<BookItem[]> {
-  const browse = await getAudiobookBrowse();
-  const row = browse.rows.find((entry) => entry.subject === subject);
-  return row?.books ?? [];
 }
 
 export function pickRandomBook(books: BookItem[]): BookItem | undefined {
