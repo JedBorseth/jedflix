@@ -44,6 +44,8 @@ services:
       COMET_URL: ${COMET_URL:-https://comet.feels.legal}
       MAX_VIDEO_SIZE_GB: ${MAX_VIDEO_SIZE_GB:-50}
       MIN_SEEDERS: ${MIN_SEEDERS:-3}
+      # Empty keeps the Go default (see internal/config).
+      RD_BLOCKED_FILENAME_REGEX: ${RD_BLOCKED_FILENAME_REGEX:-}
       CORS_ORIGINS: ${CORS_ORIGINS:-https://${DOMAIN}}
       LETTERBOXD_BASE_URL: ${LETTERBOXD_BASE_URL:-https://letterboxd.com}
       LETTERBOXD_CACHE_TTL: ${LETTERBOXD_CACHE_TTL:-1h}
