@@ -73,7 +73,7 @@ func (c *Client) AddMagnet(ctx context.Context, magnet string) (string, error) {
 	var resp struct {
 		ID string `json:"id"`
 	}
-	if err := c.postForm(ctx, "/torrents/addMagnet", form, &resp); err != nil {
+	if err := c.request(ctx, http.MethodPost, "/torrents/addMagnet", form, &resp); err != nil {
 		return "", err
 	}
 	return resp.ID, nil
@@ -90,19 +90,19 @@ func (c *Client) SelectFiles(ctx context.Context, torrentID string, fileIDs []in
 		}
 		form.Set("files", strings.Join(ids, ","))
 	}
-	return c.postForm(ctx, "/torrents/selectFiles/"+torrentID, form, nil)
+	return c.request(ctx, http.MethodPost, "/torrents/selectFiles/"+torrentID, form, nil)
 }
 
 func (c *Client) GetTorrentInfo(ctx context.Context, torrentID string) (*TorrentInfo, error) {
 	var info TorrentInfo
-	if err := c.getJSON(ctx, "/torrents/info/"+torrentID, &info); err != nil {
+	if err := c.request(ctx, http.MethodGet, "/torrents/info/"+torrentID, nil, &info); err != nil {
 		return nil, err
 	}
 	return &info, nil
 }
 
 func (c *Client) DeleteTorrent(ctx context.Context, torrentID string) error {
-	return c.delete(ctx, "/torrents/delete/"+torrentID)
+	return c.request(ctx, http.MethodDelete, "/torrents/delete/"+torrentID, nil, nil)
 }
 
 // WaitForFileList polls until Real Debrid has finished magnet conversion and
@@ -186,7 +186,7 @@ func (c *Client) UnrestrictLink(ctx context.Context, link string) (*UnrestrictRe
 	form := url.Values{}
 	form.Set("link", link)
 	var resp UnrestrictResponse
-	if err := c.postForm(ctx, "/unrestrict/link", form, &resp); err != nil {
+	if err := c.request(ctx, http.MethodPost, "/unrestrict/link", form, &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
@@ -368,13 +368,20 @@ func isBrowserCompatibleVideoFile(path string) bool {
 	return ext == ".mp4" || ext == ".m4v"
 }
 
-func (c *Client) postForm(ctx context.Context, path string, form url.Values, out any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiBase+path, strings.NewReader(form.Encode()))
+func (c *Client) request(ctx context.Context, method, path string, form url.Values, out any) error {
+	var body io.Reader
+	if form != nil {
+		body = strings.NewReader(form.Encode())
+	}
+	req, err := http.NewRequestWithContext(ctx, method, apiBase+path, body)
 	if err != nil {
 		return err
 	}
-	c.setHeaders(req)
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Accept", "application/json")
+	if form != nil {
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	}
 
 	resp, err := c.client.Do(req)
 	if err != nil {
@@ -390,46 +397,6 @@ func (c *Client) postForm(ctx context.Context, path string, form url.Values, out
 		return nil
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
-}
-
-func (c *Client) getJSON(ctx context.Context, path string, out any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiBase+path, nil)
-	if err != nil {
-		return err
-	}
-	c.setHeaders(req)
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return &APIError{Path: path, StatusCode: resp.StatusCode, Body: string(body)}
-	}
-	return json.NewDecoder(resp.Body).Decode(out)
-}
-
-func (c *Client) delete(ctx context.Context, path string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, apiBase+path, nil)
-	if err != nil {
-		return err
-	}
-	c.setHeaders(req)
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return &APIError{Path: path, StatusCode: resp.StatusCode, Body: string(body)}
-	}
-	return nil
 }
 
 func IsInfringingError(err error) bool {
@@ -454,9 +421,4 @@ func IsRateLimitError(err error) bool {
 		strings.Contains(body, "too_many_requests") ||
 		strings.Contains(body, `"error_code":34`) ||
 		strings.Contains(body, `"error_code": 34`)
-}
-
-func (c *Client) setHeaders(req *http.Request) {
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	req.Header.Set("Accept", "application/json")
 }
