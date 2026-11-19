@@ -5,6 +5,23 @@
 {$DOMAIN} {
 	encode gzip zstd
 
+    # Shooter crash inbox: HTTPS write-only; reports stay outside the web root.
+    handle /shooter/crashes {
+        request_body {
+            max_size 2097664
+        }
+        reverse_proxy 172.19.0.1:27011 {
+            request_buffers 2097664
+            transport http {
+                dial_timeout 3s
+                response_header_timeout 15s
+                read_timeout 15s
+                write_timeout 15s
+            }
+        }
+    }
+
+
 	# Canonical backend prefix.
 	handle /backend/* {
 		uri strip_prefix /backend
