@@ -127,3 +127,33 @@ test("Spotify imports detect running jobs beyond the old lookup cap and schedule
     error: "Spotify account was disconnected during import.",
   });
 });
+
+test("Spotify imports retire a running job whose worker stopped updating it", async () => {
+  vi.useFakeTimers();
+  const t = convexTest(schema, modules);
+  const { userId, orphanId } = await t.run(async (ctx) => {
+    const userId = await ctx.db.insert("users", {});
+    const orphanId = await ctx.db.insert("spotifyImportJobs", {
+      userId,
+      status: "running",
+      totalItems: 1,
+      completedItems: 0,
+      importedTracks: 0,
+      skippedTracks: 0,
+      createdAt: Date.now() - 3 * 60 * 60_000,
+      updatedAt: Date.now() - 3 * 60 * 60_000,
+    });
+    return { userId, orphanId };
+  });
+  const viewer = t.withIdentity({ subject: `${userId}|session` });
+
+  const jobId = await viewer.mutation(internal.spotifyImport.createJob, {
+    importLikedSongs: true,
+    playlists: [],
+  });
+  expect(jobId).not.toBe(orphanId);
+  expect(await t.run((ctx) => ctx.db.get(orphanId))).toMatchObject({
+    status: "failed",
+    error: "Import stopped unexpectedly.",
+  });
+});

@@ -38,6 +38,8 @@ const MAX_PLAYLISTS_PER_IMPORT = 50;
 /** Brief pause after rate-limit / between heavy batches. */
 const RETRY_DELAY_MS = 2_000;
 const BATCH_DELAY_MS = 0;
+// A healthy job bumps updatedAt every few seconds.
+const STALE_JOB_MS = 30 * 60_000;
 
 const jobProgressValidator = v.union(
   v.object({
@@ -271,11 +273,19 @@ export const createJob = internalMutation({
         q.eq("userId", userId).eq("status", "running"),
       )
       .first();
-    if (running) {
+    const now = Date.now();
+    if (running && now - running.updatedAt < STALE_JOB_MS) {
       throw new Error("An import is already running. Wait for it to finish.");
     }
+    if (running) {
+      // Jobs whose worker was never scheduled (or died) stop updating.
+      await ctx.db.patch(running._id, {
+        status: "failed",
+        error: "Import stopped unexpectedly.",
+        updatedAt: now,
+      });
+    }
 
-    const now = Date.now();
     const items: Array<{
       kind: "liked_songs" | "playlist";
       spotifyPlaylistId?: string;
