@@ -24,7 +24,7 @@ assert_not_contains() {
 
 # Repeated --since deploys the union of both diffs; unknown SHAs fall back
 # to app images only.
-union="$("${PLAN[@]}" --since "$(git -C "${ROOT}" rev-list --max-parents=0 HEAD | tail -1)" --since unknown-sha 2>/dev/null)"
+union="$("${PLAN[@]}" --since "$(git -C "${ROOT}" rev-list --max-parents=0 HEAD 2>/dev/null | tail -1)" --since unknown-sha 2>/dev/null)"
 assert_contains "${union}" "frontend"
 assert_contains "${union}" "backend"
 
