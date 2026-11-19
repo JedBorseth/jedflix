@@ -54,6 +54,7 @@ type Resolver struct {
 // the last waiter to leave cancels it so abandoned yt-dlp work frees a slot.
 type inflightCall struct {
 	waiters int
+	promote chan struct{}
 	cancel  context.CancelFunc
 	done    chan struct{}
 	info    StreamInfo
@@ -145,35 +146,37 @@ func NewResolverWithLimit(slots int) *Resolver {
 }
 
 func (r *Resolver) acquire(ctx context.Context, prefetch bool) error {
+	_, err := r.acquireSlot(ctx, prefetch, nil)
+	return err
+}
+
+// acquireSlot reports whether the slot also holds a prefetch permit.
+func (r *Resolver) acquireSlot(ctx context.Context, prefetch bool, promote <-chan struct{}) (bool, error) {
 	if r == nil || r.sem == nil {
-		return ctx.Err()
+		return false, ctx.Err()
 	}
 	if prefetch {
-		if r.prefetchGate == nil {
-			<-ctx.Done()
-			return ctx.Err()
-		}
 		select {
 		case r.prefetchGate <- struct{}{}:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-		select {
-		case r.sem <- struct{}{}:
-			return nil
-		case <-ctx.Done():
 			select {
-			case <-r.prefetchGate:
-			default:
+			case r.sem <- struct{}{}:
+				return true, nil
+			case <-ctx.Done():
+				<-r.prefetchGate
+				return false, ctx.Err()
+			case <-promote:
+				<-r.prefetchGate
 			}
-			return ctx.Err()
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-promote:
 		}
 	}
 	select {
 	case r.sem <- struct{}{}:
-		return nil
+		return false, nil
 	case <-ctx.Done():
-		return ctx.Err()
+		return false, ctx.Err()
 	}
 }
 
@@ -247,6 +250,10 @@ func (r *Resolver) joinInflight(key string, req Request) (*inflightCall, *Stream
 	}
 	if call, ok := r.inflight[key]; ok {
 		call.waiters++
+		if !req.Prefetch && call.promote != nil {
+			close(call.promote)
+			call.promote = nil
+		}
 		return call, nil
 	}
 
@@ -259,8 +266,11 @@ func (r *Resolver) joinInflight(key string, req Request) (*inflightCall, *Stream
 		cancel:  cancel,
 		done:    make(chan struct{}),
 	}
+	if req.Prefetch {
+		call.promote = make(chan struct{})
+	}
 	r.inflight[key] = call
-	go r.runInflight(resolveCtx, key, req, call)
+	go r.runInflight(resolveCtx, key, req, call, call.promote)
 	return call, nil
 }
 
@@ -280,7 +290,7 @@ func (r *Resolver) leaveInflight(key string, call *inflightCall) {
 	}
 }
 
-func (r *Resolver) runInflight(ctx context.Context, key string, req Request, call *inflightCall) {
+func (r *Resolver) runInflight(ctx context.Context, key string, req Request, call *inflightCall, promote <-chan struct{}) {
 	defer func() {
 		close(call.done)
 		r.mu.Lock()
@@ -291,7 +301,7 @@ func (r *Resolver) runInflight(ctx context.Context, key string, req Request, cal
 		call.cancel()
 	}()
 
-	info, err := r.resolveUncached(ctx, req)
+	info, err := r.resolveUncached(ctx, req, promote)
 	if err != nil {
 		call.err = err
 		return
@@ -308,16 +318,17 @@ func (r *Resolver) Invalidate(req Request) {
 	r.mu.Unlock()
 }
 
-func (r *Resolver) resolveUncached(ctx context.Context, req Request) (*StreamInfo, error) {
+func (r *Resolver) resolveUncached(ctx context.Context, req Request, promote <-chan struct{}) (*StreamInfo, error) {
 	if r.resolveUncachedFn == nil {
 		if _, err := exec.LookPath(r.ytdlpPath); err != nil {
 			return nil, ErrYtdlpMissing
 		}
 	}
-	if err := r.acquire(ctx, req.Prefetch); err != nil {
+	prefetchPermit, err := r.acquireSlot(ctx, req.Prefetch, promote)
+	if err != nil {
 		return nil, err
 	}
-	defer r.release(req.Prefetch)
+	defer r.release(prefetchPermit)
 
 	if r.resolveUncachedFn != nil {
 		return r.resolveUncachedFn(ctx, req)
@@ -352,7 +363,7 @@ func (r *Resolver) resolveUncached(ctx context.Context, req Request) (*StreamInf
 
 func cacheKey(req Request) string {
 	if req.VideoID != "" {
-		return "vid\x00" + strings.ToLower(req.VideoID)
+		return "vid\x00" + req.VideoID
 	}
 	return strings.ToLower(req.Artist) + "\x00" +
 		strings.ToLower(req.Title) + "\x00" +

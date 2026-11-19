@@ -265,3 +265,55 @@ func TestPrefetchAndPlaybackAcquireDoNotDeadlock(t *testing.T) {
 	}()
 	wg.Wait()
 }
+
+func TestPlaybackPromotesPrefetchWaitingForCapacity(t *testing.T) {
+	r := NewResolverWithLimit(2)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := r.acquire(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	defer r.release(true)
+
+	r.resolveUncachedFn = func(_ context.Context, _ Request) (*StreamInfo, error) {
+		return &StreamInfo{VideoID: "Abcdef12345"}, nil
+	}
+	req := Request{VideoID: "Abcdef12345", Prefetch: true}
+	key := cacheKey(req)
+	// Register the prefetch first while its only permit is occupied.
+	prefetch, cached := r.joinInflight(key, req)
+	if cached != nil {
+		t.Fatal("unexpected cached stream")
+	}
+	defer r.leaveInflight(key, prefetch)
+
+	req.Prefetch = false
+	info, err := r.Resolve(ctx, req)
+	if err != nil || info.VideoID != req.VideoID {
+		t.Fatalf("playback did not use the free slot: info=%+v, err=%v", info, err)
+	}
+	select {
+	case <-prefetch.done:
+		if prefetch.err != nil || prefetch.info != *info {
+			t.Fatalf("prefetch did not share the playback result: %+v, %v", prefetch.info, prefetch.err)
+		}
+	default:
+		t.Fatal("prefetch is still waiting for capacity")
+	}
+	if cached, ok := r.getCached(key); !ok || cached != *info {
+		t.Fatalf("shared cache did not receive the result: %+v", cached)
+	}
+}
+
+func TestResolveKeepsVideoIDCaseInCache(t *testing.T) {
+	r := NewResolverWithLimit(1)
+	r.resolveUncachedFn = func(_ context.Context, req Request) (*StreamInfo, error) {
+		return &StreamInfo{VideoID: req.VideoID}, nil
+	}
+	for _, id := range []string{"Abcdef12345", "abcdef12345"} {
+		info, err := r.Resolve(context.Background(), Request{VideoID: id})
+		if err != nil || info.VideoID != id {
+			t.Fatalf("Resolve(%q) = %+v, %v", id, info, err)
+		}
+	}
+}
