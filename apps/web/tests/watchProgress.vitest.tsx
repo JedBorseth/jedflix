@@ -42,3 +42,34 @@ test("saves during continuous playback and flushes the current episode on stop a
     clock.mockRestore();
   }
 });
+
+test("retries a rejected periodic write when playback stops at the same position", async () => {
+  const client = new ConvexReactClient("https://example.convex.cloud");
+  let rejectWrite!: (error: Error) => void;
+  const pending = new Promise<never>((_, reject) => {
+    rejectWrite = reject;
+  });
+  const mutation = vi.spyOn(client, "mutation").mockResolvedValue(null).mockReturnValueOnce(pending);
+  const { result, unmount } = renderHook(() => useWatchProgressSaver(42, "tv", 1, 1), {
+    wrapper: ({ children }: PropsWithChildren) => (
+      <ConvexProvider client={client}>{children}</ConvexProvider>
+    ),
+  });
+
+  try {
+    result.current.update(12);
+    result.current.flush();
+    expect(mutation).toHaveBeenCalledTimes(1);
+
+    rejectWrite(new Error("Write failed"));
+    await pending.catch(() => {});
+    result.current.finish(12);
+    expect(mutation.mock.calls.map(([, args]) => args?.progressSeconds)).toEqual([12, 12]);
+
+    await Promise.resolve();
+    result.current.flush();
+    expect(mutation).toHaveBeenCalledTimes(2);
+  } finally {
+    unmount();
+  }
+});

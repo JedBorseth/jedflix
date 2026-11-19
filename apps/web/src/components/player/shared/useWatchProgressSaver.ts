@@ -15,8 +15,10 @@ export function useWatchProgressSaver(
 
   const saver = useMemo(() => {
     let latest: number | undefined;
-    let lastSaved: number | undefined;
-    let lastSavedAt = -Infinity;
+    let lastSaved: { seconds: number; sequence: number } | undefined;
+    let inFlight: typeof lastSaved;
+    let sequence = 0;
+    let lastAttemptAt = -Infinity;
 
     const record = (seconds: number) => {
       if (Number.isFinite(seconds) && seconds > 0) {
@@ -25,24 +27,39 @@ export function useWatchProgressSaver(
     };
 
     const flush = () => {
-      if (latest === undefined || latest === lastSaved) {
+      if (latest === undefined || latest === (inFlight ?? lastSaved)?.seconds) {
         return;
       }
-      lastSaved = latest;
-      lastSavedAt = performance.now();
+      const write = { seconds: latest, sequence: ++sequence };
+      inFlight = write;
+      lastAttemptAt = performance.now();
       void upsertProgress({
         movieId,
         mediaType,
-        progressSeconds: latest,
+        progressSeconds: write.seconds,
         season,
         episode,
-      }).catch(() => {});
+      }).then(
+        () => {
+          if (!lastSaved || write.sequence > lastSaved.sequence) {
+            lastSaved = write;
+          }
+          if (inFlight === write) {
+            inFlight = undefined;
+          }
+        },
+        () => {
+          if (inFlight === write) {
+            inFlight = undefined;
+          }
+        },
+      );
     };
 
     return {
       update(seconds: number) {
         record(seconds);
-        if (performance.now() - lastSavedAt >= SAVE_INTERVAL_MS) {
+        if (performance.now() - lastAttemptAt >= SAVE_INTERVAL_MS) {
           flush();
         }
       },
