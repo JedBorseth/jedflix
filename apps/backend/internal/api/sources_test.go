@@ -44,7 +44,7 @@ func TestAudiobookSourceErrorsIdentifyUpstreamFailure(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			client := abb.NewClient("https://audiobookbay.lu", &http.Client{Transport: abbSourceTransport{status: test.status}})
-			service := resolver.NewService(config.Config{}, nil, nil, client)
+			service := resolver.NewService(config.Config{}, nil, client)
 			server := NewServer(config.Config{}, service, nil, nil, nil, nil, nil, nil)
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/sources", strings.NewReader(`{"type":"audiobook","title":"Dune"}`))
 			rec := httptest.NewRecorder()

@@ -24,11 +24,6 @@ type Client struct {
 	client *http.Client
 }
 
-func NewClient(cfg config.Config) *Client {
-	// Resolve always uses the caller's BYO Real Debrid token via NewClientWithToken.
-	return NewClientWithToken(cfg, "")
-}
-
 func NewClientWithToken(cfg config.Config, token string) *Client {
 	client := cfg.HTTPClient()
 	client.Timeout = 60 * time.Second
@@ -57,13 +52,6 @@ type TorrentInfo struct {
 	Links    []string      `json:"links"`
 	// Present while status is downloading or magnet_conversion.
 	Seeders *int `json:"seeders,omitempty"`
-}
-
-type TorrentListItem struct {
-	ID       string `json:"id"`
-	Filename string `json:"filename"`
-	Hash     string `json:"hash"`
-	Status   string `json:"status"`
 }
 
 type TorrentFile struct {
@@ -111,14 +99,6 @@ func (c *Client) GetTorrentInfo(ctx context.Context, torrentID string) (*Torrent
 		return nil, err
 	}
 	return &info, nil
-}
-
-func (c *Client) ListTorrents(ctx context.Context) ([]TorrentListItem, error) {
-	var torrents []TorrentListItem
-	if err := c.getJSON(ctx, "/torrents", &torrents); err != nil {
-		return nil, err
-	}
-	return torrents, nil
 }
 
 func (c *Client) DeleteTorrent(ctx context.Context, torrentID string) error {
@@ -210,10 +190,6 @@ func (c *Client) UnrestrictLink(ctx context.Context, link string) (*UnrestrictRe
 		return nil, err
 	}
 	return &resp, nil
-}
-
-func PickLargestVideoFile(files []TorrentFile) (TorrentFile, bool) {
-	return pickBestVideoFile(files, nil)
 }
 
 var (

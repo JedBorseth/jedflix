@@ -16,7 +16,6 @@ type Config struct {
 	CometURL                   string
 	MaxVideoSizeGB             float64
 	MinSeeders                 int
-	PreferInstant              bool
 	BlockedKeywords            []string
 	RDBlockedFilenameRegex     string
 	MaxResolution              int
@@ -74,7 +73,6 @@ func Load() Config {
 		CometURL:                   strings.TrimRight(envOr("COMET_URL", "https://comet.feels.legal"), "/"),
 		MaxVideoSizeGB:             envFloat("MAX_VIDEO_SIZE_GB", 50),
 		MinSeeders:                 envInt("MIN_SEEDERS", 3),
-		PreferInstant:              envBool("PREFER_INSTANT", true),
 		BlockedKeywords:            splitCSV(envOr("BLOCKED_KEYWORDS", "cam,ts,telesync,hdcam")),
 		RDBlockedFilenameRegex:     envOr("RD_BLOCKED_FILENAME_REGEX", `web-dl|webrip|bdrip|hdrip|dvdrip|BluRay\.x264|HDTV\.x264|HDTV\.XviD|WEB\.x264|WEB\.h264`),
 		MaxResolution:              envInt("MAX_RESOLUTION", 2160),
@@ -207,21 +205,6 @@ func envDuration(key string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return d
-}
-
-func envBool(key string, fallback bool) bool {
-	v := os.Getenv(key)
-	if v == "" {
-		return fallback
-	}
-	switch strings.ToLower(v) {
-	case "1", "true", "yes", "on":
-		return true
-	case "0", "false", "no", "off":
-		return false
-	default:
-		return fallback
-	}
 }
 
 func splitCSV(value string) []string {

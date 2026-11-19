@@ -95,16 +95,14 @@ func (e *ResolveError) Error() string {
 type Service struct {
 	cfg        config.Config
 	searcher   search.Searcher
-	rd         *realdebrid.Client
 	abb        *abb.Client
 	filterOpts search.FilterOptions
 }
 
-func NewService(cfg config.Config, searcher search.Searcher, rd *realdebrid.Client, abbClient *abb.Client) *Service {
+func NewService(cfg config.Config, searcher search.Searcher, abbClient *abb.Client) *Service {
 	return &Service{
 		cfg:        cfg,
 		searcher:   searcher,
-		rd:         rd,
 		abb:        abbClient,
 		filterOpts: search.FilterOptionsFromConfig(cfg),
 	}
@@ -151,9 +149,7 @@ func (s *Service) listVideoSources(ctx context.Context, req Request) ([]Source, 
 		return nil, fmt.Errorf("no streams passed filters")
 	}
 
-	// InstantAvailability was permanently disabled by Real Debrid — skip it to avoid
-	// wasted API calls that count toward the 250 req/min rate limit.
-	ranked := search.ScorePick(filtered, map[string]bool{}, false)
+	ranked := search.ScorePick(filtered)
 	return toSources(ranked), nil
 }
 

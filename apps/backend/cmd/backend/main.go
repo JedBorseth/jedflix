@@ -20,7 +20,6 @@ import (
 	"github.com/jedborseth/jeds-movies/backend/internal/musicbrainz/local"
 	"github.com/jedborseth/jeds-movies/backend/internal/musicrec"
 	"github.com/jedborseth/jeds-movies/backend/internal/openlibrary"
-	"github.com/jedborseth/jeds-movies/backend/internal/realdebrid"
 	"github.com/jedborseth/jeds-movies/backend/internal/resolver"
 	"github.com/jedborseth/jeds-movies/backend/internal/search"
 	"github.com/jedborseth/jeds-movies/backend/internal/tmdb"
@@ -35,7 +34,6 @@ func main() {
 	defer stop()
 
 	searcher := search.NewCometSearcher(cfg)
-	rd := realdebrid.NewClient(cfg)
 	abbClient := abb.NewClientWithOptions(abb.ClientOptions{
 		BaseURL:    cfg.AbbBaseURL,
 		Username:   cfg.AbbUsername,
@@ -48,7 +46,7 @@ func main() {
 	if scheme := cfg.AbbProxyScheme(); scheme != "" {
 		log.Printf("AudiobookBay egress via %s proxy (other backend traffic is direct)", scheme)
 	}
-	resolverService := resolver.NewService(cfg, searcher, rd, abbClient)
+	resolverService := resolver.NewService(cfg, searcher, abbClient)
 	letterboxdClient := letterboxd.NewClient(cfg)
 	openLibraryClient := openlibrary.NewClient(cfg)
 	openLibraryClient.Start(ctx)

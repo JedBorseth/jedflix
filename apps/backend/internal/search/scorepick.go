@@ -75,14 +75,14 @@ func passesFilters(release Release, opts FilterOptions, maxBytes int64) bool {
 	return true
 }
 
-func ScorePick(releases []Release, instant map[string]bool, preferInstant bool) []Release {
+func ScorePick(releases []Release) []Release {
 	type scored struct {
 		release Release
 		score   int
 	}
 	scoredReleases := make([]scored, 0, len(releases))
 	for _, release := range releases {
-		score := scoreRelease(release, instant, preferInstant)
+		score := scoreRelease(release)
 		scoredReleases = append(scoredReleases, scored{release: release, score: score})
 	}
 
@@ -101,13 +101,10 @@ func ScorePick(releases []Release, instant map[string]bool, preferInstant bool) 
 	return out
 }
 
-func scoreRelease(release Release, instant map[string]bool, preferInstant bool) int {
+func scoreRelease(release Release) int {
 	score := 0
 	label := release.Title + " " + release.Info
 
-	if preferInstant && release.InfoHash != "" && instant[strings.ToLower(release.InfoHash)] {
-		score += 1000
-	}
 	if IsDirectPlaybackIncompatible(label) {
 		score -= 500
 	}
