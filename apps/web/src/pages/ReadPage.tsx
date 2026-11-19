@@ -210,12 +210,14 @@ export function ReadPage() {
             ) : null}
 
             {isEpub(activeFile) ? (
-              <EpubReader
-                key={JSON.stringify([workId, activeFile.fileId, activeFile.index, activeFile.url])}
-                streamUrl={activeFile.url}
-                initialLocation={resumeFileIndex === activeFile.index ? savedProgress?.location : undefined}
-                onLocationChange={onLocationChange}
-              />
+              history !== undefined && (
+                <EpubReader
+                  key={JSON.stringify([workId, activeFile.fileId, activeFile.index, activeFile.url])}
+                  streamUrl={activeFile.url}
+                  initialLocation={resumeFileIndex === activeFile.index ? savedProgress?.location : undefined}
+                  onLocationChange={onLocationChange}
+                />
+              )
             ) : isPdf(activeFile) ? (
               <iframe
                 title={activeFile.filename}
