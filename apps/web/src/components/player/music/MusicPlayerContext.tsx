@@ -219,8 +219,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   /** Once the user reorders/removes/adds, stop auto-syncing from the playlist source. */
   const queueDirtyRef = useRef(false);
   const prefetchedIdsRef = useRef<Set<string>>(new Set());
-  /** Trusted playback duration (seconds). Prefer yt-dlp, then catalog — never inflated HTML5. */
-  const playbackDurationSecRef = useRef(0);
+  const displayDurationSecRef = useRef(0);
+  const resolvedDurationSecRef = useRef(0);
   const resolvedDurationSecByIdRef = useRef<Map<string, number>>(new Map());
   const resumeAtSecRef = useRef(0);
   const errorRetryRef = useRef(0);
@@ -235,8 +235,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     ) => boolean
   >(() => false);
   const metadataAbortRef = useRef<AbortController | null>(null);
-  /** Prevents double-advance when catalog end and stream `ended` both fire. */
-  const catalogEndedRef = useRef(false);
+  const trackEndedRef = useRef(false);
   const [queueState, setQueueState] = useState<{ queue: MusicQueueTrack[]; queueIndex: number }>({
     queue: [],
     queueIndex: 0,
@@ -268,6 +267,13 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const playHistoryRef = useRef<MusicQueueTrack[]>([]);
   const infiniteRefillInFlightRef = useRef<symbol | null>(null);
   const logMusic = useMusicInteractionLog();
+
+  const beginQueueSession = useCallback(() => {
+    infiniteRefillInFlightRef.current = null;
+    upcomingRecommendationsRef.current = [];
+    setUpcomingRecommendations([]);
+    return ++queueSessionRef.current;
+  }, []);
 
   const clearStallTimer = () => {
     window.clearTimeout(stallTimerRef.current);
@@ -455,10 +461,11 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         playable.durationMs > 0 ? playable.durationMs / 1000 : 0;
       const resolvedSec =
         resolvedDurationSecByIdRef.current.get(playable.id) ?? 0;
-      const trustedSec = pickMusicDurationSec({ catalogSec, resolvedSec });
-      playbackDurationSecRef.current = trustedSec;
-      catalogEndedRef.current = false;
-      setDuration(trustedSec);
+      const displaySec = pickMusicDurationSec({ catalogSec, resolvedSec });
+      displayDurationSecRef.current = displaySec;
+      resolvedDurationSecRef.current = resolvedSec;
+      trackEndedRef.current = false;
+      setDuration(displaySec);
       metadataAbortRef.current?.abort();
       const metadataAbort = new AbortController();
       metadataAbortRef.current = metadataAbort;
@@ -473,13 +480,14 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         }
         if (meta.durationMs && meta.durationMs > 0) {
           const nextResolved = meta.durationMs / 1000;
+          resolvedDurationSecRef.current = nextResolved;
           resolvedDurationSecByIdRef.current.set(playable.id, nextResolved);
-          const nextTrusted = pickMusicDurationSec({
+          const nextDisplaySec = pickMusicDurationSec({
             catalogSec,
             resolvedSec: nextResolved,
           });
-          playbackDurationSecRef.current = nextTrusted;
-          setDuration(nextTrusted);
+          displayDurationSecRef.current = nextDisplaySec;
+          setDuration(nextDisplaySec);
         }
       });
       // Assigning src selects the resource. Avoid audio.load() here — it aborts a
@@ -523,7 +531,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         index = 0;
       }
       consecutiveFailSkipRef.current = 0;
-      const session = ++queueSessionRef.current;
+      const session = beginQueueSession();
       queueDirtyRef.current = false;
       prefetchedIdsRef.current = new Set([track.id]);
       playHistoryRef.current = [];
@@ -538,7 +546,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       loadAndPlay(list[index] ?? track, { immediatePlay: true });
       return session;
     },
-    [commitQueue, loadAndPlay, logMusic],
+    [beginQueueSession, commitQueue, loadAndPlay, logMusic],
   );
 
   const syncPartyQueue = useCallback((tracks: MusicQueueTrack[]) => {
@@ -598,7 +606,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       if (!startTrack) {
         return;
       }
-      queueSessionRef.current += 1;
+      beginQueueSession();
       consecutiveFailSkipRef.current = 0;
       queueDirtyRef.current = false;
       prefetchedIdsRef.current = new Set([startTrack.id]);
@@ -607,7 +615,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       setQueueOpen(false);
       loadAndPlay(startTrack, { immediatePlay: true });
     },
-    [commitQueue, loadAndPlay],
+    [beginQueueSession, commitQueue, loadAndPlay],
   );
 
   const playQueueIndex = useCallback(
@@ -707,6 +715,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       }
       queueDirtyRef.current = true;
       if (queue.length === 1) {
+        beginQueueSession();
         writePlayIntent(false);
         writeAudible(false);
         setHasData(false);
@@ -724,7 +733,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         setQueueOpen(false);
         setCurrentTime(0);
         setDuration(0);
-        playbackDurationSecRef.current = 0;
+        displayDurationSecRef.current = 0;
+        resolvedDurationSecRef.current = 0;
         setError(null);
         return;
       }
@@ -743,7 +753,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         }
       }
     },
-    [commitQueue, loadAndPlay, writeAudible, writePlayIntent],
+    [beginQueueSession, commitQueue, loadAndPlay, writeAudible, writePlayIntent],
   );
 
   const clearUpcoming = useCallback(() => {
@@ -973,11 +983,11 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       return false;
     }
     const currentTrack = list[index];
-    if (currentTrack && !catalogEndedRef.current) {
-      const catalogSec = playbackDurationSecRef.current;
+    if (currentTrack && !trackEndedRef.current) {
+      const displaySec = displayDurationSecRef.current;
       const audio = audioRef.current;
       const progress =
-        catalogSec > 0 && audio ? audio.currentTime / catalogSec : 0;
+        displaySec > 0 && audio ? audio.currentTime / displaySec : 0;
       logMusic({
         kind: progress >= 0.8 ? "complete" : "skip",
         trackId: currentTrack.id,
@@ -1053,12 +1063,11 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   );
   applyPlaybackFailureRef.current = applyPlaybackFailure;
 
-  /** Advance on catalog end (Spotify length) or real stream EOF — YouTube often outlasts the song. */
   const handleTrackEnded = useCallback(() => {
-    if (catalogEndedRef.current) {
+    if (trackEndedRef.current) {
       return;
     }
-    catalogEndedRef.current = true;
+    trackEndedRef.current = true;
     const { queue, queueIndex } = queueStateRef.current;
     const currentTrack = queue[queueIndex];
     if (currentTrack) {
@@ -1193,21 +1202,19 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       audio.load();
     }
     prefetchedIdsRef.current = new Set();
-    playbackDurationSecRef.current = 0;
-    catalogEndedRef.current = false;
-    queueSessionRef.current += 1;
+    displayDurationSecRef.current = 0;
+    resolvedDurationSecRef.current = 0;
+    trackEndedRef.current = false;
+    beginQueueSession();
     queueDirtyRef.current = false;
     playHistoryRef.current = [];
-    upcomingRecommendationsRef.current = [];
-    infiniteRefillInFlightRef.current = null;
     commitQueue([], 0);
     setExpanded(false);
     setQueueOpen(false);
-    setUpcomingRecommendations([]);
     setCurrentTime(0);
     setDuration(0);
     setError(null);
-  }, [commitQueue, writeAudible, writePlayIntent]);
+  }, [beginQueueSession, commitQueue, writeAudible, writePlayIntent]);
 
   const handleSetExpanded = useCallback((nextExpanded: boolean) => {
     setExpanded(nextExpanded);
@@ -1379,8 +1386,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           applyAudibleEvent("canplay", audio);
           if (resumeAtSecRef.current > 1) {
             const max =
-              playbackDurationSecRef.current > 0
-                ? playbackDurationSecRef.current
+              displayDurationSecRef.current > 0
+                ? displayDurationSecRef.current
                 : audio.duration;
             if (Number.isFinite(max) && max > 0) {
               try {
@@ -1402,24 +1409,23 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
             return;
           }
           const time = audio.currentTime;
-          const trustedSec = playbackDurationSecRef.current;
-          if (trustedSec > 0) {
-            setCurrentTime(Math.min(time, trustedSec));
-            // Advance at the catalog end when the stream outlasts the song.
-            if (time >= trustedSec - 0.25) {
-              handleTrackEnded();
-            }
-            return;
+          const displaySec = displayDurationSecRef.current;
+          setCurrentTime(displaySec > 0 ? Math.min(time, displaySec) : time);
+          const mediaSec = audio.duration;
+          const streamSec = Number.isFinite(mediaSec) && mediaSec > 0
+            ? mediaSec
+            : resolvedDurationSecRef.current;
+          if (!audio.ended && streamSec > 0 && time >= streamSec) {
+            handleTrackEnded();
           }
-          setCurrentTime(time);
         }}
         onLoadedMetadata={(event) => {
           const audio = event.currentTarget;
           // Never copy HTML5 audio.duration — proxied YouTube AAC often reports ~2×.
           if (resumeAtSecRef.current > 1) {
             const max =
-              playbackDurationSecRef.current > 0
-                ? playbackDurationSecRef.current
+              displayDurationSecRef.current > 0
+                ? displayDurationSecRef.current
                 : audio.duration;
             if (Number.isFinite(max) && max > 0) {
               try {
@@ -1460,6 +1466,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           });
         }}
         onEnded={(event) => {
+          if (!event.currentTarget.ended) {
+            return;
+          }
           applyAudibleEvent("ended", event.currentTarget);
           handleTrackEnded();
         }}

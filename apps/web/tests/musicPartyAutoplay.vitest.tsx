@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, expect, test, vi } from "vitest";
-import { act, cleanup, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import {
   MusicPlayerProvider,
   useMusicPlayer,
@@ -170,4 +170,116 @@ test("Infinite Queue merges a pending refill with manual queue edits", async () 
   expect(queuedIds.filter((id) => id === "manual")).toHaveLength(1);
   expect(player.queueIndex).toBe(0);
   expect(player.current?.id).toBe("second");
+});
+
+test.each([
+  ["ended", 400],
+  ["timeupdate", 200],
+  ["timeupdate", Infinity],
+] as const)("advances at the recording end via %s with media duration %s", async (endEvent, mediaDuration) => {
+  vi.useFakeTimers();
+  vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+  vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(null, {
+    headers: { "X-Audio-Duration-Ms": "200000" },
+  })));
+
+  const first = {
+    id: "one",
+    title: "One",
+    artists: ["Artist"],
+    albumName: "Album",
+    imageUrl: "",
+    durationMs: 180000,
+  };
+  const second = { ...first, id: "two", title: "Two" };
+  const { container } = render(
+    <MusicPlayerProvider>
+      <Probe />
+    </MusicPlayerProvider>,
+  );
+  const audio = container.querySelector("audio")!;
+  Object.defineProperties(audio, {
+    duration: { value: mediaDuration },
+    paused: { value: false },
+    readyState: { value: 4 },
+  });
+
+  await act(async () => {
+    player.playTrack(first, [first, second]);
+  });
+  expect(player.duration).toBe(180);
+
+  audio.currentTime = 180;
+  fireEvent.timeUpdate(audio);
+  expect(player.current?.id).toBe(first.id);
+  expect(player.currentTime).toBe(180);
+
+  audio.currentTime = 199.9;
+  fireEvent.timeUpdate(audio);
+  expect(player.current?.id).toBe(first.id);
+
+  audio.currentTime = 200;
+  if (endEvent === "ended") {
+    Object.defineProperty(audio, "ended", { value: true });
+  }
+  await act(async () => {
+    fireEvent(audio, new Event(endEvent));
+  });
+  expect(player.current?.id).toBe(second.id);
+});
+
+test("a new queue refills while the previous queue's recommendation request is pending", async () => {
+  vi.useFakeTimers();
+  vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+  vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+
+  let resolveOldRefill!: (response: Response) => void;
+  const oldRefill = new Promise<Response>((resolve) => {
+    resolveOldRefill = resolve;
+  });
+  const track = (id: string) => ({
+    id,
+    title: id,
+    name: id,
+    artists: ["Artist"],
+    artistIds: [],
+    albumName: "Album",
+    imageUrl: "",
+    durationMs: 180000,
+  });
+  const seeds: string[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: string, init?: RequestInit) => {
+    if (input.endsWith("/music/recommend")) {
+      const { seed } = JSON.parse(String(init?.body));
+      seeds.push(seed.id);
+      return seed.id === "old"
+        ? oldRefill
+        : Response.json({ tracks: [track(`new-rec-${seeds.length}`)] });
+    }
+    return new Response(null);
+  }));
+  render(
+    <MusicPlayerProvider>
+      <Probe />
+    </MusicPlayerProvider>,
+  );
+
+  await act(async () => {
+    player.playTrack(track("old"));
+    player.setInfiniteQueue(true);
+  });
+  expect(seeds).toEqual(["old"]);
+
+  await act(async () => {
+    player.playTrack(track("new"));
+  });
+  expect(seeds.slice(0, 2)).toEqual(["old", "new"]);
+  const newQueueIds = player.queue.map(({ id }) => id);
+  expect(newQueueIds.slice(0, 2)).toEqual(["new", "new-rec-2"]);
+
+  await act(async () => {
+    resolveOldRefill(Response.json({ tracks: [track("old-rec")] }));
+  });
+  expect(player.queue.map(({ id }) => id)).toEqual(newQueueIds);
 });
