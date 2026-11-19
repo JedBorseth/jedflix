@@ -3,7 +3,10 @@ package search
 import (
 	"regexp"
 	"strings"
+	"sync"
 )
+
+var blockedFilenamePatterns sync.Map
 
 func IsRDBlockedFilename(title, pattern string) bool {
 	title = strings.TrimSpace(title)
@@ -12,9 +15,11 @@ func IsRDBlockedFilename(title, pattern string) bool {
 		return false
 	}
 
-	re, err := regexp.Compile("(?i)" + pattern)
-	if err != nil {
-		return false
+	cached, ok := blockedFilenamePatterns.Load(pattern)
+	if !ok {
+		re, _ := regexp.Compile("(?i)" + pattern)
+		cached, _ = blockedFilenamePatterns.LoadOrStore(pattern, re)
 	}
-	return re.MatchString(title)
+	re := cached.(*regexp.Regexp)
+	return re != nil && re.MatchString(title)
 }
