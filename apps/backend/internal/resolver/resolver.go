@@ -161,7 +161,7 @@ func (s *Service) listVideoSources(ctx context.Context, req Request) ([]Source, 
 	}
 
 	ranked := search.ScorePick(filtered)
-	return toSources(ranked), nil
+	return toSources(dedupeReleases(ranked)), nil
 }
 
 func (s *Service) listBookSources(ctx context.Context, req Request) ([]Source, error) {
@@ -729,6 +729,24 @@ func mapRDError(err error) error {
 	}
 	// Surface raw RD API details instead of a generic gateway failure.
 	return &ResolveError{Code: "no_links", Message: msg}
+}
+
+// dedupeReleases keeps the best-ranked row for each torrent file.
+func dedupeReleases(releases []search.Release) []search.Release {
+	seen := make(map[string]struct{}, len(releases))
+	out := releases[:0:0]
+	for _, release := range releases {
+		key := release.InfoHash
+		if release.FileIdx != nil {
+			key = fmt.Sprintf("%s:%d", key, *release.FileIdx)
+		}
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, release)
+	}
+	return out
 }
 
 func toSources(releases []search.Release) []Source {
