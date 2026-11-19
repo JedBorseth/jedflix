@@ -24,9 +24,17 @@ if (runOnceWorkflow && config.SETUP_SCRIPT_RAN !== undefined) {
   process.exit(0);
 }
 
-// The fallback should never be used.
-const deploymentName =
-  config.CONVEX_DEPLOYMENT.split(":").slice(-1)[0] ?? "<your deployment name>";
+const deployment = config.CONVEX_DEPLOYMENT?.trim();
+if (!deployment) {
+  console.error("Set CONVEX_DEPLOYMENT in .env.local before running auth setup.");
+  process.exit(1);
+}
+
+const deploymentName = deployment.split(":").at(-1);
+if (!deploymentName) {
+  console.error("CONVEX_DEPLOYMENT must include a deployment name.");
+  process.exit(1);
+}
 
 const variables = JSON.stringify({
   help:
@@ -86,8 +94,13 @@ const result = spawnSync(
   { stdio: "inherit" },
 );
 
+if (result.error) {
+  console.error(result.error.message);
+}
+if (result.status !== 0) {
+  process.exit(result.status ?? 1);
+}
+
 if (runOnceWorkflow) {
   fs.writeFileSync(".env.local", `\nSETUP_SCRIPT_RAN=1\n`, { flag: "a" });
 }
-
-process.exit(result.status);
