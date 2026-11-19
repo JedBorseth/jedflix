@@ -35,7 +35,7 @@ function normalizeToken(value: string): string {
   return value
     .toLowerCase()
     .normalize("NFC")
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/[^\p{L}\p{M}\p{N}]+/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
 }

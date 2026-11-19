@@ -44,6 +44,16 @@ describe("musicSearch merge", () => {
     ]);
   });
 
+  test("preserves combining marks that distinguish Devanagari titles", () => {
+    const first = spotifyTrack({ id: "sp1", artists: ["कलाकार"], name: "दिल" });
+    const second = spotifyTrack({ id: "sp2", artists: ["कलाकार"], name: "दाल" });
+
+    expect(mergeMusicSearchTracks([first, second], []).map(({ id }) => id)).toEqual([
+      "sp1",
+      "sp2",
+    ]);
+  });
+
   test("falls back to source IDs for empty text keys", () => {
     const first = spotifyTrack({ id: "sp1", artists: [], name: "♪" });
     const second = spotifyTrack({ id: "sp2", artists: [], name: "♫" });
