@@ -8,7 +8,7 @@ JedFlix brings movies, TV shows, audiobooks, ebooks, and music together in a sin
 
 > 🚧 **Actively developed** — not intended as a plug-and-play production release.
 
-> 🎵 **AI-powered music search** — a local MusicBrainz dataset plus vector search and Qwen reranking, so searching a 2 million song catalog stays fast and forgiving.
+> 🎵 **Typo-tolerant music search** with a local MusicBrainz catalog, PostgreSQL full-text matching, and release-based ranking.
 
 
 
@@ -53,8 +53,7 @@ JedFlix does not store media on the server. Available sources are discovered and
 JedFlix includes a dedicated music catalog backed by a local MusicBrainz dataset.
 
 * Full MusicBrainz database replica
-* Music search with pgvector
-* Qwen reranking
+* Music search with spelling correction and ranked matches
 * Cover Art Archive integration
 * Lazy cover-art caching
 * Artist pages
@@ -74,7 +73,7 @@ JedFlix uses specialized search systems for different types of media.
 
 Movie and TV metadata comes from TMDB, while the music catalog is backed by a local MusicBrainz replica.
 
-Music search combines vector search with Qwen reranking to provide relevant results across a large music catalog.
+Music search ranks full-text matches using release appearances and MusicBrainz ratings. The spelling dictionary supplies alternatives for misspelled words.
 
 ### 🔐 Authentication & User Data
 
@@ -108,8 +107,7 @@ The web application can also be installed as a PWA for a more native-like experi
 * **Frontend:** React, TypeScript, Vite, Tailwind CSS, shadcn/ui
 * **Backend:** Go
 * **Database & Backend Services:** Convex
-* **Music Database:** MusicBrainz + PostgreSQL + pgvector
-* **Music Reranking:** Qwen
+* **Music Database:** MusicBrainz + PostgreSQL
 * **Music Playback:** yt-dlp / YouTube
 * **Movie & TV Metadata:** TMDB
 * **Streaming:** Comet + Real-Debrid
@@ -169,7 +167,7 @@ You should never commit credentials or API keys to the repository.
 
 The music catalog is designed to operate independently from Spotify's catalog API.
 
-JedFlix maintains a local MusicBrainz database containing music metadata and uses vector embeddings and Qwen reranking to improve search quality.
+JedFlix runs the MusicBrainz replica locally. The Go backend maintains the full-text search documents and spelling dictionary in PostgreSQL.
 
 Artwork is retrieved through the Cover Art Archive and cached lazily as it is requested.
 

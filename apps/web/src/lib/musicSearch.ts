@@ -163,7 +163,7 @@ export function rankMusicSearchResults(
   return hits;
 }
 
-/** Prefer the backend hybrid/rerank order when the search API returns `ranked`. */
+/** Prefer the backend search ranking when the search API returns `ranked`. */
 export function applyServerMusicRanking(
   query: string,
   results: MusicSearchResults,

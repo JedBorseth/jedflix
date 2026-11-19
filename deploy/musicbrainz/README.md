@@ -1,23 +1,17 @@
 # Local MusicBrainz for JedFlix
 
 JedFlix serves music catalog metadata from a **local MusicBrainz Postgres replica**.
-Search uses **Postgres full-text / trigram matching plus pgvector** (Qwen3 embeddings
-and a local reranker). Artwork is a **lazy Cover Art Archive disk cache**.
+Search uses PostgreSQL full-text matching, spelling correction, and release-based
+ranking. Artwork uses a lazy Cover Art Archive disk cache.
 
 ```
 MusicBrainz dump/replication → Postgres (/mnt/disk1/jedflix/musicbrainz/pgdata)
-                             → jedflix.search_documents + music_embeddings (pgvector)
+                             → jedflix.search_documents + jedflix.search_terms
 Cover Art Archive            → lazy cache (/mnt/disk1/jedflix/music-artwork)
-Qwen3 embed/rerank models    → /mnt/disk1/jedflix/models  (music-ai GPU service)
                              → Go /api/v1/music/covers/...
 ```
 
-All MusicBrainz data, search indexes, replication packets, artwork, and model
-weights live under `/mnt/disk1/jedflix/` (not the root `/` disk).
-
-The `musicbrainz-db` image stays `postgres:16-alpine` with pgvector compiled in.
-Do not switch to a Debian pgvector image — musl vs glibc collation would risk the
-existing replica.
+Keep the existing Alpine-based Postgres image to preserve the replica’s collation.
 
 ## One-time setup (production server)
 
@@ -25,8 +19,7 @@ existing replica.
 
 ```bash
 sudo mkdir -p /mnt/disk1/jedflix/musicbrainz/{pgdata,dumps,replication} \
-  /mnt/disk1/jedflix/music-artwork \
-  /mnt/disk1/jedflix/models
+  /mnt/disk1/jedflix/music-artwork
 sudo chown -R "$USER:$USER" /mnt/disk1/jedflix
 ```
 
@@ -42,15 +35,16 @@ sudo chown -R "$USER:$USER" /mnt/disk1/jedflix
 ./scripts/musicbrainz-import.sh
 ```
 
-4. Bring up the stack (`docker compose up -d`) and confirm backend logs show
-   `local MusicBrainz Postgres (embed → pgvector → Qwen rerank)`.
-   `music-ai` logs `models ready on cuda` after the first Hugging Face download.
+4. Bring up the stack (`docker compose up -d`) and confirm the backend logs
+   report `local MusicBrainz Postgres (full-text search)`.
 
-Hybrid search reads `jedflix.search_documents` (FTS + trigram) and
-`jedflix.music_embeddings` (pgvector HNSW). The `music-embed` service backfills
-rated artists/albums/recordings, then calls `music-ai` on the GTX 1660 Ti
-(Qwen3-Embedding-0.6B + Qwen3-Reranker-0.6B). Search works against whatever
-subset is indexed so far; vectors fill in over the following hours.
+The backend builds search documents for a fresh replica and refreshes versioned
+release counts and spelling terms in the background. Existing search documents
+remain available during maintenance.
+
+Run the [search benchmark](search-benchmark.md) against a populated replica with
+`MUSIC_SEARCH_DSN` set. From `apps/backend`, run
+`go test -count=1 -v ./internal/musicbrainz/local -run '^TestMusicSearchBenchmark$'`.
 
 ## Keep the replica current
 

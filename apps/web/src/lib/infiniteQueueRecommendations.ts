@@ -27,7 +27,7 @@ const streamClient = createStreamClient({
 
 /**
  * Modular recommendation picker for Infinite Queue.
- * Prefers the backend hybrid ranker (Last.fm + pgvector + Qwen rerank),
+ * Prefers the backend recommendations from Last.fm,
  * then falls back to a single Last.fm similar-tracks call.
  */
 export async function generateInfiniteQueueTracks(options: {
