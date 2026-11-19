@@ -32,10 +32,6 @@ type Config struct {
 	OpenLibraryCacheTTL        time.Duration
 	OpenLibraryCoverPublicBase string
 	OpenLibraryCoversBaseURL   string
-	SpotifyClientID            string
-	SpotifyClientSecret        string
-	SpotifyAPIBaseURL          string
-	SpotifyAuthURL             string
 	SpotifyCacheTTL            time.Duration
 	// SpotifyCatalogPath is legacy; MusicCatalogPath is preferred for MusicBrainz browse cache.
 	SpotifyCatalogPath string
@@ -94,10 +90,6 @@ func Load() Config {
 		OpenLibraryCacheTTL:        envDuration("OPEN_LIBRARY_CACHE_TTL", 12*time.Hour),
 		OpenLibraryCoverPublicBase: strings.TrimRight(envOr("OPEN_LIBRARY_COVER_PUBLIC_BASE", "/backend/api/v1/openlibrary/covers"), "/"),
 		OpenLibraryCoversBaseURL:   strings.TrimRight(envOr("OPEN_LIBRARY_COVERS_BASE_URL", "https://covers.openlibrary.org"), "/"),
-		SpotifyClientID:            strings.TrimSpace(os.Getenv("SPOTIFY_CLIENT_ID")),
-		SpotifyClientSecret:        strings.TrimSpace(os.Getenv("SPOTIFY_CLIENT_SECRET")),
-		SpotifyAPIBaseURL:          strings.TrimRight(envOr("SPOTIFY_API_BASE_URL", "https://api.spotify.com/v1"), "/"),
-		SpotifyAuthURL:             strings.TrimRight(envOr("SPOTIFY_AUTH_URL", "https://accounts.spotify.com/api/token"), "/"),
 		SpotifyCacheTTL:            envDuration("SPOTIFY_CACHE_TTL", 6*time.Hour),
 		SpotifyCatalogPath:         strings.TrimSpace(os.Getenv("SPOTIFY_CATALOG_PATH")),
 		MusicBrainzAPIBaseURL:      strings.TrimRight(envOr("MUSICBRAINZ_API_BASE_URL", "https://musicbrainz.org/ws/2"), "/"),

@@ -62,8 +62,6 @@ services:
       MUSIC_ARTWORK_PATH: ${MUSIC_ARTWORK_PATH:-/data/music-artwork}
       MUSIC_COVER_PUBLIC_BASE: ${MUSIC_COVER_PUBLIC_BASE:-/backend/api/v1/music/covers}
       # Spotify credentials unused for catalog; still accepted for local tooling.
-      SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID:-}
-      SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET:-}
       LASTFM_API_KEY: ${LASTFM_API_KEY:-}
       LASTFM_CACHE_TTL: ${LASTFM_CACHE_TTL:-6h}
       YTDLP_COOKIES_FILE: ${YTDLP_COOKIES_FILE:-}
