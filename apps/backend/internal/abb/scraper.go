@@ -1,6 +1,8 @@
 package abb
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -48,7 +50,7 @@ type Client struct {
 	cache      *searchCache
 
 	loginMu    sync.Mutex
-	loggedIn   bool
+	loginDone  chan struct{}
 	loginTried bool
 	loginErr   error
 }
@@ -100,7 +102,7 @@ func NewClientWithOptions(opts ClientOptions) *Client {
 	}
 }
 
-func (c *Client) Search(query string) ([]SearchResult, error) {
+func (c *Client) Search(ctx context.Context, query string) ([]SearchResult, error) {
 	q := strings.TrimSpace(query)
 	if q == "" {
 		return nil, fmt.Errorf("query is required")
@@ -112,12 +114,13 @@ func (c *Client) Search(query string) ([]SearchResult, error) {
 		return cached, nil
 	}
 
-	if err := c.ensureSession(); err != nil {
-		// Session/login failure shouldn't block anonymous search.
-		_ = err
+	// Continue anonymously if session setup fails and the request is still active.
+	_ = c.ensureSession(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 
-	results, err := c.searchOnce(q)
+	results, err := c.searchOnce(ctx, q)
 	if err != nil {
 		return nil, err
 	}
@@ -128,8 +131,8 @@ func (c *Client) Search(query string) ([]SearchResult, error) {
 	return results, nil
 }
 
-func (c *Client) searchOnce(queryLower string) ([]SearchResult, error) {
-	html, err := c.fetchHTML(searchPath(queryLower))
+func (c *Client) searchOnce(ctx context.Context, queryLower string) ([]SearchResult, error) {
+	html, err := c.fetchHTML(ctx, searchPath(queryLower))
 	if err != nil {
 		return nil, err
 	}
@@ -139,43 +142,65 @@ func (c *Client) searchOnce(queryLower string) ([]SearchResult, error) {
 	return ParseSearchHTML(html, c.baseURL)
 }
 
-func (c *Client) GetPost(postURL string) (*PostDetail, error) {
-	if err := c.ensureSession(); err != nil {
-		_ = err
+func (c *Client) GetPost(ctx context.Context, postURL string) (*PostDetail, error) {
+	_ = c.ensureSession(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-	html, err := c.fetchHTML(postURL)
+	html, err := c.fetchHTML(ctx, postURL)
 	if err != nil {
 		return nil, err
 	}
 	return ParsePostHTML(html, postURL)
 }
 
-func (c *Client) ensureSession() error {
-	c.loginMu.Lock()
-	defer c.loginMu.Unlock()
-
-	if c.loggedIn {
-		return nil
-	}
+func (c *Client) ensureSession(ctx context.Context) error {
 	if c.username == "" || c.password == "" {
-		// Warm a PHPSESSID anonymously — some ABB responses behave better with one.
-		_, err := c.fetchHTML("/")
+		// Warm a PHPSESSID anonymously.
+		_, err := c.fetchHTML(ctx, "/")
 		return err
 	}
-	if c.loginTried {
-		return c.loginErr
+
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		c.loginMu.Lock()
+		if c.loginTried {
+			err := c.loginErr
+			c.loginMu.Unlock()
+			return err
+		}
+		if done := c.loginDone; done != nil {
+			c.loginMu.Unlock()
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-done:
+				continue
+			}
+		}
+
+		done := make(chan struct{})
+		c.loginDone = done
+		c.loginMu.Unlock()
+
+		err := c.login(ctx)
+		c.loginMu.Lock()
+		if ctx.Err() == nil && !errors.Is(err, context.Canceled) {
+			c.loginTried = true
+			c.loginErr = err
+		}
+		c.loginDone = nil
+		close(done)
+		c.loginMu.Unlock()
+		return err
 	}
-	c.loginTried = true
-	c.loginErr = c.loginLocked()
-	if c.loginErr == nil {
-		c.loggedIn = true
-	}
-	return c.loginErr
 }
 
-func (c *Client) loginLocked() error {
+func (c *Client) login(ctx context.Context) error {
 	// Hit login page first for cookies.
-	if _, err := c.fetchHTML("/member/login"); err != nil {
+	if _, err := c.fetchHTML(ctx, "/member/login"); err != nil {
 		return fmt.Errorf("ABB login page: %w", err)
 	}
 
@@ -183,7 +208,7 @@ func (c *Client) loginLocked() error {
 	form.Set("username", c.username)
 	form.Set("password", c.password)
 
-	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/member/login.php", strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/member/login.php", strings.NewReader(form.Encode()))
 	if err != nil {
 		return err
 	}
@@ -206,7 +231,7 @@ func (c *Client) loginLocked() error {
 	}
 	if res.StatusCode >= 200 && res.StatusCode < 400 {
 		// Follow-up check: member area should show logout when authenticated.
-		check, checkErr := c.fetchHTML("/member/users/")
+		check, checkErr := c.fetchHTML(ctx, "/member/users/")
 		if checkErr == nil && strings.Contains(strings.ToLower(check), "logout") {
 			return nil
 		}
@@ -214,13 +239,13 @@ func (c *Client) loginLocked() error {
 	return fmt.Errorf("ABB login failed (status %d)", res.StatusCode)
 }
 
-func (c *Client) fetchHTML(pathOrURL string) (string, error) {
+func (c *Client) fetchHTML(ctx context.Context, pathOrURL string) (string, error) {
 	target, err := c.validateFetchURL(pathOrURL)
 	if err != nil {
 		return "", err
 	}
 
-	req, err := http.NewRequest(http.MethodGet, target, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
 		return "", err
 	}

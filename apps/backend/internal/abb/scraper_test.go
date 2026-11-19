@@ -1,12 +1,15 @@
 package abb
 
 import (
+	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSearchUsesTitleAuthorFilter(t *testing.T) {
@@ -26,7 +29,7 @@ func TestSearchUsesTitleAuthorFilter(t *testing.T) {
 	httpClient := &http.Client{
 		Transport: rewriteHost{target: srv.URL, base: srv.Client().Transport},
 	}
-	results, err := NewClient("https://audiobookbay.lu", httpClient).Search("Dune")
+	results, err := NewClient("https://audiobookbay.lu", httpClient).Search(context.Background(), "Dune")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,4 +200,40 @@ func (r rewriteHost) RoundTrip(req *http.Request) (*http.Response, error) {
 	clone.URL.Host = target.Host
 	clone.Host = target.Host
 	return r.base.RoundTrip(clone)
+}
+
+func TestSessionWaiterCanCancel(t *testing.T) {
+	started := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(started)
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+	client := NewClientWithOptions(ClientOptions{
+		BaseURL: "https://audiobookbay.lu", Username: "user", Password: "password",
+		HTTPClient: &http.Client{Transport: rewriteHost{target: server.URL, base: server.Client().Transport}},
+	})
+
+	loginCtx, cancelLogin := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelLogin()
+	loginErr := make(chan error, 1)
+	go func() { loginErr <- client.ensureSession(loginCtx) }()
+	select {
+	case <-started:
+	case <-loginCtx.Done():
+		t.Fatal("login did not start")
+	}
+
+	waitCtx, cancelWait := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancelWait()
+	if err := client.ensureSession(waitCtx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("waiting for login: got %v, want deadline exceeded", err)
+	}
+	cancelLogin()
+	if err := <-loginErr; !errors.Is(err, context.Canceled) {
+		t.Fatalf("login: got %v, want canceled", err)
+	}
+	if client.loginTried {
+		t.Fatal("a canceled login must leave the session eligible for retry")
+	}
 }

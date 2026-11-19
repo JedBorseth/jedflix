@@ -110,27 +110,27 @@ func NewService(cfg config.Config, searcher search.Searcher, rd *realdebrid.Clie
 	}
 }
 
-func (s *Service) ListSources(req Request) ([]Source, error) {
+func (s *Service) ListSources(ctx context.Context, req Request) ([]Source, error) {
+	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+
 	switch req.Type {
 	case "audiobook", "ebook":
-		return s.listBookSources(req)
+		return s.listBookSources(ctx, req)
 	case "movie", "tv", "":
-		return s.listVideoSources(req)
+		return s.listVideoSources(ctx, req)
 	default:
 		return nil, fmt.Errorf("unsupported type %q", req.Type)
 	}
 }
 
-func (s *Service) listVideoSources(req Request) ([]Source, error) {
+func (s *Service) listVideoSources(ctx context.Context, req Request) ([]Source, error) {
 	if strings.TrimSpace(req.IMDbID) == "" {
 		return nil, fmt.Errorf("imdbId is required")
 	}
 	if req.Type == "tv" && (req.Season == nil || req.Episode == nil) {
 		return nil, fmt.Errorf("season and episode are required for tv")
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-	defer cancel()
 
 	releases, err := s.search(ctx, req)
 	if err != nil {
@@ -157,7 +157,7 @@ func (s *Service) listVideoSources(req Request) ([]Source, error) {
 	return toSources(ranked), nil
 }
 
-func (s *Service) listBookSources(req Request) ([]Source, error) {
+func (s *Service) listBookSources(ctx context.Context, req Request) ([]Source, error) {
 	if s.abb == nil {
 		return nil, fmt.Errorf("audiobook discovery is not configured")
 	}
@@ -171,13 +171,13 @@ func (s *Service) listBookSources(req Request) ([]Source, error) {
 		return nil, fmt.Errorf("query or title is required for %s", req.Type)
 	}
 
-	ranked, err := s.searchAndRankBooks(query, title, author)
+	ranked, err := s.searchAndRankBooks(ctx, query, title, author)
 	if err != nil {
 		return nil, err
 	}
 	// Prefer a title-only search when the combined query produced nothing useful.
 	if len(ranked) == 0 && title != "" && !strings.EqualFold(strings.TrimSpace(query), title) {
-		ranked, err = s.searchAndRankBooks(title, title, author)
+		ranked, err = s.searchAndRankBooks(ctx, title, title, author)
 		if err != nil {
 			return nil, err
 		}
@@ -201,15 +201,15 @@ func (s *Service) listBookSources(req Request) ([]Source, error) {
 	}
 
 	// Prefetch magnets for the top hits so resolve can hit Real Debrid immediately.
-	s.enrichBookMagnets(sources, 5)
+	s.enrichBookMagnets(ctx, sources, 5)
 	// Audiobook picker shows RD seeder counts (red when < 3 on the web client).
 	if req.Type == "audiobook" && strings.TrimSpace(req.RealDebridToken) != "" {
-		s.enrichBookSeedersFromRD(sources, 3, req.RealDebridToken)
+		s.enrichBookSeedersFromRD(ctx, sources, 3, req.RealDebridToken)
 	}
 	return sources, nil
 }
 
-func (s *Service) enrichBookMagnets(sources []Source, limit int) {
+func (s *Service) enrichBookMagnets(ctx context.Context, sources []Source, limit int) {
 	if s.abb == nil || limit <= 0 {
 		return
 	}
@@ -223,10 +223,14 @@ func (s *Service) enrichBookMagnets(sources []Source, limit int) {
 		wg.Add(1)
 		go func(index int) {
 			defer wg.Done()
-			sem <- struct{}{}
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
 			defer func() { <-sem }()
 
-			post, err := s.abb.GetPost(sources[index].AbbPostURL)
+			post, err := s.abb.GetPost(ctx, sources[index].AbbPostURL)
 			if err != nil || post == nil || strings.TrimSpace(post.Magnet) == "" {
 				return
 			}
@@ -241,7 +245,7 @@ func (s *Service) enrichBookMagnets(sources []Source, limit int) {
 
 // enrichBookSeedersFromRD briefly adds magnets to Real Debrid to read swarm
 // seeders for the audiobook stream picker, then deletes the torrents.
-func (s *Service) enrichBookSeedersFromRD(sources []Source, limit int, token string) {
+func (s *Service) enrichBookSeedersFromRD(ctx context.Context, sources []Source, limit int, token string) {
 	token = strings.TrimSpace(token)
 	if token == "" || limit <= 0 {
 		return
@@ -261,10 +265,14 @@ func (s *Service) enrichBookSeedersFromRD(sources []Source, limit int, token str
 		wg.Add(1)
 		go func(index int, magnetURL string) {
 			defer wg.Done()
-			sem <- struct{}{}
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
 			defer func() { <-sem }()
 
-			seeders, ok := probeRDSeeders(rd, magnetURL)
+			seeders, ok := probeRDSeeders(ctx, rd, magnetURL)
 			if !ok {
 				return
 			}
@@ -274,19 +282,15 @@ func (s *Service) enrichBookSeedersFromRD(sources []Source, limit int, token str
 	wg.Wait()
 }
 
-func probeRDSeeders(rd *realdebrid.Client, magnet string) (int, bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+func probeRDSeeders(ctx context.Context, rd *realdebrid.Client, magnet string) (int, bool) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	torrentID, err := rd.AddMagnet(ctx, magnet)
 	if err != nil || torrentID == "" {
 		return 0, false
 	}
-	defer func() {
-		deleteCtx, deleteCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer deleteCancel()
-		_ = rd.DeleteTorrent(deleteCtx, torrentID)
-	}()
+	defer cleanupRDTorrent(rd, torrentID)
 
 	deadline := time.Now().Add(4 * time.Second)
 	for time.Now().Before(deadline) {
@@ -314,6 +318,12 @@ func probeRDSeeders(rd *realdebrid.Client, magnet string) (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+func cleanupRDTorrent(rd *realdebrid.Client, torrentID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = rd.DeleteTorrent(ctx, torrentID)
 }
 
 func compactMagnetURI(magnet, hash string) string {
@@ -346,8 +356,8 @@ func infoHashFromMagnet(magnet string) string {
 	return strings.ToLower(rest[:end])
 }
 
-func (s *Service) searchAndRankBooks(query, title, author string) ([]abb.RankedResult, error) {
-	results, err := s.abb.Search(query)
+func (s *Service) searchAndRankBooks(ctx context.Context, query, title, author string) ([]abb.RankedResult, error) {
+	results, err := s.abb.Search(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -394,7 +404,7 @@ func (s *Service) ResolveWithProgress(
 			return nil, &ResolveError{Code: "invalid_request", Message: "audiobook discovery is not configured"}
 		}
 		report("Fetching magnet from AudiobookBay…")
-		post, err := s.abb.GetPost(strings.TrimSpace(req.AbbPostURL))
+		post, err := s.abb.GetPost(ctx, strings.TrimSpace(req.AbbPostURL))
 		if err != nil {
 			return nil, &ResolveError{
 				Code:    "abb_magnet",
@@ -439,7 +449,7 @@ func (s *Service) resolveVideo(
 	cleanupTorrent := false
 	defer func() {
 		if cleanupTorrent && torrentID != "" {
-			_ = rd.DeleteTorrent(context.Background(), torrentID)
+			cleanupRDTorrent(rd, torrentID)
 		}
 	}()
 
@@ -540,7 +550,7 @@ func (s *Service) resolveBook(
 	cleanupTorrent := false
 	defer func() {
 		if cleanupTorrent && torrentID != "" {
-			_ = rd.DeleteTorrent(context.Background(), torrentID)
+			cleanupRDTorrent(rd, torrentID)
 		}
 	}()
 

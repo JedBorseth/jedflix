@@ -1,6 +1,7 @@
 package abb
 
 import (
+	"context"
 	"errors"
 	"net"
 	"os"
@@ -18,7 +19,7 @@ func TestLiveAudiobookBayMarkupStillParses(t *testing.T) {
 
 	client := NewClient(strings.TrimSpace(os.Getenv("ABB_BASE_URL")), nil)
 
-	results, err := client.Search("project hail mary")
+	results, err := client.Search(context.Background(), "project hail mary")
 	if skipIfABBUnreachable(t, err) {
 		return
 	}
@@ -47,7 +48,7 @@ func TestLiveAudiobookBayMarkupStillParses(t *testing.T) {
 		t.Fatalf("ABB search for %q returned posts that don't match the query (got %q). Header search without tt=1 mixes in homepage listings.", "project hail mary", titles)
 	}
 
-	post, err := client.GetPost(postURL)
+	post, err := client.GetPost(context.Background(), postURL)
 	if skipIfABBUnreachable(t, err) {
 		return
 	}

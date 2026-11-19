@@ -189,7 +189,7 @@ func (s *Server) handleSources(w http.ResponseWriter, r *http.Request) {
 		req.Query = strings.TrimSpace(strings.TrimSpace(req.Title) + " " + strings.TrimSpace(req.Author))
 	}
 
-	sources, err := s.resolver.ListSources(req)
+	sources, err := s.resolver.ListSources(r.Context(), req)
 	if err != nil {
 		var fetchErr *abb.FetchError
 		if errors.As(err, &fetchErr) {
