@@ -10,7 +10,7 @@ PGDATA="${MB_ROOT}/pgdata"
 COMPOSE_FILE="${COMPOSE_FILE:-$(cd "$(dirname "$0")/.." && pwd)/docker-compose.yml}"
 COMPOSE=(docker compose -f "${COMPOSE_FILE}" --profile music-tools)
 
-mkdir -p "${DUMP_DIR}" "${PGDATA}" "${MB_ROOT}/replication" "${MB_ROOT}/meili"
+mkdir -p "${DUMP_DIR}" "${PGDATA}" "${MB_ROOT}/replication"
 mkdir -p "${DATA_ROOT}/music-artwork"/{by-mbid,by-hash,missing}
 
 echo "== Ensuring MusicBrainz Postgres is up =="

@@ -56,20 +56,26 @@ fi
 
 cd "${ROOT}"
 
-DATA_ROOT="${JEDFLIX_DATA_ROOT:-/mnt/disk1/jedflix}"
-mkdir -p "${DATA_ROOT}/musicbrainz"/{pgdata,meili,dumps,replication} \
-  "${DATA_ROOT}/music-artwork"/{by-mbid,by-hash,missing} || true
-
-if [[ "${PULL}" == "true" ]]; then
-  DEPLOY_SINCE="$(git rev-parse HEAD)"
-  git fetch origin main
-  git reset --hard origin/main
-fi
-
 set -a
 # shellcheck disable=SC1090
 source "${ENV_FILE}"
 set +a
+
+DATA_ROOT="${JEDFLIX_DATA_ROOT:-/mnt/disk1/jedflix}"
+mkdir -p "${DATA_ROOT}/musicbrainz"/{pgdata,dumps,replication} \
+  "${DATA_ROOT}/music-artwork"/{by-mbid,by-hash,missing} || true
+
+MARKER="${ROOT}/.git/jedflix-last-deployed"
+if [[ "${PULL}" == "true" ]]; then
+  if ! git diff --quiet || ! git diff --cached --quiet; then
+    echo "Refusing to reset: tracked files have local changes." >&2
+    git status --short --untracked-files=no >&2
+    exit 1
+  fi
+  DEPLOY_SINCE="$(cat "${MARKER}" 2>/dev/null || git rev-parse HEAD)"
+  git fetch origin main
+  git reset --hard origin/main
+fi
 
 if [[ -n "${CONVEX_DEPLOY_KEY:-}" ]] && command -v bun >/dev/null 2>&1; then
   echo "Deploying Convex..."
@@ -91,4 +97,5 @@ else
   docker compose ps
 fi
 
+git rev-parse HEAD > "${MARKER}"
 echo "Production deploy finished."

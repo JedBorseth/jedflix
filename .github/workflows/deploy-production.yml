@@ -36,6 +36,9 @@ jobs:
       - name: Test audiobook proxy recovery
         run: python3 scripts/warp-proxy.test.py
 
+      - name: Test selective Compose deploy plan
+        run: bash scripts/deploy-compose-plan.test.sh
+
   deploy:
     needs: test
     runs-on: ubuntu-latest
@@ -63,8 +66,8 @@ jobs:
           if [ -n "${BEFORE_SHA}" ] && [ "${BEFORE_SHA}" != "0000000000000000000000000000000000000000" ]; then
             git fetch --depth=50 origin "${BEFORE_SHA}" 2>/dev/null || true
             if git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
-              if ! git diff --name-only "${BEFORE_SHA}" "${GITHUB_SHA}" | grep -Eq '^(convex/|package.json|bun.lock)'; then
-                echo "Skipping Convex deploy; no convex/lockfile changes."
+              if ! git diff --name-only "${BEFORE_SHA}" "${GITHUB_SHA}" | grep -Eq '^(convex/|packages/shared/|package.json|bun.lock)'; then
+                echo "Skipping Convex deploy; no convex/shared/lockfile changes."
                 exit 0
               fi
             fi
@@ -76,11 +79,12 @@ jobs:
         env:
           PROD_APP_DIR: ${{ vars.PROD_APP_DIR || '/home/jedborseth/jedflix' }}
           FULL_STACK: ${{ github.event.inputs.full_stack || 'false' }}
+          DEPLOY_SHA: ${{ github.sha }}
         with:
           host: ${{ secrets.PROD_SSH_HOST }}
           username: ${{ secrets.PROD_SSH_USER }}
           key: ${{ secrets.PROD_SSH_KEY }}
-          envs: PROD_APP_DIR,FULL_STACK
+          envs: PROD_APP_DIR,FULL_STACK,DEPLOY_SHA
           # Full music-ai CUDA rebuilds can still exceed 20m when those files change.
           command_timeout: 70m
           script: |
@@ -88,7 +92,7 @@ jobs:
             cd "${PROD_APP_DIR}"
 
             echo "== Ensure MusicBrainz / artwork / model dirs on disk1 =="
-            mkdir -p /mnt/disk1/jedflix/musicbrainz/{pgdata,meili,dumps,replication} \
+            mkdir -p /mnt/disk1/jedflix/musicbrainz/{pgdata,dumps,replication} \
               /mnt/disk1/jedflix/music-artwork/{by-mbid,by-hash,missing} \
               /mnt/disk1/jedflix/models || true
 
@@ -111,9 +115,24 @@ jobs:
             echo "== Disk after cleanup =="
             df -h / || true
 
-            before="$(git rev-parse HEAD)"
+            # Never discard hand edits to tracked files on the server.
+            if ! git diff --quiet || ! git diff --cached --quiet; then
+              echo "Refusing to deploy: tracked files have local changes on the server."
+              git status --short --untracked-files=no
+              exit 1
+            fi
+
+            # Diff against the last revision that deployed successfully, so a
+            # retry after a failed build still rebuilds the affected services.
+            marker=".git/jedflix-last-deployed"
+            before="$(cat "${marker}" 2>/dev/null || true)"
+            if [ -z "${before}" ] || ! git cat-file -e "${before}^{commit}" 2>/dev/null; then
+              before="$(git rev-parse HEAD)"
+            fi
+
+            # Deploy exactly the commit that CI tested and pushed to Convex.
             git fetch origin main
-            git reset --hard origin/main
+            git reset --hard "${DEPLOY_SHA}"
             chmod +x scripts/deploy-compose.sh
 
             if [ "${FULL_STACK:-false}" = "true" ]; then
@@ -128,8 +147,21 @@ jobs:
             df -h / || true
             docker compose ps
 
-            echo "== Smoke: backend health via /backend =="
-            curl -fsS "http://127.0.0.1/backend/health" || curl -fsS "https://127.0.0.1/backend/health" -k || true
+            echo "== Smoke: backend health =="
+            healthy=false
+            for attempt in $(seq 1 30); do
+              if docker compose exec -T backend wget -qO- http://127.0.0.1:8080/health; then
+                healthy=true
+                break
+              fi
+              sleep 2
+            done
+            if [ "${healthy}" != true ]; then
+              echo "Backend failed its health check after deploy."
+              docker compose logs --tail=50 backend || true
+              exit 1
+            fi
+            echo "${DEPLOY_SHA}" > "${marker}"
 
             echo "== Smoke: pgvector extension =="
             docker compose exec -T musicbrainz-db psql -U musicbrainz -d musicbrainz -c "CREATE EXTENSION IF NOT EXISTS vector; SELECT extname, extversion FROM pg_extension WHERE extname IN ('vector','pg_trgm');" || true
