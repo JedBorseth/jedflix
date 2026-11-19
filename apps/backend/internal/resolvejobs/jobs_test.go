@@ -20,6 +20,10 @@ func TestStoreReadyJob(t *testing.T) {
 		return &resolver.StreamResult{URL: "https://example.com/a.m4b", Mode: "direct"}, nil
 	})
 
+	if job.Status != StatusQueued {
+		t.Fatalf("expected queued snapshot, got %s", job.Status)
+	}
+
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		got, ok := store.Get(job.ID)
@@ -49,6 +53,10 @@ func TestStoreFailedJob(t *testing.T) {
 	) (*resolver.StreamResult, error) {
 		return nil, &resolver.ResolveError{Code: "abb_magnet", Message: "no magnet"}
 	})
+
+	if job.Status != StatusQueued {
+		t.Fatalf("expected queued snapshot, got %s", job.Status)
+	}
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {

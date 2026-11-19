@@ -12,9 +12,8 @@ import (
 )
 
 type Client struct {
-	baseURL  string
-	http     *http.Client
-	embedDim int
+	baseURL string
+	http    *http.Client
 }
 
 type EmbedResponse struct {
@@ -43,7 +42,6 @@ func New(baseURL string) *Client {
 		http: &http.Client{
 			Timeout: 90 * time.Second,
 		},
-		embedDim: 512,
 	}
 }
 
@@ -108,9 +106,6 @@ func (c *Client) Embed(ctx context.Context, texts []string, isQuery bool) ([][]f
 	if len(payload.Embeddings) != len(texts) {
 		return nil, fmt.Errorf("music-ai embed count mismatch")
 	}
-	if payload.Dim > 0 {
-		c.embedDim = payload.Dim
-	}
 	return payload.Embeddings, nil
 }
 
@@ -163,11 +158,4 @@ func (c *Client) Rerank(ctx context.Context, query string, docs []RerankDocument
 		return nil, err
 	}
 	return payload.Results, nil
-}
-
-func (c *Client) Dim() int {
-	if c == nil || c.embedDim <= 0 {
-		return 512
-	}
-	return c.embedDim
 }

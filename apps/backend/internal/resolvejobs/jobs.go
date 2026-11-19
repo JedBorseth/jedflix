@@ -66,6 +66,7 @@ func (s *Store) Start(timeout time.Duration, req resolver.ResolveRequest, run Ru
 	}
 	s.mu.Lock()
 	s.jobs[job.ID] = job
+	snapshot := cloneJob(job)
 	s.mu.Unlock()
 
 	go func() {
@@ -101,7 +102,7 @@ func (s *Store) Start(timeout time.Duration, req resolver.ResolveRequest, run Ru
 		})
 	}()
 
-	return cloneJob(job)
+	return snapshot
 }
 
 func (s *Store) Get(id string) (*Job, bool) {
