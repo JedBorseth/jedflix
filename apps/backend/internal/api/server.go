@@ -895,7 +895,7 @@ func (s *Server) handleYouTubeAudio(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := youtube.Proxy(w, r, info); err != nil {
-		if youtube.IsRetryableProxyError(err) {
+		if !headersWritten(w) && youtube.IsRetryableProxyError(err) {
 			s.youtube.Invalidate(req)
 			retryCtx, retryCancel := context.WithTimeout(r.Context(), youtube.ResolveTimeout)
 			defer retryCancel()

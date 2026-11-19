@@ -126,16 +126,36 @@ func redactLogger(next http.Handler) http.Handler {
 
 type statusWriter struct {
 	http.ResponseWriter
-	status int
+	status  int
+	written bool
+}
+
+func (w *statusWriter) Written() bool {
+	return w.written
 }
 
 func (w *statusWriter) WriteHeader(status int) {
-	w.status = status
+	if w.written {
+		return
+	}
 	w.ResponseWriter.WriteHeader(status)
+	if status >= 200 || status == http.StatusSwitchingProtocols {
+		w.status = status
+		w.written = true
+	}
+}
+
+func (w *statusWriter) Write(p []byte) (int, error) {
+	if !w.written {
+		w.written = true
+		w.status = http.StatusOK
+	}
+	return w.ResponseWriter.Write(p)
 }
 
 func (w *statusWriter) Flush() {
 	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		w.WriteHeader(http.StatusOK)
 		f.Flush()
 	}
 }
