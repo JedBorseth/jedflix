@@ -108,3 +108,32 @@ func TestPickMovieFile(t *testing.T) {
 		}
 	})
 }
+
+func TestPickEpisodeFile(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		paths  []string
+		wantID int
+	}{
+		{"matching episode in pack", []string{"Show.S01E02.mp4", "Show.S01E03.mkv"}, 2},
+		{"missing episode in pack", []string{"Show.S01E01.mp4", "Show.S01E02.mkv"}, 0},
+		{"multiple unmarked videos", []string{"first.mp4", "second.mkv"}, 0},
+		{"single conflicting episode", []string{"Show.S01E02.mp4"}, 0},
+		{"single conflicting season", []string{"Show.S02E03.mp4"}, 0},
+		{"conflicting parent directory", []string{"Show.S01E02/video.mp4"}, 0},
+		{"matching parent directory", []string{"Show.S01E03/video.mp4"}, 1},
+		{"longer conflicting episode number", []string{"Show.S01E030.mp4"}, 0},
+		{"single unmarked video", []string{"video.mp4", "readme.txt"}, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var files []TorrentFile
+			for i, path := range tc.paths {
+				files = append(files, TorrentFile{ID: i + 1, Path: path})
+			}
+			file, ok := PickEpisodeFile(files, 1, 3)
+			if file.ID != tc.wantID || ok != (tc.wantID != 0) {
+				t.Fatalf("got file %d, ok=%v, want file %d", file.ID, ok, tc.wantID)
+			}
+		})
+	}
+}

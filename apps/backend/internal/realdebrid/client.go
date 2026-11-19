@@ -217,7 +217,7 @@ func PickLargestVideoFile(files []TorrentFile) (TorrentFile, bool) {
 }
 
 var (
-	episodePattern = regexp.MustCompile(`(?i)[Ss](\d{1,2})[Ee](\d{1,2})`)
+	episodePattern = regexp.MustCompile(`(?i)s(\d+)e(\d+)`)
 	nonTokenChars  = regexp.MustCompile(`[^a-z0-9]+`)
 	titleStopWords = map[string]struct{}{
 		"a": {}, "an": {}, "and": {}, "of": {}, "the": {}, "to": {}, "in": {},
@@ -265,16 +265,31 @@ func PickMovieFile(files []TorrentFile, mediaTitle string, fileIdx *int) (Torren
 }
 
 func PickEpisodeFile(files []TorrentFile, season, episode int) (TorrentFile, bool) {
+	var soleVideo TorrentFile
+	videoCount := 0
 	matched := make([]TorrentFile, 0)
 	for _, file := range files {
-		if isVideoFile(file.Path) && matchesEpisode(file.Path, season, episode) {
+		if !isVideoFile(file.Path) {
+			continue
+		}
+		soleVideo = file
+		videoCount++
+		if matchesEpisode(filepath.Base(file.Path), season, episode) {
 			matched = append(matched, file)
 		}
 	}
 	if file, ok := pickBestVideoFile(matched, nil); ok {
 		return file, true
 	}
-	return PickLargestVideoFile(files)
+	if videoCount != 1 {
+		return TorrentFile{}, false
+	}
+	for _, marker := range episodePattern.FindAllString(soleVideo.Path, -1) {
+		if !matchesEpisode(marker, season, episode) {
+			return TorrentFile{}, false
+		}
+	}
+	return soleVideo, true
 }
 
 func significantTitleTokens(title string) []string {
@@ -353,13 +368,13 @@ func pickBestVideoFile(files []TorrentFile, predicate func(TorrentFile) bool) (T
 }
 
 func matchesEpisode(path string, season, episode int) bool {
-	matches := episodePattern.FindStringSubmatch(filepath.Base(path))
+	matches := episodePattern.FindStringSubmatch(path)
 	if len(matches) < 3 {
 		return false
 	}
-	s, _ := strconv.Atoi(matches[1])
-	e, _ := strconv.Atoi(matches[2])
-	return s == season && e == episode
+	s, seasonErr := strconv.Atoi(matches[1])
+	e, episodeErr := strconv.Atoi(matches[2])
+	return seasonErr == nil && episodeErr == nil && s == season && e == episode
 }
 
 func isVideoFile(path string) bool {
