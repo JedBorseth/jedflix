@@ -143,6 +143,10 @@ func parseCometStream(stream cometStream) (Release, bool) {
 	return release, true
 }
 
+// cometCodecLabels maps Comet's lowercase video codec tokens to the names
+// release filenames use.
+var cometCodecLabels = map[string]string{"avc": "H.264", "hevc": "HEVC", "av1": "AV1", "xvid": "XviD", "mpeg-2": "MPEG-2"}
+
 // cometDetailParts turns "📹 x264 • 8bit | 🔊 AAC • 2.0" into ["x264", "8bit", "AAC", "2.0"].
 func cometDetailParts(line string) []string {
 	for _, marker := range []string{"📹", "🔊", "⭐", "🏷️", "🏷"} {
@@ -151,7 +155,11 @@ func cometDetailParts(line string) []string {
 	var parts []string
 	for _, group := range strings.Split(line, "|") {
 		for _, part := range strings.Split(group, "•") {
-			if part = strings.Join(strings.Fields(part), " "); part != "" {
+			part = strings.Join(strings.Fields(part), " ")
+			if label, ok := cometCodecLabels[part]; ok {
+				part = label
+			}
+			if part != "" {
 				parts = append(parts, part)
 			}
 		}

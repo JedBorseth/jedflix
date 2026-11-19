@@ -12,7 +12,7 @@ import (
 // Shapes captured from comet.feels.legal (torrent-only mode, no config segment).
 const cometFixture = `{"streams":[
 {"name":"[TORRENT🧲] Comet 2160p","description":"📄 The.Shawshank.Redemption.1994.2160p.UHD.BluRay.REMUX.DV.HDR10.HEVC.DTS-HD.MA.5.1-SyncTeam.mkv\n📹 hevc • DV • HDR • 10bit | 🔊 DTS Lossless • 5.1\n⭐ BluRay REMUX | 🏷️ SyncTeam\n💾 54.4 GB 🔎 DMM","behaviorHints":{"bingeGroup":"comet|torrent|051f7eb93f1f8956048c54651345e48954f203d1","filename":"The.Shawshank.Redemption.1994.2160p.UHD.BluRay.REMUX.DV.HDR10.HEVC.DTS-HD.MA.5.1-SyncTeam.mkv","videoSize":58408797841},"infoHash":"051F7EB93F1F8956048C54651345E48954F203D1","fileIdx":0,"sources":["dht:051f7eb93f1f8956048c54651345e48954f203d1"]},
-{"name":"[TORRENT🧲] Comet 1080p","description":"📄 Movie.2020.1080p.WEB-DL.x264-GRP.mp4\n📹 x264 | 🔊 AAC • 2.0\n⭐ WEB-DL | 🏷️ GRP\n👤 42 💾 2.1 GB 🔎 ThePirateBay\n🇬🇧/🇫🇷","behaviorHints":{"filename":""},"infoHash":"a02b4a5b46cb3e0b7d40032656f1b00b8bcda2bc"},
+{"name":"[TORRENT🧲] Comet 1080p","description":"📄 Movie.2020.1080p.WEB-DL.x264-GRP.mp4\n📹 avc | 🔊 AAC • 2.0\n⭐ WEB-DL | 🏷️ GRP\n👤 42 💾 2.1 GB 🔎 ThePirateBay\n🇬🇧/🇫🇷","behaviorHints":{"filename":""},"infoHash":"a02b4a5b46cb3e0b7d40032656f1b00b8bcda2bc"},
 {"name":"[❌] Comet","description":"⚠ OBSOLETE CONFIGURATION, PLEASE RE-CONFIGURE"}
 ]}`
 
@@ -55,7 +55,7 @@ func TestCometSearcherParsesStreams(t *testing.T) {
 	if remux.Resolution != 2160 {
 		t.Errorf("resolution = %d", remux.Resolution)
 	}
-	if remux.Info != "hevc · DV · HDR · 10bit · DTS Lossless · 5.1 · BluRay REMUX · SyncTeam" {
+	if remux.Info != "HEVC · DV · HDR · 10bit · DTS Lossless · 5.1 · BluRay REMUX · SyncTeam" {
 		t.Errorf("info = %q", remux.Info)
 	}
 
@@ -74,7 +74,7 @@ func TestCometSearcherParsesStreams(t *testing.T) {
 	if !web.SizeKnown || web.SizeBytes != wantWebSize {
 		t.Errorf("size should be parsed from the 💾 line, got %d", web.SizeBytes)
 	}
-	if web.Info != "x264 · AAC · 2.0 · WEB-DL · GRP" {
+	if web.Info != "H.264 · AAC · 2.0 · WEB-DL · GRP" {
 		t.Errorf("info = %q (flag-only line should be dropped)", web.Info)
 	}
 
