@@ -2,6 +2,7 @@ package demord
 
 import (
 	"net/http"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -146,5 +147,50 @@ func TestCountsAsPlay(t *testing.T) {
 	}
 	if CountsAsPlay("ebook") || CountsAsPlay("music") || CountsAsPlay("") {
 		t.Fatal("did not expect ebook/music/empty to count")
+	}
+}
+
+func TestStoreRollsBackFailedSave(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "plays.json")
+	store := NewStore(path, 5)
+	if err := os.Mkdir(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Consume("user"); err == nil {
+		t.Fatal("expected save error when the destination is a directory")
+	}
+	if remaining := store.Remaining("user"); remaining != 5 {
+		t.Fatalf("failed save consumed a play, remaining=%d", remaining)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Consume("user"); err != nil {
+		t.Fatal(err)
+	}
+	if remaining := NewStore(path, 5).Remaining("user"); remaining != 4 {
+		t.Fatalf("retry should persist one play, remaining=%d", remaining)
+	}
+}
+
+func TestGateFailsClosedWhenPlayCountsAreCorrupt(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "plays.json")
+	data := []byte(`{"plays":`)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gate := testGate()
+	gate.Store = NewStore(path, 5)
+	for _, consume := range []bool{false, true} {
+		if token, err := gate.Apply(testClientKey, "movie", "user", consume); token != "" || err == nil || err == ErrLimitReached {
+			t.Fatalf("consume=%v: token=%q, err=%v", consume, token, err)
+		}
+	}
+	if remaining := gate.Store.Remaining("user"); remaining != 0 {
+		t.Fatalf("store with unknown usage reported %d plays remaining", remaining)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || string(got) != string(data) {
+		t.Fatalf("store changed the corrupt file: %q, %v", got, err)
 	}
 }

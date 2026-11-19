@@ -3,6 +3,8 @@ package demord
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -31,10 +33,11 @@ type persistedFile struct {
 }
 
 type Store struct {
-	mu    sync.Mutex
-	path  string
-	limit int
-	plays map[string]int
+	mu      sync.Mutex
+	path    string
+	limit   int
+	plays   map[string]int
+	loadErr error
 }
 
 func NewStore(path string, limit int) *Store {
@@ -46,7 +49,10 @@ func NewStore(path string, limit int) *Store {
 		limit: limit,
 		plays: make(map[string]int),
 	}
-	s.load()
+	s.loadErr = s.load()
+	if s.loadErr != nil {
+		log.Printf("load demo Real Debrid plays: %v", s.loadErr)
+	}
 	return s
 }
 
@@ -84,6 +90,9 @@ func (s *Store) Remaining(userID string) int {
 	if s == nil {
 		return DefaultPlayLimit
 	}
+	if s.loadErr != nil {
+		return 0
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	id := strings.TrimSpace(userID)
@@ -101,6 +110,9 @@ func (s *Store) Consume(userID string) error {
 	if s == nil {
 		return nil
 	}
+	if s.loadErr != nil {
+		return s.loadErr
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	id := strings.TrimSpace(userID)
@@ -110,48 +122,70 @@ func (s *Store) Consume(userID string) error {
 	if s.plays[id] >= s.limit {
 		return ErrLimitReached
 	}
+	previous := s.plays[id]
 	s.plays[id]++
-	s.persistLocked()
+	if err := s.persistLocked(); err != nil {
+		if previous == 0 {
+			delete(s.plays, id)
+		} else {
+			s.plays[id] = previous
+		}
+		log.Printf("save demo Real Debrid plays: %v", err)
+		return err
+	}
 	return nil
 }
 
-func (s *Store) load() {
+func (s *Store) load() error {
 	if s.path == "" {
-		return
+		return nil
 	}
 	data, err := os.ReadFile(s.path)
-	if err != nil || len(data) == 0 {
-		return
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
 	}
 	var file persistedFile
 	if err := json.Unmarshal(data, &file); err != nil {
-		return
+		return fmt.Errorf("decode play counts: %w", err)
 	}
 	if file.Plays == nil {
-		return
+		return errors.New("missing play counts")
+	}
+	for _, count := range file.Plays {
+		if count < 0 {
+			return errors.New("negative play count")
+		}
 	}
 	s.plays = file.Plays
+	return nil
 }
 
-func (s *Store) persistLocked() {
+func (s *Store) persistLocked() error {
 	if s.path == "" {
-		return
+		return nil
 	}
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
-		return
+		return err
 	}
 	payload, err := json.Marshal(persistedFile{
 		Version: 1,
 		Plays:   s.plays,
 	})
 	if err != nil {
-		return
+		return err
 	}
 	tmp := s.path + ".tmp"
 	if err := os.WriteFile(tmp, payload, 0o644); err != nil {
-		return
+		return err
 	}
-	_ = os.Rename(tmp, s.path)
+	if err := os.Rename(tmp, s.path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 type Gate struct {
@@ -198,6 +232,9 @@ func (g *Gate) Apply(token, mediaType, userID string, consume bool) (string, err
 			return "", err
 		}
 		return g.ServerKey, nil
+	}
+	if g.Store.loadErr != nil {
+		return "", g.Store.loadErr
 	}
 	if g.Store.Remaining(userID) <= 0 {
 		return "", ErrLimitReached

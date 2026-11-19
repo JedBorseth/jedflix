@@ -1108,25 +1108,29 @@ func (s *Server) applyDemoRealDebrid(
 	if err == nil {
 		return rewritten, true
 	}
+	writeDemoRealDebridError(w, err)
+	return "", false
+}
+
+func writeDemoRealDebridError(w http.ResponseWriter, err error) {
 	if errors.Is(err, demord.ErrUnavailable) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
 			"error": demord.UnavailableMessage,
 			"code":  "demo_unavailable",
 		})
-		return "", false
+		return
 	}
 	if errors.Is(err, demord.ErrLimitReached) {
 		writeJSON(w, http.StatusForbidden, map[string]string{
 			"error": demord.LimitReachedMessage,
 			"code":  "demo_limit_reached",
 		})
-		return "", false
+		return
 	}
 	writeJSON(w, http.StatusInternalServerError, map[string]string{
 		"error": "demo Real Debrid failed",
 		"code":  "demo_unavailable",
 	})
-	return "", false
 }
 
 func (s *Server) consumeDemoPlay(w http.ResponseWriter, r *http.Request, mediaType string) bool {
@@ -1141,10 +1145,7 @@ func (s *Server) consumeDemoPlay(w http.ResponseWriter, r *http.Request, mediaTy
 		s.demoRd.Store = demord.NewStore("", demord.DefaultPlayLimit)
 	}
 	if err := s.demoRd.Store.Consume(userID); err != nil {
-		writeJSON(w, http.StatusForbidden, map[string]string{
-			"error": demord.LimitReachedMessage,
-			"code":  "demo_limit_reached",
-		})
+		writeDemoRealDebridError(w, err)
 		return false
 	}
 	return true
