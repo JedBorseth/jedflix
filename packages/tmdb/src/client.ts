@@ -151,7 +151,7 @@ export function clearTmdbSessionCache() {
  * Returns a previously resolved TMDB JSON payload for this session, if any.
  * Used by browse UI to hydrate without a loading flash after route remounts.
  */
-export function peekTmdbSessionCache<T>(
+function peekTmdbSessionCache<T>(
   path: string,
   options: FetchOptions = {},
 ): T | undefined {

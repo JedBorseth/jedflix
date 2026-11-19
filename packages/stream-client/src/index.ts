@@ -1,5 +1,4 @@
 export type {
-  BookSourcesRequest,
   LetterboxdFilm,
   LetterboxdFilmsResponse,
   LetterboxdVerifyResponse,
@@ -20,12 +19,9 @@ export type {
   SpotifySearchResponse,
   SpotifyTopTrack,
   SpotifyTrack,
-  StreamClient,
-  StreamClientConfig,
   StreamFile,
   StreamResult,
   StreamSource,
-  VideoSourcesRequest,
   YoutubeMusicSearchResponse,
   YoutubeMusicSearchTrack,
   LastFmTag,

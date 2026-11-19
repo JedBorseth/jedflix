@@ -23,7 +23,3 @@ export function getWatchHistoryItemKey(item: WatchHistoryKeyInput) {
   }
   return mediaKey(item.mediaType, item.movieId);
 }
-
-export function getMediaIdentityKey(item: WatchHistoryKeyInput) {
-  return getWatchHistoryItemKey(item);
-}

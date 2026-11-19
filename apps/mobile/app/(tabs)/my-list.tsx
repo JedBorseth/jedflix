@@ -11,7 +11,7 @@ import {
   Text,
   View,
 } from "react-native";
-import type { MediaItem } from "@jedflix/shared";
+import { isVideoMediaType, type MediaItem } from "@jedflix/shared";
 import { getMobileMediaPath } from "@/lib/paths";
 import { tmdb } from "@/lib/tmdb";
 
@@ -26,12 +26,14 @@ export default function MyListScreen() {
       return;
     }
 
+    const videoIds = saved.flatMap(({ mediaType, movieId }) =>
+      isVideoMediaType(mediaType) && movieId !== undefined ? [{ mediaType, movieId }] : [],
+    );
+
     let cancelled = false;
     setLoading(true);
     void tmdb
-      .getMediaDetailsByIds(
-        saved.map((entry) => ({ mediaType: entry.mediaType, movieId: entry.movieId })),
-      )
+      .getMediaDetailsByIds(videoIds)
       .then((media) => {
         if (!cancelled) setItems(media);
       })

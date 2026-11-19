@@ -1,11 +1,11 @@
 import { createStreamClient } from "@jedflix/stream-client";
 import Constants from "expo-constants";
 
-const apiBase =
+export const backendBaseUrl =
   process.env.EXPO_PUBLIC_BACKEND_URL ??
   process.env.EXPO_PUBLIC_STREAM_API_URL ??
   Constants.expoConfig?.extra?.backendUrl ??
   Constants.expoConfig?.extra?.streamApiUrl ??
   "/backend";
 
-export const streamClient = createStreamClient({ apiBase });
+export const streamClient = createStreamClient({ apiBase: backendBaseUrl });
