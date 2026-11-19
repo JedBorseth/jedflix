@@ -92,11 +92,9 @@ type Client struct {
 	refreshErr    error
 	artistWarming bool
 
-	albumCache      sync.Map
-	artistCache     sync.Map
-	searchCache     sync.Map
-	albumSummaries  sync.Map
-	artistSummaries sync.Map
+	albumCache  sync.Map
+	artistCache sync.Map
+	searchCache sync.Map
 
 	artworkMem    sync.Map
 	artworkDiskMu sync.Mutex
@@ -317,12 +315,7 @@ func (c *Client) Search(ctx context.Context, query string) (*musiccatalog.Search
 			c.trimSearchCache()
 			c.searchCache.Store(cacheKey, cachedSearch{result: *hybrid, cachedAt: c.now()})
 		}
-		for _, a := range hybrid.Artists {
-			c.rememberArtistSummary(a)
-		}
-		for _, a := range hybrid.Albums {
-			c.rememberAlbumSummary(a)
-		}
+
 		c.WarmArtworkAsync(ctx, hybrid.Albums, hybrid.Tracks, hybrid.Artists)
 		return hybrid, nil
 	}
@@ -370,12 +363,7 @@ func (c *Client) Search(ctx context.Context, query string) (*musiccatalog.Search
 		c.trimSearchCache()
 		c.searchCache.Store(cacheKey, cachedSearch{result: result, cachedAt: c.now()})
 	}
-	for _, a := range artists {
-		c.rememberArtistSummary(a)
-	}
-	for _, a := range albums {
-		c.rememberAlbumSummary(a)
-	}
+
 	c.WarmArtworkAsync(ctx, albums, tracks, artists)
 	return &result, nil
 }
@@ -438,7 +426,7 @@ func (c *Client) GetAlbumWithHints(ctx context.Context, albumID string, hints mu
 	if requestedID != albumID {
 		c.albumCache.Store(requestedID, entry)
 	}
-	c.rememberAlbumSummary(*album)
+
 	c.WarmArtworkAsync(ctx, []musiccatalog.Album{*album}, nil, nil)
 	return album, nil
 }
@@ -482,7 +470,7 @@ func (c *Client) GetArtistWithHints(ctx context.Context, artistID string, hints 
 	}
 	c.trimArtistCache()
 	c.artistCache.Store(artistID, cachedArtist{artist: *details, cachedAt: c.now()})
-	c.rememberArtistSummary(details.Artist)
+
 	c.WarmArtworkAsync(ctx, details.Albums, details.TopTracks, []musiccatalog.Artist{details.Artist})
 	return details, nil
 }
@@ -660,22 +648,6 @@ func sleepBackoff(ctx context.Context, attempt int) bool {
 	case <-timer.C:
 		return true
 	}
-}
-
-func (c *Client) rememberAlbumSummary(album musiccatalog.Album) {
-	if album.ID == "" {
-		return
-	}
-	summary := album
-	summary.Tracks = nil
-	c.albumSummaries.Store(album.ID, summary)
-}
-
-func (c *Client) rememberArtistSummary(artist musiccatalog.Artist) {
-	if artist.ID == "" {
-		return
-	}
-	c.artistSummaries.Store(artist.ID, artist)
 }
 
 func (c *Client) trimSearchCache() {

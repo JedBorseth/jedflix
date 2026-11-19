@@ -78,17 +78,6 @@ func (c *Client) applyCatalog(response *musiccatalog.BrowseResponse) {
 	if response == nil {
 		return
 	}
-	for _, album := range response.NewReleases {
-		c.rememberAlbumSummary(album)
-	}
-	for _, row := range response.Rows {
-		for _, album := range row.Albums {
-			c.rememberAlbumSummary(album)
-		}
-		for _, artist := range row.Artists {
-			c.rememberArtistSummary(artist)
-		}
-	}
 	c.catalogMu.Lock()
 	c.catalog = response
 	c.refreshErr = nil

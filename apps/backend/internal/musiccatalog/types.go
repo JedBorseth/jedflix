@@ -85,10 +85,10 @@ type BrowseResponse struct {
 }
 
 type SearchResponse struct {
-	Albums  []Album      `json:"albums"`
-	Artists []Artist     `json:"artists"`
-	Tracks  []TopTrack   `json:"tracks"`
-	Ranked  []RankedHit  `json:"ranked,omitempty"`
+	Albums  []Album     `json:"albums"`
+	Artists []Artist    `json:"artists"`
+	Tracks  []TopTrack  `json:"tracks"`
+	Ranked  []RankedHit `json:"ranked,omitempty"`
 }
 
 type RankedHit struct {
