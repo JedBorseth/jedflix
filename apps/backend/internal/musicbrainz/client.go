@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/jedborseth/jeds-movies/backend/internal/config"
-	"github.com/jedborseth/jeds-movies/backend/internal/musicai"
 	"github.com/jedborseth/jeds-movies/backend/internal/musicbrainz/local"
 	"github.com/jedborseth/jeds-movies/backend/internal/musiccatalog"
 	"golang.org/x/sync/singleflight"
@@ -80,7 +79,6 @@ type Client struct {
 	catalogPath     string
 	enricher        Enricher
 	local           *local.Store
-	ai              *musicai.Client
 
 	rateMu  sync.Mutex
 	lastReq time.Time
@@ -171,17 +169,6 @@ func (c *Client) SetLocalStore(store *local.Store) {
 
 func (c *Client) SetEnricher(e Enricher) {
 	c.enricher = e
-}
-
-func (c *Client) SetAI(ai *musicai.Client) {
-	c.ai = ai
-}
-
-func (c *Client) LocalStore() *local.Store {
-	if c == nil {
-		return nil
-	}
-	return c.local
 }
 
 func (c *Client) LocalEnabled() bool {
@@ -494,43 +481,6 @@ func (c *Client) ListArtistAlbums(ctx context.Context, artistID string, limit in
 		albums = albums[:limit]
 	}
 	return albums, nil
-}
-
-// SimilarTracks returns embedding-neighbor tracks for a recording MBID.
-func (c *Client) SimilarTracks(ctx context.Context, trackID string, limit int) ([]musiccatalog.TopTrack, error) {
-	if !c.useLocalStore() {
-		return nil, nil
-	}
-	trackID = NormalizeMBID(trackID)
-	if trackID == "" {
-		return nil, fmt.Errorf("%w: track id is required", musiccatalog.ErrBadRequest)
-	}
-	if limit <= 0 {
-		limit = defaultLimit
-	}
-	hits, err := c.local.SimilarTracks(ctx, trackID, limit)
-	if err != nil {
-		return nil, err
-	}
-	if len(hits) == 0 {
-		return nil, nil
-	}
-	out := make([]musiccatalog.TopTrack, 0, len(hits))
-	for _, hit := range hits {
-		if hit.EntityType != "track" || hit.MBID == "" {
-			continue
-		}
-		out = append(out, musiccatalog.TopTrack{
-			ID:         hit.MBID,
-			Name:       hit.Name,
-			Artists:    hit.Artists,
-			ArtistIDs:  hit.ArtistIDs,
-			DurationMs: hit.DurationMs,
-			AlbumID:    hit.AlbumID,
-			AlbumName:  hit.AlbumName,
-		})
-	}
-	return c.withTrackCoverURLs(ctx, out), nil
 }
 
 func NormalizeMBID(value string) string {

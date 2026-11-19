@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 # Build and recreate only Compose services whose files changed.
-# Leaves MusicBrainz data, music-ai GPU models, and music-embed running unless
-# those services' sources changed.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -57,7 +55,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 plan_from_files() {
-  local frontend=0 backend=0 music_ai=0 music_embed=0 musicbrainz_db=0 caddy=0 sync_compose=0 abb_warp=0
+  local frontend=0 backend=0 musicbrainz_db=0 caddy=0 sync_compose=0 abb_warp=0
   local p
   for p in "$@"; do
     p="${p#./}"
@@ -72,21 +70,8 @@ plan_from_files() {
       deploy/Caddyfile)
         caddy=1
         ;;
-      apps/music-ai | apps/music-ai/*)
-        music_ai=1
-        ;;
-      deploy/musicbrainz | deploy/musicbrainz/*)
+      deploy/musicbrainz/Dockerfile.postgres)
         musicbrainz_db=1
-        ;;
-      apps/backend/cmd/music-embed | apps/backend/cmd/music-embed/* | \
-      apps/backend/internal/musicbrainz | apps/backend/internal/musicbrainz/* | \
-      apps/backend/internal/musicai | apps/backend/internal/musicai/*)
-        backend=1
-        music_embed=1
-        ;;
-      apps/backend/Dockerfile | apps/backend/go.mod | apps/backend/go.sum)
-        backend=1
-        music_embed=1
         ;;
       apps/backend | apps/backend/*)
         backend=1
@@ -107,8 +92,6 @@ plan_from_files() {
   local build=()
   [[ "$frontend" == 1 ]] && build+=(frontend)
   [[ "$backend" == 1 ]] && build+=(backend)
-  [[ "$music_ai" == 1 ]] && build+=(music-ai)
-  [[ "$music_embed" == 1 ]] && build+=(music-embed)
   [[ "$musicbrainz_db" == 1 ]] && build+=(musicbrainz-db)
   [[ "$abb_warp" == 1 ]] && build+=(abb-warp)
 

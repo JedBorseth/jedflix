@@ -11,8 +11,6 @@ import (
 )
 
 const (
-	defaultTextLimit   = 24
-	defaultVectorLimit = 24
 	mergedCandidateCap = 48
 	rrfK               = 60
 )
@@ -49,7 +47,7 @@ type RankedHit struct {
 	Score float64 `json:"score"`
 }
 
-func (s *Store) HybridSearch(ctx context.Context, query string, queryVec []float32, limitPerType int) (*HybridResult, error) {
+func (s *Store) HybridSearch(ctx context.Context, query string, _ []float32, limitPerType int) (*HybridResult, error) {
 	if !s.Configured() {
 		return nil, ErrNotConfigured
 	}
@@ -60,122 +58,14 @@ func (s *Store) HybridSearch(ctx context.Context, query string, queryVec []float
 	if limitPerType <= 0 {
 		limitPerType = 12
 	}
-	expanded := ExpandQuery(query)
-	textHits, err := s.searchText(ctx, expanded, defaultTextLimit)
+	hits, err := s.searchText(ctx, query, mergedCandidateCap)
 	if err != nil {
 		return nil, err
 	}
-	var vecHits []SearchHit
-	if len(queryVec) == EmbeddingDim {
-		// Vector recall is best-effort: a partial embedding backfill, empty
-		// table, or GPU hiccup must not block lexical search.
-		if hits, vecErr := s.searchVector(ctx, queryVec, defaultVectorLimit); vecErr == nil {
-			vecHits = hits
-		}
-	}
-	merged := MergeHits(query, textHits, vecHits, mergedCandidateCap)
-	return HitsToResult(merged, limitPerType), nil
+	return HitsToResult(hits, limitPerType), nil
 }
 
-func (s *Store) searchText(ctx context.Context, query string, limit int) ([]SearchHit, error) {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
-	if err != nil {
-		return nil, fmt.Errorf("%w: text search: %v", musiccatalog.ErrFetchFailed, err)
-	}
-	defer func() { _ = tx.Rollback() }()
-	// Indexed pg_trgm operators only — word_similarity() in WHERE seq-scans the table.
-	if _, err := tx.ExecContext(ctx, `SET LOCAL pg_trgm.word_similarity_threshold = 0.55`); err != nil {
-		return nil, fmt.Errorf("%w: text search: %v", musiccatalog.ErrFetchFailed, err)
-	}
-	if _, err := tx.ExecContext(ctx, `SET LOCAL statement_timeout = '8s'`); err != nil {
-		return nil, fmt.Errorf("%w: text search: %v", musiccatalog.ErrFetchFailed, err)
-	}
-	fuzzy := FuzzyToken(query)
-	rows, err := tx.QueryContext(ctx, `
-		WITH q AS (
-			SELECT
-				jedflix.safe_websearch($1) AS tsq,
-				lower(jedflix.f_unaccent($1)) AS qnorm,
-				lower(jedflix.f_unaccent($2)) AS fuzzy
-		)
-		SELECT d.entity_type, d.mbid::text, d.name, d.artists, d.artist_ids::text[],
-			d.album_name, COALESCE(d.album_id::text, ''), d.year, d.duration_ms,
-			d.genres, d.embed_text, d.popularity,
-			COALESCE(ts_rank_cd(d.tsv, q.tsq), 0) AS ts_rank,
-			COALESCE(word_similarity(q.qnorm, d.name_norm), 0) AS trgm
-		FROM jedflix.search_documents d, q
-		WHERE (
-			(q.tsq <> ''::tsquery AND d.tsv @@ q.tsq)
-			OR d.name_norm LIKE q.qnorm || '%'
-			OR (q.fuzzy <> '' AND (d.name_norm % q.fuzzy OR d.name_norm %> q.fuzzy))
-		)
-		ORDER BY
-			(COALESCE(ts_rank_cd(d.tsv, q.tsq), 0) * 2
-				+ COALESCE(word_similarity(q.qnorm, d.name_norm), 0)
-				+ LEAST(d.popularity, 100)::float / 400) DESC,
-			d.popularity DESC
-		LIMIT $3
-	`, query, fuzzy, limit*3)
-	if err != nil {
-		return nil, fmt.Errorf("%w: text search: %v", musiccatalog.ErrFetchFailed, err)
-	}
-	defer rows.Close()
-	hits, err := scanHits(rows, "lexical")
-	if err != nil {
-		return nil, err
-	}
-	if err := rows.Close(); err != nil {
-		return nil, fmt.Errorf("%w: text search: %v", musiccatalog.ErrFetchFailed, err)
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("%w: text search: %v", musiccatalog.ErrFetchFailed, err)
-	}
-	return hits, nil
-}
-
-func (s *Store) searchVector(ctx context.Context, queryVec []float32, limit int) ([]SearchHit, error) {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
-	if err != nil {
-		return nil, fmt.Errorf("%w: vector search: %v", musiccatalog.ErrFetchFailed, err)
-	}
-	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx, `SET LOCAL statement_timeout = '4s'`); err != nil {
-		return nil, fmt.Errorf("%w: vector search: %v", musiccatalog.ErrFetchFailed, err)
-	}
-	rows, err := tx.QueryContext(ctx, `
-		SELECT d.entity_type, d.mbid::text, d.name, d.artists, d.artist_ids::text[],
-			d.album_name, COALESCE(d.album_id::text, ''), d.year, d.duration_ms,
-			d.genres, d.embed_text, d.popularity,
-			1 - (e.embedding <=> $1::halfvec) AS vec_score,
-			0::float AS unused
-		FROM jedflix.music_embeddings e
-		JOIN jedflix.search_documents d
-			ON d.entity_type = e.entity_type AND d.mbid = e.mbid
-		ORDER BY e.embedding <=> $1::halfvec
-		LIMIT $2
-	`, formatHalfvec(queryVec), limit*3)
-	if err != nil {
-		return nil, fmt.Errorf("%w: vector search: %v", musiccatalog.ErrFetchFailed, err)
-	}
-	defer rows.Close()
-	hits, err := scanHits(rows, "vector")
-	if err != nil {
-		return nil, err
-	}
-	if err := rows.Close(); err != nil {
-		return nil, fmt.Errorf("%w: vector search: %v", musiccatalog.ErrFetchFailed, err)
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("%w: vector search: %v", musiccatalog.ErrFetchFailed, err)
-	}
-	return hits, nil
-}
-
-func scanHits(rows interface {
-	Next() bool
-	Scan(dest ...any) error
-	Err() error
-}, kind string) ([]SearchHit, error) {
+func scanHits(rows *sql.Rows) ([]SearchHit, error) {
 	out := make([]SearchHit, 0, 32)
 	for rows.Next() {
 		var (
@@ -184,12 +74,12 @@ func scanHits(rows interface {
 			genres             pqStringArray
 			albumID            string
 			year               sql.NullInt64
-			scoreA, scoreB     float64
+			score              float64
 		)
 		if err := rows.Scan(
 			&hit.EntityType, &hit.MBID, &hit.Name, &artists, &artistIDs,
-			&hit.AlbumName, &albumID, &year, &hit.DurationMs, &genres, &hit.EmbedText,
-			&hit.Popularity, &scoreA, &scoreB,
+			&hit.AlbumName, &albumID, &year, &hit.DurationMs, &genres,
+			&hit.Popularity, &score,
 		); err != nil {
 			return nil, fmt.Errorf("%w: scan search: %v", musiccatalog.ErrFetchFailed, err)
 		}
@@ -201,11 +91,8 @@ func scanHits(rows interface {
 			y := int(year.Int64)
 			hit.Year = &y
 		}
-		if kind == "vector" {
-			hit.Vector = scoreA
-		} else {
-			hit.Lexical = scoreA*2 + scoreB
-		}
+		hit.Lexical = score
+		hit.Fused = score / 20
 		out = append(out, hit)
 	}
 	return out, rows.Err()
@@ -397,11 +284,4 @@ func clampPop(fused float64) int {
 		return 100
 	}
 	return n
-}
-
-func HitEmbedText(hit SearchHit) string {
-	if strings.TrimSpace(hit.EmbedText) != "" {
-		return hit.EmbedText
-	}
-	return DocumentText(hit.EntityType, hit.Name, hit.Artists, hit.AlbumName, hit.Year, hit.Genres, nil)
 }

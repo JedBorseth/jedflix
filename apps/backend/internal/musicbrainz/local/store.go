@@ -155,12 +155,6 @@ func Open(databaseURL string) (*Store, error) {
 	if err := EnsureArtworkSchema(schemaCtx, db); err != nil {
 		fmt.Printf("jedflix artwork schema unavailable: %v\n", err)
 	}
-	if SearchSchemaPresent(schemaCtx, db) {
-		// Skip CREATE INDEX on an already-populated catalog — it takes a
-		// table lock that blocks the embedder and search.
-	} else if err := EnsureSearchSchema(schemaCtx, db); err != nil {
-		fmt.Printf("jedflix search schema unavailable: %v\n", err)
-	}
 	return store, nil
 }
 

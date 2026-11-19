@@ -15,7 +15,6 @@ import (
 	"github.com/jedborseth/jeds-movies/backend/internal/config"
 	"github.com/jedborseth/jeds-movies/backend/internal/lastfm"
 	"github.com/jedborseth/jeds-movies/backend/internal/letterboxd"
-	"github.com/jedborseth/jeds-movies/backend/internal/musicai"
 	"github.com/jedborseth/jeds-movies/backend/internal/musicbrainz"
 	"github.com/jedborseth/jeds-movies/backend/internal/musicbrainz/local"
 	"github.com/jedborseth/jeds-movies/backend/internal/musicrec"
@@ -60,19 +59,11 @@ func main() {
 			musicClient.SetLocalStore(store)
 			log.Println("MusicBrainz local Postgres replica enabled")
 			defer store.Close()
-		}
-	}
-	aiClient := musicai.New(cfg.MusicAIURL)
-	if aiClient != nil {
-		musicClient.SetAI(aiClient)
-		if aiClient.Ready(ctx) {
-			log.Printf("Music AI (embed/rerank) ready at %s", cfg.MusicAIURL)
-		} else {
-			log.Printf("Music AI configured at %s (models may still be loading)", cfg.MusicAIURL)
+			go store.MaintainSearch(ctx)
 		}
 	}
 	if musicClient.LocalEnabled() {
-		log.Println("Music catalog: local MusicBrainz Postgres (embed → pgvector → Qwen rerank)")
+		log.Println("Music catalog: local MusicBrainz Postgres (full-text search)")
 	} else {
 		log.Println("Music catalog provider: MusicBrainz API (+ Cover Art Archive) — set MUSICBRAINZ_DATABASE_URL for local mode")
 	}
@@ -106,7 +97,7 @@ func main() {
 	}
 
 	youtubeResolver := youtube.NewResolverWithLimit(cfg.MaxConcurrentYoutube)
-	recommender := musicrec.New(musicClient, lastfmService, aiClient)
+	recommender := musicrec.New(musicClient, lastfmService)
 	server := api.NewServer(cfg, resolverService, letterboxdClient, openLibraryClient, musicClient, lastfmService, youtubeResolver, tmdbClient)
 	server.SetRecommender(recommender)
 	httpServer := &http.Server{

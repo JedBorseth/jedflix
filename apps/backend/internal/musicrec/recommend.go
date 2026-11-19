@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/jedborseth/jeds-movies/backend/internal/lastfm"
-	"github.com/jedborseth/jeds-movies/backend/internal/musicai"
 	"github.com/jedborseth/jeds-movies/backend/internal/musicbrainz"
 	"github.com/jedborseth/jeds-movies/backend/internal/musicbrainz/local"
 	"github.com/jedborseth/jeds-movies/backend/internal/musiccatalog"
@@ -34,11 +33,10 @@ type Response struct {
 type Service struct {
 	catalog *musicbrainz.Client
 	lastfm  *lastfm.Service
-	ai      *musicai.Client
 }
 
-func New(catalog *musicbrainz.Client, lastfmService *lastfm.Service, ai *musicai.Client) *Service {
-	return &Service{catalog: catalog, lastfm: lastfmService, ai: ai}
+func New(catalog *musicbrainz.Client, lastfmService *lastfm.Service) *Service {
+	return &Service{catalog: catalog, lastfm: lastfmService}
 }
 
 func (s *Service) Configured() bool {
@@ -67,39 +65,7 @@ func (s *Service) Recommend(ctx context.Context, req Request) (*Response, error)
 		return &Response{Tracks: []musiccatalog.TopTrack{}}, nil
 	}
 
-	ranked := candidates
-	if s.ai != nil && s.ai.Configured() && len(candidates) > 1 {
-		docs := make([]musicai.RerankDocument, 0, len(candidates))
-		byID := map[string]musiccatalog.TopTrack{}
-		query := recommendQuery(req)
-		for _, track := range candidates {
-			byID[track.ID] = track
-			docs = append(docs, musicai.RerankDocument{
-				ID:   track.ID,
-				Text: local.DocumentText("track", track.Name, track.Artists, track.AlbumName, nil, nil, nil),
-			})
-		}
-		if results, err := s.ai.Rerank(ctx, query, docs); err == nil && len(results) > 0 {
-			next := make([]musiccatalog.TopTrack, 0, len(results))
-			seen := map[string]struct{}{}
-			for _, item := range results {
-				track, ok := byID[item.ID]
-				if !ok {
-					continue
-				}
-				if _, dup := seen[track.ID]; dup {
-					continue
-				}
-				seen[track.ID] = struct{}{}
-				next = append(next, track)
-			}
-			if len(next) > 0 {
-				ranked = next
-			}
-		}
-	}
-
-	picked := PickDiverse(ranked, req.RecentArtistNames, limit)
+	picked := PickDiverse(candidates, req.RecentArtistNames, limit)
 	return &Response{Tracks: picked}, nil
 }
 
@@ -137,39 +103,7 @@ func (s *Service) collectCandidates(ctx context.Context, req Request) []musiccat
 			}
 		}
 	}
-
-	if s.catalog != nil {
-		if store := s.catalog.LocalStore(); store != nil && strings.TrimSpace(req.Seed.ID) != "" {
-			simCtx, simCancel := context.WithTimeout(ctx, 6*time.Second)
-			defer simCancel()
-			if similar, err := store.SimilarTracks(simCtx, req.Seed.ID, 16); err == nil {
-				for _, hit := range similar {
-					out = append(out, musiccatalog.TopTrack{
-						ID:         hit.MBID,
-						Name:       hit.Name,
-						Artists:    hit.Artists,
-						ArtistIDs:  hit.ArtistIDs,
-						DurationMs: hit.DurationMs,
-						AlbumID:    hit.AlbumID,
-						AlbumName:  hit.AlbumName,
-					})
-				}
-			}
-		}
-	}
 	return out
-}
-
-func recommendQuery(req Request) string {
-	parts := []string{"Recommend the next song after"}
-	if req.Seed.Title != "" {
-		parts = append(parts, req.Seed.Title)
-	}
-	if len(req.Seed.Artists) > 0 {
-		parts = append(parts, "by", strings.Join(req.Seed.Artists, ", "))
-	}
-	parts = append(parts, ". Prefer variety, avoid repeating the same artist consecutively.")
-	return strings.Join(parts, " ")
 }
 
 func dedupeTracks(tracks []musiccatalog.TopTrack, exclude map[string]struct{}) []musiccatalog.TopTrack {

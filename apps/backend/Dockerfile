@@ -4,15 +4,6 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /backend ./cmd/backend
-RUN CGO_ENABLED=0 GOOS=linux go build -o /music-embed ./cmd/music-embed
-
-FROM alpine:3.20 AS embedder
-RUN apk add --no-cache ca-certificates
-WORKDIR /app
-COPY --from=builder /music-embed /app/music-embed
-ENTRYPOINT ["/app/music-embed"]
-
-# Default image for the `backend` service (must be the final stage).
 FROM alpine:3.20
 # Bun is the JS runtime yt-dlp needs for YouTube challenges (same role Deno filled).
 COPY --from=oven/bun:1.3-alpine /usr/local/bin/bun /usr/local/bin/bun

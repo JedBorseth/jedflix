@@ -4,12 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strings"
 )
 
-const EmbeddingDim = 512
-
-// EnsureSearchSchema installs pgvector/pg_trgm sidecar tables in jedflix.
+// EnsureSearchSchema installs search sidecar tables in jedflix.
 // MusicBrainz replica tables are never altered (mbslave owns those).
 func EnsureSearchSchema(ctx context.Context, db *sql.DB) error {
 	if db == nil {
@@ -17,7 +14,6 @@ func EnsureSearchSchema(ctx context.Context, db *sql.DB) error {
 	}
 	stmts := []string{
 		`CREATE SCHEMA IF NOT EXISTS jedflix`,
-		`CREATE EXTENSION IF NOT EXISTS vector`,
 		`CREATE EXTENSION IF NOT EXISTS pg_trgm`,
 		`CREATE EXTENSION IF NOT EXISTS unaccent`,
 		`CREATE OR REPLACE FUNCTION jedflix.f_unaccent(text)
@@ -26,21 +22,6 @@ func EnsureSearchSchema(ctx context.Context, db *sql.DB) error {
 			IMMUTABLE
 			PARALLEL SAFE
 			AS $$ SELECT public.unaccent('public.unaccent', $1) $$`,
-		`CREATE OR REPLACE FUNCTION jedflix.safe_websearch(q text)
-			RETURNS tsquery
-			LANGUAGE plpgsql
-			IMMUTABLE
-			AS $$
-			BEGIN
-				RETURN websearch_to_tsquery('simple', jedflix.f_unaccent(q));
-			EXCEPTION WHEN OTHERS THEN
-				BEGIN
-					RETURN plainto_tsquery('simple', jedflix.f_unaccent(q));
-				EXCEPTION WHEN OTHERS THEN
-					RETURN ''::tsquery;
-				END;
-			END;
-			$$`,
 		`CREATE TABLE IF NOT EXISTS jedflix.search_documents (
 			entity_type text NOT NULL CHECK (entity_type IN ('artist', 'album', 'track')),
 			mbid uuid NOT NULL,
@@ -55,19 +36,10 @@ func EnsureSearchSchema(ctx context.Context, db *sql.DB) error {
 			aliases text[] NOT NULL DEFAULT '{}',
 			duration_ms int NOT NULL DEFAULT 0,
 			popularity int NOT NULL DEFAULT 0,
-			embed_text text NOT NULL DEFAULT '',
 			tsv tsvector,
 			updated_at timestamptz NOT NULL DEFAULT now(),
 			PRIMARY KEY (entity_type, mbid)
 		)`,
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS jedflix.music_embeddings (
-			entity_type text NOT NULL CHECK (entity_type IN ('artist', 'album', 'track')),
-			mbid uuid NOT NULL,
-			text_hash text NOT NULL,
-			embedding halfvec(%d) NOT NULL,
-			updated_at timestamptz NOT NULL DEFAULT now(),
-			PRIMARY KEY (entity_type, mbid)
-		)`, EmbeddingDim),
 		`CREATE TABLE IF NOT EXISTS jedflix.search_state (
 			key text PRIMARY KEY,
 			value text NOT NULL DEFAULT '',
@@ -79,52 +51,21 @@ func EnsureSearchSchema(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("jedflix search schema: %w", err)
 		}
 	}
-	indexes := []struct {
-		name string
-		stmt string
-	}{
-		{
-			name: "search_documents_type_pop_idx",
-			stmt: `CREATE INDEX IF NOT EXISTS search_documents_type_pop_idx
-				ON jedflix.search_documents (entity_type, popularity DESC)`,
-		},
-		{
-			name: "music_embeddings_hnsw_idx",
-			stmt: fmt.Sprintf(`CREATE INDEX IF NOT EXISTS music_embeddings_hnsw_idx
-				ON jedflix.music_embeddings
-				USING hnsw (embedding halfvec_cosine_ops)
-				WITH (m = 16, ef_construction = 64)`),
-		},
+	if err := ensureIndex(ctx, db, "search_documents_tsv_idx",
+		`CREATE INDEX CONCURRENTLY IF NOT EXISTS search_documents_tsv_idx
+		 ON jedflix.search_documents USING gin (tsv)`); err != nil {
+		return err
 	}
-	for _, idx := range indexes {
-		if err := ensureIndex(ctx, db, idx.name, idx.stmt); err != nil {
-			return err
-		}
-	}
-	return createSearchDocumentIndexes(ctx, db)
-}
-
-func SearchSchemaPresent(ctx context.Context, db *sql.DB) bool {
-	if db == nil {
-		return false
-	}
-	var ok bool
-	err := db.QueryRowContext(ctx, `
-		SELECT EXISTS (
-			SELECT 1
-			FROM information_schema.tables
-			WHERE table_schema = 'jedflix' AND table_name = 'search_documents'
-		)
-	`).Scan(&ok)
-	return err == nil && ok
+	// Document matching uses the full-text index. Trigrams now index terms only.
+	_, err := db.ExecContext(ctx, `DROP INDEX CONCURRENTLY IF EXISTS jedflix.search_documents_trgm_idx`)
+	return err
 }
 
 func indexExists(ctx context.Context, db *sql.DB, name string) (bool, error) {
 	var ok bool
 	err := db.QueryRowContext(ctx, `
 		SELECT EXISTS (
-			SELECT 1 FROM pg_indexes
-			WHERE schemaname = 'jedflix' AND indexname = $1
+			SELECT 1 FROM pg_index WHERE indexrelid = to_regclass('jedflix.' || $1) AND indisvalid
 		)
 	`, name).Scan(&ok)
 	return ok, err
@@ -138,45 +79,12 @@ func ensureIndex(ctx context.Context, db *sql.DB, name, stmt string) error {
 	if ok {
 		return nil
 	}
+	// An interrupted concurrent build leaves an invalid index behind.
+	if _, err := db.ExecContext(ctx, `DROP INDEX CONCURRENTLY IF EXISTS jedflix.`+name); err != nil {
+		return fmt.Errorf("remove invalid index %s: %w", name, err)
+	}
 	if _, err := db.ExecContext(ctx, stmt); err != nil {
-		return fmt.Errorf("jedflix search schema: %w", err)
-	}
-	return nil
-}
-
-func dropSearchDocumentIndexes(ctx context.Context, db *sql.DB) error {
-	stmts := []string{
-		`DROP INDEX IF EXISTS jedflix.search_documents_tsv_idx`,
-		`DROP INDEX IF EXISTS jedflix.search_documents_trgm_idx`,
-	}
-	for _, stmt := range stmts {
-		if _, err := db.ExecContext(ctx, stmt); err != nil {
-			return fmt.Errorf("drop search indexes: %w", err)
-		}
-	}
-	return nil
-}
-
-func createSearchDocumentIndexes(ctx context.Context, db *sql.DB) error {
-	indexes := []struct {
-		name string
-		stmt string
-	}{
-		{
-			name: "search_documents_tsv_idx",
-			stmt: `CREATE INDEX IF NOT EXISTS search_documents_tsv_idx
-				ON jedflix.search_documents USING gin (tsv)`,
-		},
-		{
-			name: "search_documents_trgm_idx",
-			stmt: `CREATE INDEX IF NOT EXISTS search_documents_trgm_idx
-				ON jedflix.search_documents USING gin (name_norm gin_trgm_ops)`,
-		},
-	}
-	for _, idx := range indexes {
-		if err := ensureIndex(ctx, db, idx.name, idx.stmt); err != nil {
-			return err
-		}
+		return fmt.Errorf("create index %s: %w", name, err)
 	}
 	return nil
 }
@@ -208,12 +116,7 @@ func (s *Store) SetState(ctx context.Context, key, value string) error {
 	if !s.Configured() {
 		return ErrNotConfigured
 	}
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO jedflix.search_state (key, value, updated_at)
-		VALUES ($1, $2, now())
-		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
-	`, key, value)
-	return err
+	return setSearchState(ctx, s.db, key, value)
 }
 
 func (s *Store) GetState(ctx context.Context, key string) (string, error) {
@@ -228,21 +131,4 @@ func (s *Store) GetState(ctx context.Context, key string) (string, error) {
 		return "", nil
 	}
 	return value, err
-}
-
-func formatHalfvec(values []float32) string {
-	if len(values) == 0 {
-		return "[]"
-	}
-	var b strings.Builder
-	b.Grow(len(values) * 8)
-	b.WriteByte('[')
-	for i, v := range values {
-		if i > 0 {
-			b.WriteByte(',')
-		}
-		fmt.Fprintf(&b, "%g", v)
-	}
-	b.WriteByte(']')
-	return b.String()
 }

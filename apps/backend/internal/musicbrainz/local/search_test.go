@@ -52,42 +52,6 @@ func TestMergeHitsPrefersPopularExactTitle(t *testing.T) {
 	}
 }
 
-func TestDocumentText(t *testing.T) {
-	year := 2015
-	got := DocumentText("album", "To Pimp a Butterfly", []string{"Kendrick Lamar"}, "", &year, []string{"hip hop"}, []string{"TPAB"})
-	if !strings.Contains(got, "Kendrick Lamar") || !strings.Contains(got, "TPAB") {
-		t.Fatalf("unexpected document text: %s", got)
-	}
-}
-
-func TestFormatHalfvec(t *testing.T) {
-	got := formatHalfvec([]float32{0.5, -1, 0})
-	if got != "[0.5,-1,0]" {
-		t.Fatalf("formatHalfvec = %q", got)
-	}
-}
-
-func TestFuzzyTokenSkipsShortAndStopwordQueries(t *testing.T) {
-	if got := FuzzyToken("hip"); got != "" {
-		t.Fatalf("hip fuzzy=%q", got)
-	}
-	if got := FuzzyToken("the"); got != "" {
-		t.Fatalf("the fuzzy=%q", got)
-	}
-	if got := FuzzyToken("the spotlight"); got != "spotlight" {
-		t.Fatalf("the spotlight fuzzy=%q", got)
-	}
-	if got := FuzzyToken("drake"); got != "drake" {
-		t.Fatalf("drake fuzzy=%q", got)
-	}
-	if FuzzyToken("the weeknd") != "weeknd" {
-		t.Fatalf("the weeknd fuzzy=%q", FuzzyToken("the weeknd"))
-	}
-	if UseFuzzyTrigram("hi") {
-		t.Fatal("short queries must not use trigram %")
-	}
-}
-
 func TestSearchDocumentsReadyAcceptsPartialIndex(t *testing.T) {
 	if SearchDocumentsReady(0, 0, 0) {
 		t.Fatal("empty index should not be ready")
@@ -105,7 +69,7 @@ func TestShouldPopulateSearchDocuments(t *testing.T) {
 		t.Fatal("small indexes should still populate")
 	}
 	if ShouldPopulateSearchDocuments(10000) || ShouldPopulateSearchDocuments(1_500_000) {
-		t.Fatal("populated catalogs must not full-rescan on embedder start")
+		t.Fatal("populated catalogs must not full-rescan on backend start")
 	}
 }
 

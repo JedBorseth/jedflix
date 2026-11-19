@@ -40,9 +40,8 @@ type Config struct {
 	MusicCatalogCacheTTL   time.Duration
 	MusicCatalogPath       string
 	// Local MusicBrainz Postgres (production). When DatabaseURL is set,
-	// search/detail use the replica plus pgvector/Qwen — not the public MusicBrainz API.
+	// search and detail use the local replica.
 	MusicBrainzDatabaseURL string
-	MusicAIURL             string
 	MusicArtworkPath       string
 	MusicCoverPublicBase   string
 	LastFMAPIKey           string
@@ -95,7 +94,6 @@ func Load() Config {
 		MusicCatalogCacheTTL:       envDuration("MUSIC_CATALOG_CACHE_TTL", envDuration("SPOTIFY_CACHE_TTL", 6*time.Hour)),
 		MusicCatalogPath:           strings.TrimSpace(envOr("MUSIC_CATALOG_PATH", os.Getenv("SPOTIFY_CATALOG_PATH"))),
 		MusicBrainzDatabaseURL:     strings.TrimSpace(os.Getenv("MUSICBRAINZ_DATABASE_URL")),
-		MusicAIURL:                 strings.TrimRight(strings.TrimSpace(os.Getenv("MUSIC_AI_URL")), "/"),
 		MusicArtworkPath:           strings.TrimSpace(envOr("MUSIC_ARTWORK_PATH", "/data/music-artwork")),
 		MusicCoverPublicBase:       strings.TrimRight(envOr("MUSIC_COVER_PUBLIC_BASE", "/backend/api/v1/music/covers"), "/"),
 		LastFMAPIKey:               strings.TrimSpace(os.Getenv("LASTFM_API_KEY")),

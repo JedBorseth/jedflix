@@ -11,7 +11,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jedborseth/jeds-movies/backend/internal/lastfm"
-	"github.com/jedborseth/jeds-movies/backend/internal/musicbrainz"
 	"github.com/jedborseth/jeds-movies/backend/internal/musiccatalog"
 	"github.com/jedborseth/jeds-movies/backend/internal/musicrec"
 )
@@ -183,90 +182,30 @@ func (s *Server) handleLastFMRelated(w http.ResponseWriter, r *http.Request) {
 	artist := strings.TrimSpace(r.URL.Query().Get("artist"))
 	limit := parsePositiveInt(r.URL.Query().Get("limit"), 6)
 	seeds := make([]struct{ Artist, Track string }, 0)
-	seedIDs := make([]string, 0)
-	seenID := map[string]struct{}{}
-	addSeedID := func(id string) {
-		id = musicbrainz.NormalizeMBID(id)
-		if id == "" {
-			return
-		}
-		if _, ok := seenID[id]; ok {
-			return
-		}
-		seenID[id] = struct{}{}
-		seedIDs = append(seedIDs, id)
-	}
-	for _, raw := range r.URL.Query()["seedId"] {
-		addSeedID(raw)
-	}
 	for _, raw := range r.URL.Query()["seed"] {
-		artistName, trackName, id, ok := splitSeed(raw)
+		artistName, trackName, _, ok := splitSeed(raw)
 		if !ok {
 			continue
 		}
 		seeds = append(seeds, struct{ Artist, Track string }{Artist: artistName, Track: trackName})
-		addSeedID(id)
 	}
 	if track := strings.TrimSpace(r.URL.Query().Get("track")); track != "" && artist != "" {
 		seeds = append([]struct{ Artist, Track string }{{Artist: artist, Track: track}}, seeds...)
 	}
 
-	lastfmReady := s.lastfm != nil && s.lastfm.Configured()
-	localReady := s.music != nil && s.music.LocalEnabled() && len(seedIDs) > 0
-	if !lastfmReady && !localReady {
+	if s.lastfm == nil || !s.lastfm.Configured() {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "last.fm is not configured"})
 		return
 	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
-
-	tracks := make([]musiccatalog.TopTrack, 0)
-	if localReady {
-		seenTrack := map[string]struct{}{}
-		for _, id := range seedIDs {
-			if ctx.Err() != nil {
-				break
-			}
-			hits, err := s.music.SimilarTracks(ctx, id, limit)
-			if err != nil || len(hits) == 0 {
-				continue
-			}
-			for _, hit := range hits {
-				if hit.ID == "" || hit.ID == id {
-					continue
-				}
-				if _, ok := seenTrack[hit.ID]; ok {
-					continue
-				}
-				seenTrack[hit.ID] = struct{}{}
-				tracks = append(tracks, hit)
-				if len(tracks) >= limit {
-					break
-				}
-			}
-			if len(tracks) >= limit {
-				break
-			}
-		}
+	artists, tracks, err := s.lastfm.RelatedForAlbum(ctx, artist, seeds, limit)
+	if err != nil && len(artists) == 0 {
+		writeLastFMError(w, err)
+		return
 	}
-
-	artists := make([]musiccatalog.Artist, 0)
-	if lastfmReady {
-		// Name-resolve Last.fm similar-tracks is too slow (~20s). Only use it
-		// when we have no recording MBIDs to query embeddings with.
-		if len(tracks) == 0 && !localReady {
-			var err error
-			artists, tracks, err = s.lastfm.RelatedForAlbum(ctx, artist, seeds, limit)
-			if err != nil && len(artists) == 0 {
-				writeLastFMError(w, err)
-				return
-			}
-		} else if strings.TrimSpace(artist) != "" && !strings.EqualFold(artist, "Various Artists") {
-			if similar, err := s.lastfm.SimilarArtists(ctx, artist, limit); err == nil {
-				artists = similar
-			}
-		}
+	if artists == nil {
+		artists = []musiccatalog.Artist{}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
