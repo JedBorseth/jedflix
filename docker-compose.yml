@@ -41,7 +41,7 @@ services:
     environment:
       ENV: production
       DOMAIN: ${DOMAIN}
-      TORRENTIO_URL: ${TORRENTIO_URL:-https://torrentio.strem.fun}
+      COMET_URL: ${COMET_URL:-https://comet.feels.legal}
       MAX_VIDEO_SIZE_GB: ${MAX_VIDEO_SIZE_GB:-50}
       MIN_SEEDERS: ${MIN_SEEDERS:-3}
       PREFER_INSTANT: ${PREFER_INSTANT:-true}
@@ -71,7 +71,7 @@ services:
       ABB_USERNAME: ${ABB_USERNAME:-}
       ABB_PASSWORD: ${ABB_PASSWORD:-}
       # SOCKS5 via abb-warp only. Do not set HTTP_PROXY here — that would send
-      # TMDB/Torrentio/Open Library/music through Cloudflare.
+      # TMDB/Comet/Open Library/music through Cloudflare.
       ABB_PROXY: ${ABB_PROXY:-socks5://abb-warp:40000}
       REAL_DEBRID_DEMO_CLIENT_KEY: ${REAL_DEBRID_DEMO_CLIENT_KEY:-}
       REAL_DEBRID_DEMO_API_KEY: ${REAL_DEBRID_DEMO_API_KEY:-}

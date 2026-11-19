@@ -17,7 +17,7 @@ type FilterOptions struct {
 }
 
 var (
-	incompatiblePattern = regexp.MustCompile(`(?i)\.mkv\b|\bmkv\b|\bremux\b|\btruehd\b|\batmos\b|\bdts(?:-?hd)?\b|\bac3\b|\beac3\b|\bdd\+\b|\bddp\b`)
+	incompatiblePattern = regexp.MustCompile(`(?i)\.mkv\b|\bmkv\b|\bremux\b|\btruehd\b|\batmos\b|\bdts(?:-?hd)?\b|\bac3\b|\beac3\b|\bdd\+\b|\bddp\b|\bdolby digital\b`)
 	mp4Pattern          = regexp.MustCompile(`(?i)\.mp4\b|\bm4v\b|\bmp4\b`)
 	h264Pattern         = regexp.MustCompile(`(?i)\bx264\b|\bh\.?264\b|\bavc\b`)
 	aacPattern          = regexp.MustCompile(`(?i)\baac\b`)
@@ -60,7 +60,7 @@ func passesFilters(release Release, opts FilterOptions, maxBytes int64) bool {
 	if IsRDBlockedFilename(release.Title, opts.RDBlockedFilenameRegex) {
 		return false
 	}
-	if opts.RequireDirectPlaybackCompat && IsDirectPlaybackIncompatible(release.Title) {
+	if opts.RequireDirectPlaybackCompat && IsDirectPlaybackIncompatible(release.Title+" "+release.Info) {
 		return false
 	}
 	if release.SizeKnown && release.SizeBytes > maxBytes {
@@ -103,7 +103,7 @@ func ScorePick(releases []Release, instant map[string]bool, preferInstant bool) 
 
 func scoreRelease(release Release, instant map[string]bool, preferInstant bool) int {
 	score := 0
-	label := release.Title
+	label := release.Title + " " + release.Info
 
 	if preferInstant && release.InfoHash != "" && instant[strings.ToLower(release.InfoHash)] {
 		score += 1000

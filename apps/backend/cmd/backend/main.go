@@ -34,7 +34,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	searcher := search.NewTorrentioSearcher(cfg)
+	searcher := search.NewCometSearcher(cfg)
 	rd := realdebrid.NewClient(cfg)
 	abbClient := abb.NewClientWithOptions(abb.ClientOptions{
 		BaseURL:    cfg.AbbBaseURL,

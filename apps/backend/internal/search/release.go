@@ -1,7 +1,9 @@
 package search
 
 type Release struct {
-	Title        string
+	Title string
+	// Info is a human-readable codec/quality summary ("x264 • 8bit | AAC • 2.0 · WEB-DL").
+	Info         string
 	Magnet       string
 	InfoHash     string
 	FileIdx      *int

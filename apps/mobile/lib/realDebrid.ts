@@ -97,14 +97,6 @@ export function isRecoverableStreamError(error: unknown): boolean {
   ].includes(error.code);
 }
 
-/** InstantAvailability was permanently disabled by Real Debrid — keep a no-op for callers. */
-export async function checkInstantAvailability(
-  _token: string,
-  _infoHashes: string[],
-): Promise<Record<string, boolean>> {
-  return {};
-}
-
 export async function resolveRealDebridStream(
   source: StreamSource,
   request: ResolveRequest,

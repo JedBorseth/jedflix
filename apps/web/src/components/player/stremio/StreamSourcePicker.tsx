@@ -55,7 +55,7 @@ export function StreamSourcePicker({
         {loading ? (
           <div className="player-source-picker-loading">
             <div className="player-spinner" />
-            <p>Searching Torrentio...</p>
+            <p>Finding streams…</p>
           </div>
         ) : null}
 
@@ -111,6 +111,7 @@ export function StreamSourcePicker({
                   onClick={() => onSelect(source)}
                 >
                   <div className="player-source-title">{source.title}</div>
+                  {source.info ? <div className="player-source-info">{source.info}</div> : null}
                   <div className="player-source-meta">
                     <span>{formatSize(source.sizeGb)}</span>
                     {source.seeders !== undefined ? <span>{source.seeders} seeders</span> : null}

@@ -9,7 +9,6 @@ import { useScreenOrientationLock } from "@/hooks/useScreenOrientationLock";
 import { formatWatchSessionTitle } from "@/lib/mediaSession";
 import { catalogQueryKeys } from "@/lib/queryClient";
 import { fetchSources, type StreamSource } from "@/lib/streamApi";
-import { prepareBrowserSources } from "@/lib/iosPlayback";
 import { getTvSeasons, getWatchPath } from "@/lib/tmdb";
 import type { MediaType } from "@/lib/types";
 import { PlayerErrorOverlay } from "../shared/PlayerErrorOverlay";
@@ -129,7 +128,7 @@ export function VideoJsPlayer({
         },
         realDebridApiKey.trim() || undefined,
       );
-      setSources(prepareBrowserSources(found, { skipCompatFilter: skipCompatFilters }));
+      setSources(found);
     } catch (error) {
       setSources([]);
       setSourcesError(error instanceof Error ? error.message : "Failed to load streams");

@@ -13,14 +13,14 @@ import {
 } from "react-native";
 import type { MediaType } from "@jedflix/shared";
 import { NativeStreamPlayer } from "@/components/NativeStreamPlayer";
+import type { StreamSource } from "@jedflix/stream-client";
 import {
-  checkInstantAvailability,
   formatRealDebridError,
   isRecoverableStreamError,
   resolveRealDebridStream,
 } from "@/lib/realDebrid";
-import { IOS_PLAYBACK_HINT, isIosDevice, sortSourcesForMobilePlayback } from "@/lib/iosPlayback";
-import { fetchTorrentioSources, type MobileStreamSource } from "@/lib/torrentio";
+import { IOS_PLAYBACK_HINT, isIosDevice } from "@/lib/iosPlayback";
+import { streamClient } from "@/lib/stream";
 import { tmdb } from "@/lib/tmdb";
 
 const LOCAL_RD_KEY = "jedflix.mobile.realDebridApiKey";
@@ -58,7 +58,7 @@ export default function WatchScreen() {
 
   const [imdbId, setImdbId] = useState<string | null>(null);
   const [mediaTitle, setMediaTitle] = useState<string>("");
-  const [sources, setSources] = useState<MobileStreamSource[]>([]);
+  const [sources, setSources] = useState<StreamSource[]>([]);
   const [loadingSources, setLoadingSources] = useState(true);
   const [resolving, setResolving] = useState(false);
   const [resolveProgress, setResolveProgress] = useState<string | null>(null);
@@ -107,24 +107,17 @@ export default function WatchScreen() {
 
         setImdbId(externalIds.imdbId);
         setMediaTitle(media.title);
-        const found = await fetchTorrentioSources(
+        // The backend filters (per playback profile) and ranks Comet results.
+        const found = await streamClient.fetchSources(
           {
-            type: mediaType,
+            type: "movie",
             imdbId: externalIds.imdbId,
+            playbackProfile: skipCompatFilters ? "external" : "browser",
           },
-          { skipCompatFilter: skipCompatFilters },
+          rdToken,
         );
         if (cancelled) return;
-
-        // InstantAvailability is disabled on Real Debrid — keep call as no-op for API shape.
-        const hashes = found.map((source) => source.infoHash).filter((hash): hash is string => !!hash);
-        const cached = await checkInstantAvailability(rdToken, hashes);
-        const withCache = found.map((source) => ({
-          ...source,
-          cached: source.infoHash ? !!cached[source.infoHash.toLowerCase()] : false,
-        }));
-
-        setSources(sortSourcesForMobilePlayback(withCache) as MobileStreamSource[]);
+        setSources(found);
       } catch (loadError) {
         if (!cancelled) {
           setError(loadError instanceof Error ? loadError.message : "Failed to load sources");

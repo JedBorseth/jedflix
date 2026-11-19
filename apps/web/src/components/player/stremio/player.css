@@ -429,6 +429,14 @@
   font-size: 0.92rem;
   font-weight: 600;
   margin-bottom: 0.35rem;
+  overflow-wrap: anywhere;
+}
+
+.player-source-info {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.5);
+  margin: -0.15rem 0 0.4rem;
+  overflow-wrap: anywhere;
 }
 
 .player-source-meta {

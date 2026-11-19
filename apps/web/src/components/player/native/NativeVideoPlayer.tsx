@@ -7,7 +7,8 @@ import { api } from "@convex/_generated/api";
 import { useMediaSession } from "@/hooks/useMediaSession";
 import { fetchSources, type StreamSource } from "@/lib/streamApi";
 import { copyTextToClipboard } from "@/lib/clipboard";
-import { IOS_PLAYBACK_ERROR_HINT, isIosDevice, prepareBrowserSources } from "@/lib/iosPlayback";
+import { isDirectPlaybackIncompatible } from "@jedflix/shared";
+import { IOS_PLAYBACK_ERROR_HINT, isIosDevice } from "@/lib/iosPlayback";
 import { formatWatchSessionTitle, playMediaElement } from "@/lib/mediaSession";
 import { catalogQueryKeys } from "@/lib/queryClient";
 import { getTvSeasons, getWatchPath } from "@/lib/tmdb";
@@ -135,7 +136,7 @@ export function NativeVideoPlayer({
         },
         realDebridApiKey.trim() || undefined,
       );
-      setSources(prepareBrowserSources(found, { skipCompatFilter: skipCompatFilters }));
+      setSources(found);
     } catch (error) {
       setSources([]);
       setSourcesError(error instanceof Error ? error.message : "Failed to load streams");
@@ -261,7 +262,7 @@ export function NativeVideoPlayer({
       setPlaybackError(null);
       setClipboardCopied(false);
       setIosCodecWarning(
-        isIosDevice() && /remux|dts|truehd|atmos|ac3|eac3/i.test(source.title)
+        isIosDevice() && isDirectPlaybackIncompatible(`${source.title} ${source.info ?? ""}`)
           ? "This release may play without audio in Safari. Pick a Web-DL or x264 stream if sound is missing."
           : null,
       );

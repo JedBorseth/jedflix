@@ -713,6 +713,7 @@ func toSources(releases []search.Release) []Source {
 		source := Source{
 			ID:       fmt.Sprintf("src_%d_%s", index, release.InfoHash),
 			Title:    release.Title,
+			Info:     release.Info,
 			Magnet:   release.Magnet,
 			InfoHash: release.InfoHash,
 			Cached:   false,

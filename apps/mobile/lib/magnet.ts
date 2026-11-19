@@ -3,7 +3,7 @@ import type { StreamSource } from "@jedflix/stream-client";
 const HEX_INFO_HASH = /^[a-f0-9]{40}$/i;
 const BASE32_INFO_HASH = /^[a-z2-7]{32}$/i;
 
-export function extractInfoHash(magnet: string, infoHash?: string): string | undefined {
+function extractInfoHash(magnet: string, infoHash?: string): string | undefined {
   const fromField = infoHash?.trim().toLowerCase();
   if (fromField && (HEX_INFO_HASH.test(fromField) || BASE32_INFO_HASH.test(fromField))) {
     return fromField;
@@ -21,7 +21,7 @@ export function extractInfoHash(magnet: string, infoHash?: string): string | und
   return undefined;
 }
 
-export function buildMagnetLink(infoHash: string): string {
+function buildMagnetLink(infoHash: string): string {
   const normalized = infoHash.trim().toLowerCase();
   if (!HEX_INFO_HASH.test(normalized) && !BASE32_INFO_HASH.test(normalized)) {
     throw new Error("Invalid torrent info hash");
@@ -36,13 +36,4 @@ export function normalizeMagnetForSource(source: Pick<StreamSource, "magnet" | "
     throw new Error("Invalid torrent link");
   }
   return buildMagnetLink(hash);
-}
-
-export function isValidStreamSource(source: Pick<StreamSource, "magnet" | "infoHash">): boolean {
-  try {
-    normalizeMagnetForSource(source);
-    return true;
-  } catch {
-    return false;
-  }
 }

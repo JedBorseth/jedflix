@@ -1,10 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  filterDirectPlaybackSources,
-  isDirectPlaybackIncompatible,
-  scoreDirectPlaybackCompatibility,
-  sortDirectPlaybackSources,
-} from "@jedflix/shared";
+import { isDirectPlaybackIncompatible } from "@jedflix/shared";
 
 describe("directPlayback", () => {
   test("flags mkv remux and lossless audio as incompatible", () => {
@@ -13,25 +8,8 @@ describe("directPlayback", () => {
     expect(isDirectPlaybackIncompatible("Movie.2024.1080p.WEBRip.x264.AAC.mp4")).toBe(false);
   });
 
-  test("scores compatible releases higher", () => {
-    const compatible = scoreDirectPlaybackCompatibility("Movie.2024.1080p.WEBRip.x264.AAC.mp4");
-    const hostile = scoreDirectPlaybackCompatibility("Movie.2024.2160p.REMUX.Atmos.mkv");
-    expect(compatible).toBeGreaterThan(hostile);
-  });
-
-  test("filters incompatible sources", () => {
-    const filtered = filterDirectPlaybackSources([
-      { title: "Movie.2024.1080p.WEBRip.x264.AAC.mp4" },
-      { title: "Movie.2024.2160p.REMUX.Atmos.mkv" },
-    ]);
-    expect(filtered).toEqual([{ title: "Movie.2024.1080p.WEBRip.x264.AAC.mp4" }]);
-  });
-
-  test("sorts cached and compatible sources ahead of uncached remux", () => {
-    const sorted = sortDirectPlaybackSources([
-      { id: "remux", title: "Movie.2024.2160p.REMUX.Atmos.mkv" },
-      { id: "mp4", title: "Movie.2024.1080p.WEBRip.x264.AAC.mp4", cached: true },
-    ]);
-    expect(sorted.map((source) => source.id)).toEqual(["mp4", "remux"]);
+  test("reads Comet's normalized audio summary", () => {
+    expect(isDirectPlaybackIncompatible("Movie.2024.1080p.WEB.mp4 x264 | Dolby Digital Plus • 5.1")).toBe(true);
+    expect(isDirectPlaybackIncompatible("Movie.2024.1080p.WEB.mp4 x264 • 8bit | AAC • 2.0")).toBe(false);
   });
 });

@@ -4,7 +4,7 @@ services:
     ports:
       - "8080:8080"
     environment:
-      TORRENTIO_URL: https://torrentio.strem.fun
+      COMET_URL: https://comet.feels.legal
       MAX_VIDEO_SIZE_GB: "50"
       MIN_SEEDERS: "3"
       PREFER_INSTANT: "true"

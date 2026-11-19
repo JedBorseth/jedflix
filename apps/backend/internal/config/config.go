@@ -13,7 +13,7 @@ import (
 
 type Config struct {
 	Addr                       string
-	TorrentioURL               string
+	CometURL                   string
 	MaxVideoSizeGB             float64
 	MinSeeders                 int
 	PreferInstant              bool
@@ -60,7 +60,7 @@ type Config struct {
 	AbbUsername    string
 	AbbPassword    string
 	// AbbProxy is SOCKS5/HTTP egress used only for AudioBookBay. It must not
-	// be HTTP_PROXY: that would send TMDB, Torrentio, Open Library, and music
+	// be HTTP_PROXY: that would send TMDB, Comet, Open Library, and music
 	// through WARP.
 	AbbProxy string
 	// RealDebridDemoClientKey is what users enter for limited demo playback.
@@ -75,7 +75,7 @@ type Config struct {
 func Load() Config {
 	cfg := Config{
 		Addr:                       envOr("ADDR", ":8080"),
-		TorrentioURL:               strings.TrimRight(envOr("TORRENTIO_URL", "https://torrentio.strem.fun"), "/"),
+		CometURL:                   strings.TrimRight(envOr("COMET_URL", "https://comet.feels.legal"), "/"),
 		MaxVideoSizeGB:             envFloat("MAX_VIDEO_SIZE_GB", 50),
 		MinSeeders:                 envInt("MIN_SEEDERS", 3),
 		PreferInstant:              envBool("PREFER_INSTANT", true),

@@ -8,7 +8,6 @@ import {
   toAbsolutePlaybackUrl,
 } from "@/lib/externalPlayer";
 import { copyTextToClipboard } from "@/lib/clipboard";
-import { sortDirectPlaybackSources } from "@/lib/iosPlayback";
 import type { PlaybackDestination } from "@/lib/playbackDestination";
 import type { MediaType } from "@/lib/types";
 import { PlayerErrorOverlay } from "../shared/PlayerErrorOverlay";
@@ -80,7 +79,7 @@ export function ExternalPlayerHandoff({
         { ...baseRequest, playbackProfile: "external" },
         realDebridApiKey.trim() || undefined,
       );
-      setSources(sortDirectPlaybackSources(found));
+      setSources(found);
     } catch (error) {
       setSources([]);
       setSourcesError(error instanceof Error ? error.message : "Failed to load streams");

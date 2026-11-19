@@ -28,7 +28,7 @@ JedFlix brings movies, TV shows, audiobooks, ebooks, and music together in a sin
 
 ### 📺 Streaming
 
-* Torrentio source discovery
+* Comet source discovery
 * Real-Debrid availability checking
 * Source filtering and ranking
 * Size and seeder filtering
@@ -112,7 +112,7 @@ The web application can also be installed as a PWA for a more native-like experi
 * **Music Reranking:** Qwen
 * **Music Playback:** yt-dlp / YouTube
 * **Movie & TV Metadata:** TMDB
-* **Streaming:** Torrentio + Real-Debrid
+* **Streaming:** Comet + Real-Debrid
 * **Audiobooks:** AudiobookBay + Real-Debrid
 * **Monorepo:** Turborepo
 * **Package Manager:** Bun
@@ -183,9 +183,9 @@ JedFlix uses external services to discover and resolve media sources.
 
 ### Movies & TV
 
-**Torrentio → Real-Debrid → Client**
+**Comet → Real-Debrid → Client**
 
-Torrentio is used for source discovery while Real-Debrid is used to resolve available releases into playable CDN URLs.
+Comet is used for source discovery while Real-Debrid is used to resolve available releases into playable CDN URLs.
 
 ### Audiobooks & Ebooks
 
