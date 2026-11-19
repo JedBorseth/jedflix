@@ -88,7 +88,7 @@ type Client struct {
 
 	catalogMu     sync.RWMutex
 	catalog       *musiccatalog.BrowseResponse
-	refreshing    bool
+	refreshDone   chan struct{}
 	refreshErr    error
 	artistWarming bool
 
@@ -228,8 +228,17 @@ func (c *Client) Start(ctx context.Context) {
 }
 
 func (c *Client) refreshLoop(ctx context.Context, immediate bool) {
+	refresh := func() {
+		c.catalogMu.Lock()
+		done := c.startRefresh(ctx)
+		c.catalogMu.Unlock()
+		select {
+		case <-ctx.Done():
+		case <-done:
+		}
+	}
 	if immediate {
-		c.refreshCatalog(ctx)
+		refresh()
 	}
 	ticker := time.NewTicker(c.refreshTTL)
 	defer ticker.Stop()
@@ -238,7 +247,7 @@ func (c *Client) refreshLoop(ctx context.Context, immediate bool) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			c.refreshCatalog(ctx)
+			refresh()
 		}
 	}
 }
@@ -247,20 +256,24 @@ func (c *Client) Browse(ctx context.Context) (*musiccatalog.BrowseResponse, erro
 	if !c.Configured() {
 		return nil, musiccatalog.ErrNotConfigured
 	}
-	c.catalogMu.RLock()
+	c.catalogMu.Lock()
 	cached := c.catalog
-	c.catalogMu.RUnlock()
 	if cached != nil {
-		copy := *cached
 		if c.catalogAge() >= c.refreshTTL {
-			go c.refreshCatalog(context.Background())
+			c.startRefresh(context.Background())
 		}
+		c.catalogMu.Unlock()
+		copy := *cached
 		return &copy, nil
 	}
+	done := c.startRefresh(context.Background())
+	c.catalogMu.Unlock()
 
-	go c.refreshCatalog(context.Background())
-	c.waitForRefresh(ctx)
-
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-done:
+	}
 	c.catalogMu.RLock()
 	cached = c.catalog
 	err := c.refreshErr

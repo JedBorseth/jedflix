@@ -11,19 +11,20 @@ import (
 	"github.com/jedborseth/jeds-movies/backend/internal/musiccatalog"
 )
 
-func (c *Client) refreshCatalog(ctx context.Context) {
-	c.catalogMu.Lock()
-	if c.refreshing {
-		c.catalogMu.Unlock()
-		c.waitForRefresh(ctx)
-		return
+// startRefresh requires catalogMu to be held.
+func (c *Client) startRefresh(ctx context.Context) <-chan struct{} {
+	if c.refreshDone == nil {
+		c.refreshDone = make(chan struct{})
+		go c.refreshCatalog(ctx)
 	}
-	c.refreshing = true
-	c.catalogMu.Unlock()
+	return c.refreshDone
+}
 
+func (c *Client) refreshCatalog(ctx context.Context) {
 	defer func() {
 		c.catalogMu.Lock()
-		c.refreshing = false
+		close(c.refreshDone)
+		c.refreshDone = nil
 		c.catalogMu.Unlock()
 	}()
 
@@ -41,25 +42,6 @@ func (c *Client) refreshCatalog(ctx context.Context) {
 	c.savePersistedCatalog(response)
 	log.Printf("music catalog refreshed (%d rows, %d new releases) in %s",
 		len(response.Rows), len(response.NewReleases), c.now().Sub(start).Round(time.Millisecond))
-}
-
-func (c *Client) waitForRefresh(ctx context.Context) {
-	ticker := time.NewTicker(200 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		c.catalogMu.RLock()
-		refreshing := c.refreshing
-		hasCatalog := c.catalog != nil
-		c.catalogMu.RUnlock()
-		if !refreshing || hasCatalog {
-			return
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-	}
 }
 
 func (c *Client) buildCatalog(ctx context.Context) (*musiccatalog.BrowseResponse, error) {

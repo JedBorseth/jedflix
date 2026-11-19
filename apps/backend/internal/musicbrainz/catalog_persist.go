@@ -96,9 +96,8 @@ func (c *Client) applyCatalog(response *musiccatalog.BrowseResponse) {
 	c.scheduleHomepageArtistWarm(response)
 }
 
+// catalogAge requires catalogMu to be held.
 func (c *Client) catalogAge() time.Duration {
-	c.catalogMu.RLock()
-	defer c.catalogMu.RUnlock()
 	if c.catalog == nil || c.catalog.CachedAt <= 0 {
 		return c.refreshTTL + time.Second
 	}
