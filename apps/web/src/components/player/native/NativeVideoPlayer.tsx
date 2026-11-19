@@ -12,7 +12,7 @@ import { getTvSeasons, getWatchPath } from "@/lib/tmdb";
 import type { MediaType } from "@/lib/types";
 import { ExternalPlayerMenu } from "../shared/ExternalPlayerMenu";
 import { PlayerErrorOverlay } from "../shared/PlayerErrorOverlay";
-import { isFallbackError, MAX_AUTO_FALLBACKS } from "../shared/playbackErrors";
+import { findNextFallbackSourceIndex, isFallbackError, MAX_AUTO_FALLBACKS } from "../shared/playbackErrors";
 import { ResolveProgressHint } from "../shared/ResolveProgressHint";
 import {
   isInNextEpisodeWindow,
@@ -54,6 +54,7 @@ export function NativeVideoPlayer({
   const loadedUrlRef = useRef<string | null>(null);
   const initialProgressAppliedRef = useRef(false);
   const fallbackAttemptsRef = useRef(0);
+  const failedFallbackSourcesRef = useRef(new Set<string>());
   const [skipCompatFilters, setSkipCompatFilters] = useState(false);
   const [selectedSource, setSelectedSource] = useState<StreamSource | null>(null);
   const [showSourcePicker, setShowSourcePicker] = useState(true);
@@ -103,6 +104,7 @@ export function NativeVideoPlayer({
     setClipboardCopied(false);
     setIosCodecWarning(null);
     fallbackAttemptsRef.current = 0;
+    failedFallbackSourcesRef.current.clear();
     loadedUrlRef.current = null;
     initialProgressAppliedRef.current = false;
     setShowSourcePicker(true);
@@ -224,6 +226,7 @@ export function NativeVideoPlayer({
         return;
       }
       fallbackAttemptsRef.current = 0;
+      failedFallbackSourcesRef.current.clear();
       setFallbackProgress(null);
       setPlaybackError(null);
       setClipboardCopied(false);
@@ -256,17 +259,14 @@ export function NativeVideoPlayer({
       return;
     }
 
-    const currentIndex = sources.findIndex((source) => source.id === selectedSource.id);
-    if (currentIndex < 0) {
-      return;
-    }
-    const nextSource = sources[currentIndex + 1];
+    const nextIndex = findNextFallbackSourceIndex(sources, selectedSource, failedFallbackSourcesRef.current);
+    const nextSource = sources[nextIndex];
     if (!nextSource) {
       return;
     }
 
     fallbackAttemptsRef.current += 1;
-    setFallbackProgress(`Trying stream ${currentIndex + 2} of ${sources.length}`);
+    setFallbackProgress(`Trying stream ${nextIndex + 1} of ${sources.length}`);
     loadedUrlRef.current = null;
     setSelectedSource(nextSource);
   }, [resolveState.error, resolveState.errorCode, resolveState.status, selectedSource, sources]);
@@ -291,11 +291,11 @@ export function NativeVideoPlayer({
       return;
     }
 
-    const currentIndex = sources.findIndex((source) => source.id === selectedSource.id);
-    const nextSource = sources[currentIndex + 1];
+    const nextIndex = findNextFallbackSourceIndex(sources, selectedSource, failedFallbackSourcesRef.current);
+    const nextSource = sources[nextIndex];
     if (nextSource) {
       fallbackAttemptsRef.current += 1;
-      setFallbackProgress(`Trying stream ${currentIndex + 2} of ${sources.length}`);
+      setFallbackProgress(`Trying stream ${nextIndex + 1} of ${sources.length}`);
       loadedUrlRef.current = null;
       setSelectedSource(nextSource);
       return;
@@ -388,6 +388,7 @@ export function NativeVideoPlayer({
                 setSelectedSource(null);
                 setFallbackProgress(null);
                 fallbackAttemptsRef.current = 0;
+                failedFallbackSourcesRef.current.clear();
                 setShowSourcePicker(true);
               }}
               progress={fallbackProgress ?? resolveState.progress}
@@ -413,6 +414,7 @@ export function NativeVideoPlayer({
             setPlaybackError(null);
             setClipboardCopied(false);
             fallbackAttemptsRef.current = 0;
+            failedFallbackSourcesRef.current.clear();
             loadedUrlRef.current = null;
             setShowSourcePicker(true);
           }}

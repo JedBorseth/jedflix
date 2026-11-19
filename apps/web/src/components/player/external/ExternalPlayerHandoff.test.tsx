@@ -19,14 +19,21 @@ const execCommandDescriptor = Object.getOwnPropertyDescriptor(
   "execCommand",
 );
 const writeText = mock(async (_text: string) => {});
+const defaultSource = {
+  id: "selected-source",
+  title: "Example Movie 1080p.mkv",
+  magnet: "magnet:?xt=urn:btih:example",
+};
+let sources = [defaultSource];
 const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
-let failResolve = false;
+let resolveError: (body: Record<string, unknown>) => string | undefined;
 
 let restoreFetch = () => {};
 
 beforeEach(() => {
   requests.length = 0;
-  failResolve = false;
+  sources = [defaultSource];
+  resolveError = () => undefined;
   writeText.mockReset();
   writeText.mockImplementation(async (_text: string) => {});
   Object.defineProperty(navigator, "clipboard", {
@@ -40,23 +47,17 @@ beforeEach(() => {
   const fetchSpy = spyOn(globalThis, "fetch").mockImplementation(
     async (input, init) => {
       const url = String(input);
-      requests.push({ url, body: JSON.parse(String(init?.body)) });
+      const body = JSON.parse(String(init?.body));
+      requests.push({ url, body });
       if (url.endsWith("/sources")) {
-        return Response.json({
-          sources: [
-            {
-              id: "selected-source",
-              title: "Example Movie 1080p.mkv",
-              magnet: "magnet:?xt=urn:btih:example",
-            },
-          ],
-        });
+        return Response.json({ sources });
       }
       if (url.endsWith("/resolve")) {
-        return failResolve
+        const code = resolveError(body);
+        return code
           ? Response.json(
-              { error: "Resolve unavailable", code: "rate_limited" },
-              { status: 429 },
+              { error: "Resolve unavailable", code },
+              { status: code === "rate_limited" ? 429 : 400 },
             )
           : Response.json({
               url: "/proxy/not-the-direct-link",
@@ -146,7 +147,7 @@ test("blocked automatic clipboard access can be retried with the copy button", a
 });
 
 test("failed stream resolution does not copy an unresolved URL", async () => {
-  failResolve = true;
+  resolveError = () => "rate_limited";
   renderCopyDestination();
   fireEvent.click(
     await screen.findByRole("button", { name: /Example Movie 1080p.mkv/ }),
@@ -156,4 +157,31 @@ test("failed stream resolution does not copy an unresolved URL", async () => {
   expect(
     screen.queryByRole("textbox", { name: "Stream URL" }),
   ).not.toBeInTheDocument();
+});
+
+test("automatic fallback skips failed torrent files without spending retries on duplicates", async () => {
+  const failed = { ...defaultSource, infoHash: "bad-hash", fileIdx: 0 };
+  const alternateFile = { ...failed, id: "alternate", title: "Alternate file", fileIdx: 1 };
+  const working = { ...failed, id: "working", title: "Working release", infoHash: "good-hash" };
+  sources = [
+    failed,
+    { ...failed, id: "duplicate", title: "Duplicate release" },
+    alternateFile,
+    { ...failed, id: "another-duplicate", title: "Another duplicate release" },
+    working,
+  ];
+  resolveError = (body) => body.infoHash === failed.infoHash ? "no_links" : undefined;
+
+  renderCopyDestination();
+  fireEvent.click(
+    await screen.findByRole("button", { name: /Example Movie 1080p.mkv/ }),
+  );
+
+  await screen.findByRole("textbox", { name: "Stream URL" });
+  expect(
+    requests.filter(({ url }) => url.endsWith("/resolve")).map(({ body }) => [
+      body.infoHash,
+      body.fileIdx,
+    ]),
+  ).toEqual([["bad-hash", 0], ["bad-hash", 1], ["good-hash", 0]]);
 });

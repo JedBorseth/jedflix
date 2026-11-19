@@ -1,3 +1,5 @@
+import type { StreamSource } from "@/lib/streamApi";
+
 /** Cap automatic source retries to avoid Real Debrid rate limits (250 req/min). */
 export const MAX_AUTO_FALLBACKS = 2;
 
@@ -10,6 +12,26 @@ export function isFallbackError(errorCode?: string): boolean {
     errorCode === "size_limit" ||
     errorCode === "no_links" ||
     errorCode === "magnet_error"
+  );
+}
+
+function fallbackSourceKey(source: StreamSource): string {
+  const torrent = source.infoHash?.trim().toLowerCase() || source.magnet?.trim() || source.id;
+  return JSON.stringify([torrent, source.fileIdx ?? null]);
+}
+
+export function findNextFallbackSourceIndex(
+  sources: StreamSource[],
+  failed: StreamSource,
+  failedKeys: Set<string>,
+): number {
+  failedKeys.add(fallbackSourceKey(failed));
+  const currentIndex = sources.indexOf(failed);
+  if (currentIndex < 0) {
+    return -1;
+  }
+  return sources.findIndex((source, index) =>
+    index > currentIndex && !failedKeys.has(fallbackSourceKey(source)),
   );
 }
 

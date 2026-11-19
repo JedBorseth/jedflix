@@ -11,7 +11,7 @@ import { copyTextToClipboard } from "@/lib/clipboard";
 import type { PlaybackDestination } from "@/lib/playbackDestination";
 import type { MediaType } from "@/lib/types";
 import { PlayerErrorOverlay } from "../shared/PlayerErrorOverlay";
-import { isFallbackError, MAX_AUTO_FALLBACKS } from "../shared/playbackErrors";
+import { findNextFallbackSourceIndex, isFallbackError, MAX_AUTO_FALLBACKS } from "../shared/playbackErrors";
 import { ResolveProgressHint } from "../shared/ResolveProgressHint";
 import { StreamSourcePicker } from "../stremio/StreamSourcePicker";
 import { useStreamSources } from "../shared/useStreamSources";
@@ -41,6 +41,7 @@ export function ExternalPlayerHandoff({
 }: ExternalPlayerHandoffProps) {
   const openedUrlRef = useRef<string | null>(null);
   const fallbackAttemptsRef = useRef(0);
+  const failedFallbackSourcesRef = useRef(new Set<string>());
   const [selectedSource, setSelectedSource] = useState<StreamSource | null>(null);
   const [showSourcePicker, setShowSourcePicker] = useState(true);
   const [fallbackProgress, setFallbackProgress] = useState<string | null>(null);
@@ -68,6 +69,7 @@ export function ExternalPlayerHandoff({
     setOpenFailed(false);
     setClipboardCopied(false);
     fallbackAttemptsRef.current = 0;
+    failedFallbackSourcesRef.current.clear();
     openedUrlRef.current = null;
     setShowSourcePicker(true);
   }, []);
@@ -149,6 +151,7 @@ export function ExternalPlayerHandoff({
         return;
       }
       fallbackAttemptsRef.current = 0;
+      failedFallbackSourcesRef.current.clear();
       setFallbackProgress(null);
       setOpenFailed(false);
       setClipboardCopied(false);
@@ -170,17 +173,14 @@ export function ExternalPlayerHandoff({
       return;
     }
 
-    const currentIndex = sources.findIndex((source) => source.id === selectedSource.id);
-    if (currentIndex < 0) {
-      return;
-    }
-    const nextSource = sources[currentIndex + 1];
+    const nextIndex = findNextFallbackSourceIndex(sources, selectedSource, failedFallbackSourcesRef.current);
+    const nextSource = sources[nextIndex];
     if (!nextSource) {
       return;
     }
 
     fallbackAttemptsRef.current += 1;
-    setFallbackProgress(`Trying stream ${currentIndex + 2} of ${sources.length}`);
+    setFallbackProgress(`Trying stream ${nextIndex + 1} of ${sources.length}`);
     openedUrlRef.current = null;
     setSelectedSource(nextSource);
   }, [resolveState.errorCode, resolveState.status, selectedSource, sources]);
@@ -290,6 +290,7 @@ export function ExternalPlayerHandoff({
               setSelectedSource(null);
               setFallbackProgress(null);
               fallbackAttemptsRef.current = 0;
+              failedFallbackSourcesRef.current.clear();
               setShowSourcePicker(true);
             }}
             progress={fallbackProgress ?? resolveState.progress ?? "Resolving stream..."}
@@ -313,6 +314,7 @@ export function ExternalPlayerHandoff({
             setSelectedSource(null);
             setFallbackProgress(null);
             fallbackAttemptsRef.current = 0;
+            failedFallbackSourcesRef.current.clear();
             openedUrlRef.current = null;
             setShowSourcePicker(true);
           }}

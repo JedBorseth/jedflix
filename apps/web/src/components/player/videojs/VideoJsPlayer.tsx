@@ -10,7 +10,7 @@ import { getTvSeasons, getWatchPath } from "@/lib/tmdb";
 import type { MediaType } from "@/lib/types";
 import { PlayerErrorOverlay } from "../shared/PlayerErrorOverlay";
 import { ExternalPlayerMenu } from "../shared/ExternalPlayerMenu";
-import { isFallbackError, MAX_AUTO_FALLBACKS } from "../shared/playbackErrors";
+import { findNextFallbackSourceIndex, isFallbackError, MAX_AUTO_FALLBACKS } from "../shared/playbackErrors";
 import { ResolveProgressHint } from "../shared/ResolveProgressHint";
 import {
   isInNextEpisodeWindow,
@@ -62,6 +62,7 @@ export function VideoJsPlayer({
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const loadedUrlRef = useRef<string | null>(null);
   const fallbackAttemptsRef = useRef(0);
+  const failedFallbackSourcesRef = useRef(new Set<string>());
   const progressSaver = useWatchProgressSaver(movieId, mediaType, season, episode);
 
   const seasonsQuery = useQuery({
@@ -96,6 +97,7 @@ export function VideoJsPlayer({
     setFallbackProgress(null);
     setPlaybackError(null);
     fallbackAttemptsRef.current = 0;
+    failedFallbackSourcesRef.current.clear();
     loadedUrlRef.current = null;
     setShowSourcePicker(true);
   }, []);
@@ -169,11 +171,11 @@ export function VideoJsPlayer({
         return;
       }
 
-      const currentIndex = sources.findIndex((source) => source.id === selectedSource.id);
-      const nextSource = sources[currentIndex + 1];
+      const nextIndex = findNextFallbackSourceIndex(sources, selectedSource, failedFallbackSourcesRef.current);
+      const nextSource = sources[nextIndex];
       if (nextSource) {
         fallbackAttemptsRef.current += 1;
-        setFallbackProgress(`Trying stream ${currentIndex + 2} of ${sources.length}`);
+        setFallbackProgress(`Trying stream ${nextIndex + 1} of ${sources.length}`);
         loadedUrlRef.current = null;
         setPlaybackError(null);
         setSelectedSource(nextSource);
@@ -217,17 +219,14 @@ export function VideoJsPlayer({
       return;
     }
 
-    const currentIndex = sources.findIndex((source) => source.id === selectedSource.id);
-    if (currentIndex < 0) {
-      return;
-    }
-    const nextSource = sources[currentIndex + 1];
+    const nextIndex = findNextFallbackSourceIndex(sources, selectedSource, failedFallbackSourcesRef.current);
+    const nextSource = sources[nextIndex];
     if (!nextSource) {
       return;
     }
 
     fallbackAttemptsRef.current += 1;
-    setFallbackProgress(`Trying stream ${currentIndex + 2} of ${sources.length}`);
+    setFallbackProgress(`Trying stream ${nextIndex + 1} of ${sources.length}`);
     loadedUrlRef.current = null;
     setSelectedSource(nextSource);
   }, [resolveState.error, resolveState.errorCode, resolveState.status, selectedSource, sources]);
@@ -304,6 +303,7 @@ export function VideoJsPlayer({
         return;
       }
       fallbackAttemptsRef.current = 0;
+      failedFallbackSourcesRef.current.clear();
       setFallbackProgress(null);
       setPlaybackError(null);
       setSelectedSource(source);
@@ -318,6 +318,7 @@ export function VideoJsPlayer({
     setFallbackProgress(null);
     setPlaybackError(null);
     fallbackAttemptsRef.current = 0;
+    failedFallbackSourcesRef.current.clear();
     loadedUrlRef.current = null;
     setShowSourcePicker(true);
   }, []);

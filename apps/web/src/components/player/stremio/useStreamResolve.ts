@@ -15,39 +15,26 @@ export type StreamResolveState = {
   errorCode?: string;
   stream?: StreamResult;
   playbackUrl?: string;
-  requestKey?: string;
+  requestKey?: symbol;
 };
 
 const idleState: StreamResolveState = { status: "idle" };
 
-function sourceKey(source: StreamSource | null, request: ResolveRequest | null): string | null {
-  if (!request || !source) {
-    return null;
-  }
-  const identity =
-    source.abbPostUrl ||
-    request.abbPostUrl ||
-    source.infoHash ||
-    request.infoHash ||
-    source.magnet ||
-    request.magnet;
-  if (!identity) {
-    return null;
-  }
-  return [
-    request.type,
-    request.imdbId ?? "",
-    request.season ?? "",
-    request.episode ?? "",
-    identity,
-    request.fileIdx ?? source.fileIdx ?? "",
-    request.realDebridToken ?? "",
-  ].join(":");
-}
-
 export function useStreamResolve(request: ResolveRequest | null, source: StreamSource | null = null): StreamResolveState {
   const [state, setState] = useState<StreamResolveState>({ status: "idle" });
-  const requestKey = useMemo(() => sourceKey(source, request), [request, source]);
+  const requestKey = useMemo(() => {
+    if (!request || !source) {
+      return null;
+    }
+    const identity =
+      source.abbPostUrl ||
+      request.abbPostUrl ||
+      source.infoHash ||
+      request.infoHash ||
+      source.magnet ||
+      request.magnet;
+    return identity ? Symbol() : null;
+  }, [request, source]);
 
   useEffect(() => {
     if (!request || !requestKey || !source) {
