@@ -109,6 +109,23 @@ func TestPickMovieFile(t *testing.T) {
 	})
 }
 
+func TestPickEpisodeFileUsesFileIdxHint(t *testing.T) {
+	files := []TorrentFile{
+		{ID: 1, Path: "Pack/01 - Pilot.mkv"},
+		{ID: 2, Path: "Pack/02 - Cat in the Bag.mkv"},
+		{ID: 3, Path: "Pack/03 - And the Bag's in the River.mkv"},
+	}
+	idx := 2
+	if file, ok := PickEpisodeFile(files, 1, 3, &idx); !ok || file.ID != 3 {
+		t.Fatalf("unmarked fileIdx hint: got file %d ok=%v, want 3", file.ID, ok)
+	}
+	marked := []TorrentFile{{ID: 1, Path: "Show.S01E02.mkv"}, {ID: 2, Path: "Show.S01E03.mkv"}}
+	idx = 0
+	if file, ok := PickEpisodeFile(marked, 1, 3, &idx); !ok || file.ID != 2 {
+		t.Fatalf("contradicting fileIdx hint should be ignored: got file %d ok=%v", file.ID, ok)
+	}
+}
+
 func TestPickEpisodeFile(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -122,6 +139,10 @@ func TestPickEpisodeFile(t *testing.T) {
 		{"single conflicting season", []string{"Show.S02E03.mp4"}, 0},
 		{"conflicting parent directory", []string{"Show.S01E02/video.mp4"}, 0},
 		{"matching parent directory", []string{"Show.S01E03/video.mp4"}, 1},
+		{"dotted marker in pack", []string{"[S01.E02] Show - Two.mp4", "[S01.E03] Show - Three.mp4"}, 2},
+		{"NxNN marker in pack", []string{"Show 1x02.mkv", "Show 1x03.mkv"}, 2},
+		{"spelled-out marker in pack", []string{"Show Season 1 Episode 2.mkv", "Show Season 1 Episode 3.mkv"}, 2},
+		{"codec tag is not an episode", []string{"Show.DD5.1x264.mkv"}, 1},
 		{"longer conflicting episode number", []string{"Show.S01E030.mp4"}, 0},
 		{"single unmarked video", []string{"video.mp4", "readme.txt"}, 1},
 	} {
@@ -130,7 +151,7 @@ func TestPickEpisodeFile(t *testing.T) {
 			for i, path := range tc.paths {
 				files = append(files, TorrentFile{ID: i + 1, Path: path})
 			}
-			file, ok := PickEpisodeFile(files, 1, 3)
+			file, ok := PickEpisodeFile(files, 1, 3, nil)
 			if file.ID != tc.wantID || ok != (tc.wantID != 0) {
 				t.Fatalf("got file %d, ok=%v, want file %d", file.ID, ok, tc.wantID)
 			}

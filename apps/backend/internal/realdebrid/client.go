@@ -193,7 +193,9 @@ func (c *Client) UnrestrictLink(ctx context.Context, link string) (*UnrestrictRe
 }
 
 var (
-	episodePattern = regexp.MustCompile(`(?i)s(\d+)e(\d+)`)
+	// S01E02, S01.E02, S1 E2, 1x02, Season 1 Episode 2. NxNN needs a two-digit
+	// episode so codec tags like 5.1x264 don't read as episodes.
+	episodePattern = regexp.MustCompile(`(?i)\bs(\d{1,3})[ ._-]?e(\d{1,4})|\b(\d{1,2})x(\d{2})\b|\bseason[ ._-]?(\d{1,3})[ ._-]*episode[ ._-]?(\d{1,4})`)
 	nonTokenChars  = regexp.MustCompile(`[^a-z0-9]+`)
 	titleStopWords = map[string]struct{}{
 		"a": {}, "an": {}, "and": {}, "of": {}, "the": {}, "to": {}, "in": {},
@@ -240,7 +242,18 @@ func PickMovieFile(files []TorrentFile, mediaTitle string, fileIdx *int) (Torren
 	return pickBestVideoFile(matched, nil)
 }
 
-func PickEpisodeFile(files []TorrentFile, season, episode int) (TorrentFile, bool) {
+// PickEpisodeFile selects the requested episode's video from a torrent.
+// Preference order: a fileIdx hint whose name doesn't contradict the episode
+// → filename episode match → a sole video without a conflicting marker.
+// Packs without a match return false rather than playing another episode.
+func PickEpisodeFile(files []TorrentFile, season, episode int, fileIdx *int) (TorrentFile, bool) {
+	if fileIdx != nil && *fileIdx >= 0 && *fileIdx < len(files) {
+		candidate := files[*fileIdx]
+		if isVideoFile(candidate.Path) && !hasConflictingEpisodeMarker(candidate.Path, season, episode) {
+			return candidate, true
+		}
+	}
+
 	var soleVideo TorrentFile
 	videoCount := 0
 	matched := make([]TorrentFile, 0)
@@ -257,15 +270,10 @@ func PickEpisodeFile(files []TorrentFile, season, episode int) (TorrentFile, boo
 	if file, ok := pickBestVideoFile(matched, nil); ok {
 		return file, true
 	}
-	if videoCount != 1 {
-		return TorrentFile{}, false
+	if videoCount == 1 && !hasConflictingEpisodeMarker(soleVideo.Path, season, episode) {
+		return soleVideo, true
 	}
-	for _, marker := range episodePattern.FindAllString(soleVideo.Path, -1) {
-		if !matchesEpisode(marker, season, episode) {
-			return TorrentFile{}, false
-		}
-	}
-	return soleVideo, true
+	return TorrentFile{}, false
 }
 
 func significantTitleTokens(title string) []string {
@@ -343,14 +351,41 @@ func pickBestVideoFile(files []TorrentFile, predicate func(TorrentFile) bool) (T
 	return bestAny, foundAny
 }
 
-func matchesEpisode(path string, season, episode int) bool {
-	matches := episodePattern.FindStringSubmatch(path)
-	if len(matches) < 3 {
-		return false
+// episodeMarkers returns every (season, episode) pair named in text.
+func episodeMarkers(text string) [][2]int {
+	var markers [][2]int
+	for _, match := range episodePattern.FindAllStringSubmatch(text, -1) {
+		for group := 1; group+1 < len(match); group += 2 {
+			if match[group] == "" {
+				continue
+			}
+			season, seasonErr := strconv.Atoi(match[group])
+			episode, episodeErr := strconv.Atoi(match[group+1])
+			if seasonErr == nil && episodeErr == nil {
+				markers = append(markers, [2]int{season, episode})
+			}
+			break
+		}
 	}
-	s, seasonErr := strconv.Atoi(matches[1])
-	e, episodeErr := strconv.Atoi(matches[2])
-	return seasonErr == nil && episodeErr == nil && s == season && e == episode
+	return markers
+}
+
+func matchesEpisode(name string, season, episode int) bool {
+	for _, marker := range episodeMarkers(name) {
+		if marker == [2]int{season, episode} {
+			return true
+		}
+	}
+	return false
+}
+
+func hasConflictingEpisodeMarker(path string, season, episode int) bool {
+	for _, marker := range episodeMarkers(path) {
+		if marker != [2]int{season, episode} {
+			return true
+		}
+	}
+	return false
 }
 
 func isVideoFile(path string) bool {

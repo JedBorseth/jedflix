@@ -5,7 +5,7 @@
  * apps/backend/internal/search/scorepick.go, which filters and ranks sources.
  */
 const INCOMPATIBLE_PATTERN =
-  /\.mkv\b|\bmkv\b|\bremux\b|\btruehd\b|\batmos\b|\bdts(?:-?hd)?\b|\bac3\b|\beac3\b|\bdd\+\b|\bddp\b|\bdolby digital\b/i;
+  /\.mkv\b|\bmkv\b|\bremux\b|\btruehd\b|\batmos\b|\bdts(?:-?hd)?\b|\bac3\b|\beac3\b|\bdd\+\b|\bddp\b|\bdolby digital\b|\.avi\b|\.wmv\b/i;
 
 export function isDirectPlaybackIncompatible(label: string): boolean {
   return INCOMPATIBLE_PATTERN.test(label);

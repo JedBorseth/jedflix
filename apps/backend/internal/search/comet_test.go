@@ -94,3 +94,18 @@ func TestCometSearcherReportsHTTPErrors(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestEpisodeSearchKeepsOversizedPacks(t *testing.T) {
+	idx := 3
+	pack := Release{Title: "Show.S01-S05.1080p.WEB.x264.mp4", SizeBytes: 140 << 30, SizeKnown: true}
+	episode := Release{Title: "Show.S01E01.1080p.WEB.x264.mp4", SizeBytes: 60 << 30, SizeKnown: true, FileIdx: &idx}
+	opts := FilterOptions{MaxVideoSizeGB: 50, EpisodeSearch: true}
+	got := FilterReleases([]Release{pack, episode}, opts)
+	if len(got) != 1 || got[0].Title != pack.Title {
+		t.Fatalf("episode search should keep the pack and drop the oversized file, got %+v", got)
+	}
+	opts.EpisodeSearch = false
+	if got := FilterReleases([]Release{pack}, opts); len(got) != 0 {
+		t.Fatalf("movie search should still cap size, got %+v", got)
+	}
+}

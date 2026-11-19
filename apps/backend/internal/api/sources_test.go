@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"github.com/jedborseth/jeds-movies/backend/internal/abb"
 	"github.com/jedborseth/jeds-movies/backend/internal/config"
 	"github.com/jedborseth/jeds-movies/backend/internal/resolver"
+	"github.com/jedborseth/jeds-movies/backend/internal/search"
 )
 
 type abbSourceTransport struct {
@@ -63,6 +65,58 @@ func TestAudiobookSourceErrorsIdentifyUpstreamFailure(t *testing.T) {
 				t.Fatalf("unexpected response: %s", rec.Body.String())
 			}
 			if strings.Contains(rec.Body.String(), "private") {
+				t.Fatal("upstream diagnostics must not leak into the response")
+			}
+		})
+	}
+}
+
+type stubSearcher struct {
+	releases []search.Release
+	err      error
+}
+
+func (s stubSearcher) SearchMovie(context.Context, string) ([]search.Release, error) {
+	return s.releases, s.err
+}
+
+func (s stubSearcher) SearchEpisode(context.Context, string, int, int) ([]search.Release, error) {
+	return s.releases, s.err
+}
+
+func TestVideoSourceErrorsAreActionable(t *testing.T) {
+	remux := search.Release{Title: "Movie.2020.2160p.REMUX.mkv", InfoHash: "a", Magnet: "magnet:?xt=urn:btih:a"}
+	for _, test := range []struct {
+		name     string
+		searcher stubSearcher
+		want     int
+		code     string
+		message  string
+	}{
+		{"provider down", stubSearcher{err: errors.New("comet returned 403: Forbidden")}, http.StatusBadGateway, "search_unavailable", "temporarily unavailable"},
+		{"only incompatible streams", stubSearcher{releases: []search.Release{remux}}, http.StatusNotFound, "no_streams", "browser-compatible"},
+		{"no streams", stubSearcher{}, http.StatusNotFound, "no_streams", "no streams"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			service := resolver.NewService(config.Config{MaxVideoSizeGB: 50}, test.searcher, nil)
+			server := NewServer(config.Config{}, service, nil, nil, nil, nil, nil, nil)
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/sources", strings.NewReader(`{"type":"movie","imdbId":"tt0111161"}`))
+			rec := httptest.NewRecorder()
+			server.handleSources(rec, req)
+			if rec.Code != test.want {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, test.want, rec.Body.String())
+			}
+			var payload struct {
+				Error string `json:"error"`
+				Code  string `json:"code"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+				t.Fatal(err)
+			}
+			if payload.Code != test.code || !strings.Contains(payload.Error, test.message) {
+				t.Fatalf("unexpected response: %s", rec.Body.String())
+			}
+			if strings.Contains(rec.Body.String(), "403") {
 				t.Fatal("upstream diagnostics must not leak into the response")
 			}
 		})

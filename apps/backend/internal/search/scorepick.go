@@ -14,10 +14,13 @@ type FilterOptions struct {
 	RDBlockedFilenameRegex      string
 	MaxResolution               int
 	RequireDirectPlaybackCompat bool
+	// EpisodeSearch skips the size cap for releases without a fileIdx: their
+	// size is the whole season pack, and the resolver checks the chosen file.
+	EpisodeSearch bool
 }
 
 var (
-	incompatiblePattern = regexp.MustCompile(`(?i)\.mkv\b|\bmkv\b|\bremux\b|\btruehd\b|\batmos\b|\bdts(?:-?hd)?\b|\bac3\b|\beac3\b|\bdd\+\b|\bddp\b|\bdolby digital\b`)
+	incompatiblePattern = regexp.MustCompile(`(?i)\.mkv\b|\bmkv\b|\bremux\b|\btruehd\b|\batmos\b|\bdts(?:-?hd)?\b|\bac3\b|\beac3\b|\bdd\+\b|\bddp\b|\bdolby digital\b|\.avi\b|\.wmv\b`)
 	mp4Pattern          = regexp.MustCompile(`(?i)\.mp4\b|\bm4v\b|\bmp4\b`)
 	h264Pattern         = regexp.MustCompile(`(?i)\bx264\b|\bh\.?264\b|\bavc\b`)
 	aacPattern          = regexp.MustCompile(`(?i)\baac\b`)
@@ -63,7 +66,7 @@ func passesFilters(release Release, opts FilterOptions, maxBytes int64) bool {
 	if opts.RequireDirectPlaybackCompat && IsDirectPlaybackIncompatible(release.Title+" "+release.Info) {
 		return false
 	}
-	if release.SizeKnown && release.SizeBytes > maxBytes {
+	if release.SizeKnown && release.SizeBytes > maxBytes && !(opts.EpisodeSearch && release.FileIdx == nil) {
 		return false
 	}
 	if release.SeedersKnown && release.Seeders < opts.MinSeeders {

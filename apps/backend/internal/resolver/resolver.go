@@ -122,6 +122,13 @@ func (s *Service) ListSources(ctx context.Context, req Request) ([]Source, error
 	}
 }
 
+// User-facing outcomes of a video source search that found nothing playable.
+var (
+	ErrNoBrowserCompatibleStreams = errors.New("no browser-compatible streams found (MKV/Remux/Atmos/DTS filtered)")
+	ErrNoStreams                  = errors.New("no streams passed filters")
+	ErrSourceSearchUnavailable    = errors.New("stream search is temporarily unavailable")
+)
+
 func (s *Service) listVideoSources(ctx context.Context, req Request) ([]Source, error) {
 	if strings.TrimSpace(req.IMDbID) == "" {
 		return nil, fmt.Errorf("imdbId is required")
@@ -132,21 +139,25 @@ func (s *Service) listVideoSources(ctx context.Context, req Request) ([]Source, 
 
 	releases, err := s.search(ctx, req)
 	if err != nil {
-		return nil, err
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, fmt.Errorf("%w: %v", ErrSourceSearchUnavailable, err)
 	}
 
 	opts := s.filterOpts
 	opts.RequireDirectPlaybackCompat = req.PlaybackProfile != PlaybackExternal
+	opts.EpisodeSearch = req.Type == "tv"
 	filtered := search.FilterReleases(releases, opts)
 	if len(filtered) == 0 {
 		if opts.RequireDirectPlaybackCompat {
 			relaxed := opts
 			relaxed.RequireDirectPlaybackCompat = false
 			if len(search.FilterReleases(releases, relaxed)) > 0 {
-				return nil, fmt.Errorf("no browser-compatible streams found (MKV/Remux/Atmos/DTS filtered)")
+				return nil, ErrNoBrowserCompatibleStreams
 			}
 		}
-		return nil, fmt.Errorf("no streams passed filters")
+		return nil, ErrNoStreams
 	}
 
 	ranked := search.ScorePick(filtered)
@@ -279,14 +290,21 @@ func (s *Service) enrichBookSeedersFromRD(ctx context.Context, sources []Source,
 }
 
 func probeRDSeeders(ctx context.Context, rd *realdebrid.Client, magnet string) (int, bool) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	torrentID, err := rd.AddMagnet(ctx, magnet)
+	if ctx.Err() != nil {
+		return 0, false
+	}
+	// The add is not tied to the request: if the caller goes away after Real
+	// Debrid accepts the magnet, we still need the ID to delete the probe.
+	addCtx, cancelAdd := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	torrentID, err := rd.AddMagnet(addCtx, magnet)
+	cancelAdd()
 	if err != nil || torrentID == "" {
 		return 0, false
 	}
 	defer cleanupRDTorrent(rd, torrentID)
+
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 
 	deadline := time.Now().Add(4 * time.Second)
 	for time.Now().Before(deadline) {
@@ -469,7 +487,7 @@ func (s *Service) resolveVideo(
 	var file realdebrid.TorrentFile
 	var ok bool
 	if req.Type == "tv" && req.Season != nil && req.Episode != nil {
-		file, ok = realdebrid.PickEpisodeFile(info.Files, *req.Season, *req.Episode)
+		file, ok = realdebrid.PickEpisodeFile(info.Files, *req.Season, *req.Episode, req.FileIdx)
 	} else {
 		file, ok = realdebrid.PickMovieFile(info.Files, req.MediaTitle, req.FileIdx)
 	}

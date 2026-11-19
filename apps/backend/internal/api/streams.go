@@ -62,7 +62,18 @@ func (s *Server) handleSources(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, status, map[string]string{"error": message, "code": code})
 			return
 		}
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unable to list sources"})
+		switch {
+		case errors.Is(err, resolver.ErrNoBrowserCompatibleStreams), errors.Is(err, resolver.ErrNoStreams):
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error(), "code": "no_streams"})
+		case errors.Is(err, resolver.ErrSourceSearchUnavailable):
+			log.Printf("source listing failed: %v", err)
+			writeJSON(w, http.StatusBadGateway, map[string]string{
+				"error": "Stream search is temporarily unavailable. Try again in a moment.",
+				"code":  "search_unavailable",
+			})
+		default:
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unable to list sources"})
+		}
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"sources": sources})
