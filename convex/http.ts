@@ -2,8 +2,12 @@ import { httpRouter } from "convex/server";
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
 import { auth } from "./auth";
-import { readEnv } from "./env";
 import { exchangeAuthorizationCode, getProfile } from "./spotifyApi";
+import {
+  DEFAULT_SPOTIFY_RETURN_PATH,
+  safeSpotifyReturnPath,
+  spotifySiteUrl,
+} from "./spotifyRedirect";
 
 const http = httpRouter();
 
@@ -26,8 +30,8 @@ http.route({
 });
 
 function appUrl(path: string, params: Record<string, string>): string {
-  const siteUrl = readEnv("SITE_URL") ?? "http://localhost:5173";
-  const url = new URL(path, siteUrl);
+  const siteUrl = spotifySiteUrl();
+  const url = new URL(safeSpotifyReturnPath(path, siteUrl), siteUrl);
   for (const [key, value] of Object.entries(params)) {
     url.searchParams.set(key, value);
   }
@@ -46,7 +50,7 @@ http.route({
     const pending = state
       ? await ctx.runMutation(internal.spotify.consumeOauthState, { state })
       : null;
-    const redirectPath = pending?.redirectPath ?? "/music";
+    const redirectPath = pending?.redirectPath ?? DEFAULT_SPOTIFY_RETURN_PATH;
 
     if (!pending) {
       return Response.redirect(

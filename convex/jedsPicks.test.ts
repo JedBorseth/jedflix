@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { convexTest } from "convex-test";
 import { expect, test } from "vitest";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -122,4 +122,33 @@ test("tv endpoint is public, GET-only, cacheable, and leaks no user data", async
 
   const post = await t.fetch("/tv/jeds-picks", { method: "POST" });
   expect(post.status).toBe(404);
+});
+
+test("the TV feed selects video categories before applying the picks cap", async () => {
+  const t = convexTest(schema, modules);
+
+  await t.run(async (ctx) => {
+    for (let index = 0; index < 101; index++) {
+      await ctx.db.insert("jedsPicks", {
+        category: "music",
+        kind: "album",
+        catalogId: `album-${index}`,
+        addedAt: index + 10,
+      });
+    }
+    await ctx.db.insert("jedsPicks", {
+      category: "tv",
+      kind: "tv",
+      movieId: 1_399,
+      addedAt: 1,
+    });
+  });
+
+  expect(await t.query(api.jedsPicks.list, {})).toHaveLength(100);
+  expect((await t.query(api.jedsPicks.list, {}))[0]?.catalogId).toBe("album-100");
+  expect(await t.query(internal.jedsPicks.tvPicks, {})).toEqual({
+    version: 1,
+    updatedAt: 1,
+    picks: [{ tmdbId: 1_399, type: "series" }],
+  });
 });

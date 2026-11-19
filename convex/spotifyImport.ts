@@ -21,6 +21,7 @@ import {
 import { IMPORT_TRACK_BATCH_SIZE } from "./musicTrack";
 import type { MusicTrack } from "./musicTrack";
 import { spotifyTrackToPartyTrack } from "./partyModel";
+import schema from "./schema";
 import { ensureAccessToken } from "./spotify";
 import {
   describeSpotifyError,
@@ -102,14 +103,20 @@ export const getActiveJob = query({
       return null;
     }
 
-    const jobs = await ctx.db
+    const running = await ctx.db
       .query("spotifyImportJobs")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .withIndex("by_user_and_status", (q) =>
+        q.eq("userId", userId).eq("status", "running"),
+      )
       .order("desc")
-      .take(5);
-
-    const running = jobs.find((job) => job.status === "running");
-    const job = running ?? jobs[0];
+      .first();
+    const job =
+      running ??
+      (await ctx.db
+        .query("spotifyImportJobs")
+        .withIndex("by_user", (q) => q.eq("userId", userId))
+        .order("desc")
+        .first());
     if (!job) {
       return null;
     }
@@ -216,23 +223,14 @@ export const startImport = action({
       );
     }
 
-    const jobId: Id<"spotifyImportJobs"> = await ctx.runMutation(
-      internal.spotifyImport.createJob,
-      {
-        importLikedSongs: args.importLikedSongs,
-        playlists: args.playlists.map((playlist) => ({
-          id: playlist.id.trim(),
-          name: playlist.name.trim() || "Playlist",
-          imageUrl: playlist.imageUrl ?? null,
-        })),
-      },
-    );
-
-    await ctx.scheduler.runAfter(0, internal.spotifyImport.processNextBatch, {
-      jobId,
+    return await ctx.runMutation(internal.spotifyImport.createJob, {
+      importLikedSongs: args.importLikedSongs,
+      playlists: args.playlists.map((playlist) => ({
+        id: playlist.id.trim(),
+        name: playlist.name.trim() || "Playlist",
+        imageUrl: playlist.imageUrl ?? null,
+      })),
     });
-
-    return jobId;
   },
 });
 
@@ -267,11 +265,13 @@ export const createJob = internalMutation({
       throw new Error("Must be signed in to import playlists");
     }
 
-    const existing = await ctx.db
+    const running = await ctx.db
       .query("spotifyImportJobs")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
-      .take(10);
-    if (existing.some((job) => job.status === "running")) {
+      .withIndex("by_user_and_status", (q) =>
+        q.eq("userId", userId).eq("status", "running"),
+      )
+      .first();
+    if (running) {
       throw new Error("An import is already running. Wait for it to finish.");
     }
 
@@ -337,6 +337,10 @@ export const createJob = internalMutation({
       });
     }
 
+    await ctx.scheduler.runAfter(0, internal.spotifyImport.processNextBatch, {
+      jobId,
+    });
+
     return jobId;
   },
 });
@@ -361,6 +365,13 @@ export const markDismissed = internalMutation({
 
 export const getJobSnapshot = internalQuery({
   args: { jobId: v.id("spotifyImportJobs") },
+  returns: v.union(
+    v.object({
+      job: schema.doc("spotifyImportJobs"),
+      items: v.array(schema.doc("spotifyImportItems")),
+    }),
+    v.null(),
+  ),
   handler: async (ctx, args) => {
     const job = await ctx.db.get(args.jobId);
     if (!job) {

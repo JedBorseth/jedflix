@@ -144,11 +144,6 @@ function toPickReturn(doc: Doc<"jedsPicks">) {
   };
 }
 
-async function listPickDocs(ctx: QueryCtx) {
-  const items = await ctx.db.query("jedsPicks").take(MAX_PICKS);
-  return items.sort((a, b) => b.addedAt - a.addedAt);
-}
-
 export const canManage = query({
   args: {},
   returns: v.boolean(),
@@ -161,7 +156,11 @@ export const list = query({
   args: {},
   returns: v.array(pickReturnValidator),
   handler: async (ctx) => {
-    const items = await listPickDocs(ctx);
+    const items = await ctx.db
+      .query("jedsPicks")
+      .withIndex("by_addedAt")
+      .order("desc")
+      .take(MAX_PICKS);
     return items.map(toPickReturn);
   },
 });
@@ -170,7 +169,16 @@ export const tvPicks = internalQuery({
   args: {},
   returns: tvPicksResponseValidator,
   handler: async (ctx) => {
-    const items = await listPickDocs(ctx);
+    const categoryPicks = await Promise.all(
+      (["movie", "tv"] as const).map((category) =>
+        ctx.db
+          .query("jedsPicks")
+          .withIndex("by_category_and_addedAt", (q) => q.eq("category", category))
+          .order("desc")
+          .take(MAX_PICKS),
+      ),
+    );
+    const items = categoryPicks.flat().sort((a, b) => b.addedAt - a.addedAt);
     const picks: Array<{
       tmdbId: number;
       type: "movie" | "series";
@@ -190,6 +198,9 @@ export const tvPicks = internalQuery({
       });
       if (item.addedAt > updatedAt) {
         updatedAt = item.addedAt;
+      }
+      if (picks.length === MAX_PICKS) {
+        break;
       }
     }
 

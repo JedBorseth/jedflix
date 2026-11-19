@@ -1,40 +1,24 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
-import { isBookMediaType, isVideoMediaType, mediaTypeValidator } from "@jedflix/shared";
+import { isBookMediaType, mediaTypeValidator } from "@jedflix/shared";
 import { mutation, query } from "./_generated/server";
-
-function assertMediaIdentity(args: {
-  mediaType: "movie" | "tv" | "audiobook" | "ebook";
-  movieId?: number;
-  workId?: string;
-}) {
-  if (isVideoMediaType(args.mediaType)) {
-    if (args.movieId === undefined) {
-      throw new Error("movieId is required for movie/tv");
-    }
-    return;
-  }
-  if (isBookMediaType(args.mediaType)) {
-    if (!args.workId?.trim()) {
-      throw new Error("workId is required for audiobook/ebook");
-    }
-  }
-}
+import { assertMediaIdentity } from "./mediaIdentity";
+import schema from "./schema";
 
 export const getForUser = query({
   args: {},
+  returns: v.array(schema.doc("myList")),
   handler: async (ctx) => {
     const userId = await getAuthUserId(ctx);
     if (userId === null) {
       return [];
     }
 
-    const items = await ctx.db
+    return await ctx.db
       .query("myList")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .withIndex("by_user_and_addedAt", (q) => q.eq("userId", userId))
+      .order("desc")
       .take(100);
-
-    return items.sort((a, b) => b.addedAt - a.addedAt);
   },
 });
 
@@ -44,6 +28,7 @@ export const isSaved = query({
     movieId: v.optional(v.number()),
     workId: v.optional(v.string()),
   },
+  returns: v.boolean(),
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
     if (userId === null) {
@@ -80,6 +65,7 @@ export const toggle = mutation({
     movieId: v.optional(v.number()),
     workId: v.optional(v.string()),
   },
+  returns: v.object({ saved: v.boolean() }),
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
     if (userId === null) {

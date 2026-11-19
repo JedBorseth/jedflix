@@ -1,16 +1,12 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
+import { externalPlayerValidator, streamModeValidator } from "@jedflix/shared";
 import { mutation, query } from "./_generated/server";
-
-const streamModeValidator = v.union(v.literal("direct"), v.literal("proxy"));
-const externalPlayerValidator = v.union(
-  v.literal("disabled"),
-  v.literal("vlc"),
-  v.literal("outplayer"),
-);
+import schema from "./schema";
 
 export const getForUser = query({
   args: {},
+  returns: v.union(schema.doc("userSettings"), v.null()),
   handler: async (ctx) => {
     const userId = await getAuthUserId(ctx);
     if (userId === null) {
@@ -32,6 +28,7 @@ export const upsert = mutation({
     externalPlayer: v.optional(externalPlayerValidator),
     updatedAt: v.optional(v.number()),
   },
+  returns: v.id("userSettings"),
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
     if (userId === null) {
@@ -84,6 +81,7 @@ export const upsert = mutation({
 
 export const clear = mutation({
   args: {},
+  returns: v.null(),
   handler: async (ctx) => {
     const userId = await getAuthUserId(ctx);
     if (userId === null) {
@@ -98,5 +96,6 @@ export const clear = mutation({
     if (existing) {
       await ctx.db.delete(existing._id);
     }
+    return null;
   },
 });

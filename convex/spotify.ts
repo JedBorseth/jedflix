@@ -10,12 +10,18 @@ import {
   query,
   type ActionCtx,
 } from "./_generated/server";
+import schema from "./schema";
 import {
   buildAuthorizeUrl,
   hasImportScopes,
   isSpotifyConfigured,
   refreshAccessToken,
 } from "./spotifyApi";
+import {
+  DEFAULT_SPOTIFY_RETURN_PATH,
+  safeSpotifyReturnPath,
+  spotifySiteUrl,
+} from "./spotifyRedirect";
 
 const OAUTH_STATE_TTL_MS = 10 * 60_000;
 
@@ -84,7 +90,7 @@ export const startLink = action({
     const state = randomState();
     await ctx.runMutation(internal.spotify.createOauthState, {
       state,
-      redirectPath: normalizeRedirectPath(args.redirectPath),
+      redirectPath: args.redirectPath ?? DEFAULT_SPOTIFY_RETURN_PATH,
     });
     return buildAuthorizeUrl(state);
   },
@@ -120,6 +126,7 @@ export const unlink = mutation({
 
 export const getMyAccountInternal = internalQuery({
   args: {},
+  returns: v.union(schema.doc("spotifyAccounts"), v.null()),
   handler: async (ctx) => {
     const userId = await getAuthUserId(ctx);
     if (userId === null) {
@@ -134,11 +141,13 @@ export const getMyAccountInternal = internalQuery({
 
 export const getAccount = internalQuery({
   args: { accountId: v.id("spotifyAccounts") },
+  returns: v.union(schema.doc("spotifyAccounts"), v.null()),
   handler: async (ctx, args) => await ctx.db.get(args.accountId),
 });
 
 export const getAccountByUser = internalQuery({
   args: { userId: v.id("users") },
+  returns: v.union(schema.doc("spotifyAccounts"), v.null()),
   handler: async (ctx, args) =>
     await ctx.db
       .query("spotifyAccounts")
@@ -154,18 +163,28 @@ export const createOauthState = internalMutation({
     if (userId === null) {
       throw new Error("Must be signed in to link Spotify");
     }
-    // Abandoned attempts are never consumed, so clear this user's old ones.
-    const stale = await ctx.db.query("spotifyOauthStates").take(50);
-    for (const row of stale) {
-      if (row.userId === userId || row.expiresAt < Date.now()) {
-        await ctx.db.delete(row._id);
-      }
+    const now = Date.now();
+    const previousAttempts = await ctx.db
+      .query("spotifyOauthStates")
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
+      .take(50);
+    for (const row of previousAttempts) {
+      await ctx.db.delete(row._id);
     }
+
+    const expired = await ctx.db
+      .query("spotifyOauthStates")
+      .withIndex("by_expiresAt", (q) => q.lt("expiresAt", now))
+      .take(50);
+    for (const row of expired) {
+      await ctx.db.delete(row._id);
+    }
+
     await ctx.db.insert("spotifyOauthStates", {
       state: args.state,
       userId,
-      redirectPath: args.redirectPath,
-      expiresAt: Date.now() + OAUTH_STATE_TTL_MS,
+      redirectPath: safeSpotifyReturnPath(args.redirectPath, spotifySiteUrl()),
+      expiresAt: now + OAUTH_STATE_TTL_MS,
     });
     return null;
   },
@@ -246,13 +265,6 @@ export const updateTokens = internalMutation({
 });
 
 // --- Helpers ----------------------------------------------------------------
-
-function normalizeRedirectPath(raw: string | undefined): string {
-  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) {
-    return "/music";
-  }
-  return raw;
-}
 
 /**
  * Returns a valid access token for the account, refreshing it first when the

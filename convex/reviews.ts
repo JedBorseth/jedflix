@@ -1,25 +1,9 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
-import { isBookMediaType, isVideoMediaType, mediaTypeValidator } from "@jedflix/shared";
+import { isBookMediaType, mediaTypeValidator } from "@jedflix/shared";
 import { mutation, query } from "./_generated/server";
-
-function assertMediaIdentity(args: {
-  mediaType: "movie" | "tv" | "audiobook" | "ebook";
-  movieId?: number;
-  workId?: string;
-}) {
-  if (isVideoMediaType(args.mediaType)) {
-    if (args.movieId === undefined) {
-      throw new Error("movieId is required for movie/tv");
-    }
-    return;
-  }
-  if (isBookMediaType(args.mediaType)) {
-    if (!args.workId?.trim()) {
-      throw new Error("workId is required for audiobook/ebook");
-    }
-  }
-}
+import { assertMediaIdentity } from "./mediaIdentity";
+import schema from "./schema";
 
 export const getForMedia = query({
   args: {
@@ -27,6 +11,16 @@ export const getForMedia = query({
     movieId: v.optional(v.number()),
     workId: v.optional(v.string()),
   },
+  returns: v.array(
+    v.object({
+      _id: v.id("mediaReviews"),
+      rating: v.number(),
+      comment: v.string(),
+      updatedAt: v.number(),
+      userName: v.string(),
+      userImage: v.union(v.string(), v.null()),
+    }),
+  ),
   handler: async (ctx, args) => {
     assertMediaIdentity(args);
 
@@ -54,7 +48,7 @@ export const getForMedia = query({
           rating: review.rating,
           comment: review.comment,
           updatedAt: review.updatedAt,
-          userName: user?.name ?? user?.email ?? "Viewer",
+          userName: user?.name ?? "Viewer",
           userImage: user?.image ?? null,
         };
       }),
@@ -68,6 +62,7 @@ export const getSummary = query({
     movieId: v.optional(v.number()),
     workId: v.optional(v.string()),
   },
+  returns: v.object({ averageRating: v.number(), reviewCount: v.number() }),
   handler: async (ctx, args) => {
     assertMediaIdentity(args);
 
@@ -103,6 +98,7 @@ export const getViewerReview = query({
     movieId: v.optional(v.number()),
     workId: v.optional(v.string()),
   },
+  returns: v.union(schema.doc("mediaReviews"), v.null()),
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
     if (userId === null) {
@@ -140,6 +136,7 @@ export const submit = mutation({
     rating: v.number(),
     comment: v.string(),
   },
+  returns: v.id("mediaReviews"),
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
     if (userId === null) {
@@ -148,7 +145,7 @@ export const submit = mutation({
 
     assertMediaIdentity(args);
 
-    if (args.rating < 1 || args.rating > 5) {
+    if (!Number.isFinite(args.rating) || args.rating < 1 || args.rating > 5) {
       throw new Error("Rating must be between 1 and 5 stars");
     }
 

@@ -1,26 +1,9 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
-import { mediaTypeValidator } from "@jedflix/shared";
-import { isBookMediaType, isVideoMediaType } from "@jedflix/shared";
+import { isBookMediaType, mediaTypeValidator } from "@jedflix/shared";
 import { mutation, query } from "./_generated/server";
-
-function assertMediaIdentity(args: {
-  mediaType: "movie" | "tv" | "audiobook" | "ebook";
-  movieId?: number;
-  workId?: string;
-}) {
-  if (isVideoMediaType(args.mediaType)) {
-    if (args.movieId === undefined) {
-      throw new Error("movieId is required for movie/tv");
-    }
-    return;
-  }
-  if (isBookMediaType(args.mediaType)) {
-    if (!args.workId?.trim()) {
-      throw new Error("workId is required for audiobook/ebook");
-    }
-  }
-}
+import { assertMediaIdentity } from "./mediaIdentity";
+import schema from "./schema";
 
 const selectedStreamArgs = {
   selectedStreamId: v.optional(v.string()),
@@ -32,18 +15,18 @@ const selectedStreamArgs = {
 
 export const getForUser = query({
   args: {},
+  returns: v.array(schema.doc("watchHistory")),
   handler: async (ctx) => {
     const userId = await getAuthUserId(ctx);
     if (userId === null) {
       return [];
     }
 
-    const history = await ctx.db
+    return await ctx.db
       .query("watchHistory")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .withIndex("by_user_and_lastWatchedAt", (q) => q.eq("userId", userId))
+      .order("desc")
       .take(50);
-
-    return history.sort((a, b) => b.lastWatchedAt - a.lastWatchedAt);
   },
 });
 
@@ -59,6 +42,7 @@ export const upsertProgress = mutation({
     location: v.optional(v.string()),
     ...selectedStreamArgs,
   },
+  returns: v.id("watchHistory"),
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
     if (userId === null) {
@@ -150,6 +134,7 @@ export const touchAudiobookRecent = mutation({
   args: {
     workId: v.string(),
   },
+  returns: v.id("watchHistory"),
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
     if (userId === null) {
@@ -194,6 +179,7 @@ export const saveAudiobookStream = mutation({
     selectedStreamAbbPostUrl: v.optional(v.string()),
     selectedStreamInfoHash: v.optional(v.string()),
   },
+  returns: v.id("watchHistory"),
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
     if (userId === null) {

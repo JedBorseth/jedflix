@@ -33,7 +33,7 @@ export default defineSchema({
     selectedStreamAbbPostUrl: v.optional(v.string()),
     selectedStreamInfoHash: v.optional(v.string()),
   })
-    .index("by_user", ["userId"])
+    .index("by_user_and_lastWatchedAt", ["userId", "lastWatchedAt"])
     .index("by_user_and_media_type_and_movie_id", ["userId", "mediaType", "movieId"])
     .index("by_user_and_media_type_and_work_id", ["userId", "mediaType", "workId"]),
   myList: defineTable({
@@ -43,7 +43,7 @@ export default defineSchema({
     mediaType: mediaTypeValidator,
     addedAt: v.number(),
   })
-    .index("by_user", ["userId"])
+    .index("by_user_and_addedAt", ["userId", "addedAt"])
     .index("by_user_and_media_type_and_movie_id", ["userId", "mediaType", "movieId"])
     .index("by_user_and_media_type_and_work_id", ["userId", "mediaType", "workId"]),
   /**
@@ -69,7 +69,8 @@ export default defineSchema({
     catalogId: v.optional(v.string()),
     addedAt: v.number(),
   })
-    .index("by_category", ["category"])
+    .index("by_addedAt", ["addedAt"])
+    .index("by_category_and_addedAt", ["category", "addedAt"])
     .index("by_kind_and_movie_id", ["kind", "movieId"])
     .index("by_kind_and_work_id", ["kind", "workId"])
     .index("by_kind_and_catalog_id", ["kind", "catalogId"]),
@@ -179,7 +180,9 @@ export default defineSchema({
     error: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_user", ["userId"]),
+  })
+    .index("by_user", ["userId"])
+    .index("by_user_and_status", ["userId", "status"]),
 
   /** One playlist (or Liked Songs) within an import job. */
   spotifyImportItems: defineTable({
@@ -204,9 +207,7 @@ export default defineSchema({
     /** Order within the job (0 = first). */
     sortOrder: v.number(),
     error: v.optional(v.string()),
-  })
-    .index("by_job", ["jobId"])
-    .index("by_job_and_status", ["jobId", "status"]),
+  }).index("by_job", ["jobId"]),
 
   // --- Party mode -----------------------------------------------------------
 
@@ -231,7 +232,10 @@ export default defineSchema({
     userId: v.id("users"),
     redirectPath: v.string(),
     expiresAt: v.number(),
-  }).index("by_state", ["state"]),
+  })
+    .index("by_state", ["state"])
+    .index("by_userId", ["userId"])
+    .index("by_expiresAt", ["expiresAt"]),
 
   /** Stable party identity. Playback lives in partyPlayback to keep churn off this doc. */
   parties: defineTable({
@@ -243,9 +247,7 @@ export default defineSchema({
     pollGeneration: v.number(),
     expiryScheduled: v.optional(v.boolean()),
     createdAt: v.number(),
-  })
-    .index("by_code", ["code"])
-    .index("by_host", ["hostUserId"]),
+  }).index("by_code", ["code"]),
 
   /** High-churn playback state: one row per party. */
   partyPlayback: defineTable({
