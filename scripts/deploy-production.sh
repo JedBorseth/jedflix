@@ -97,5 +97,15 @@ else
   docker compose ps
 fi
 
-git rev-parse HEAD > "${MARKER}"
-echo "Production deploy finished."
+echo "Checking backend health..."
+for _ in $(seq 1 30); do
+  if docker compose exec -T backend wget -qO- http://127.0.0.1:8080/health >/dev/null; then
+    git rev-parse HEAD > "${MARKER}"
+    echo "Production deploy finished."
+    exit 0
+  fi
+  sleep 2
+done
+echo "Backend failed its health check; not recording this deploy." >&2
+docker compose logs --tail=50 backend >&2 || true
+exit 1

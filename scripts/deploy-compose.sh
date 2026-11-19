@@ -10,11 +10,12 @@ cd "${ROOT}"
 usage() {
   cat <<'EOF'
 Usage:
-  ./scripts/deploy-compose.sh --since <git-sha>
+  ./scripts/deploy-compose.sh --since <git-sha> [--since <git-sha>...]
   ./scripts/deploy-compose.sh --plan [--] <path> [<path>...]
   ./scripts/deploy-compose.sh --full
 
 --since   Diff <sha>..HEAD and update only affected images/containers.
+          Repeat to deploy the union of several diffs.
 --plan    Print the deploy plan (no docker). Paths from args or stdin.
 --full    Rebuild and recreate the default Compose stack (music infra included).
 EOF
@@ -22,7 +23,7 @@ EOF
 
 FULL=false
 PLAN=false
-SINCE=""
+SINCE=()
 FILES=()
 
 while [[ $# -gt 0 ]]; do
@@ -36,7 +37,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --since)
-      SINCE="${2:-}"
+      SINCE+=("${2:-}")
       shift 2
       ;;
     -h | --help)
@@ -171,10 +172,10 @@ fi
 PLAN_TEXT=""
 if ((${#FILES[@]})); then
   PLAN_TEXT="$(plan_from_files "${FILES[@]}")"
-elif [[ -n "${SINCE}" ]]; then
-  mapfile -t FILES < <(changed_files_since "${SINCE}")
+elif ((${#SINCE[@]})); then
+  mapfile -t FILES < <(for since in "${SINCE[@]}"; do changed_files_since "${since}"; done | sort -u)
   if ((${#FILES[@]} == 0)); then
-    echo "== HEAD already matches ${SINCE}; skipping Docker =="
+    echo "== HEAD already matches ${SINCE[*]}; skipping Docker =="
     exit 0
   fi
   echo "== Changed files =="

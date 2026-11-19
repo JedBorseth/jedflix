@@ -54,23 +54,35 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # Fail before Convex deploys if the server checkout has hand edits the
+      # Docker step would refuse to overwrite.
+      - name: Check server checkout is clean
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          PROD_APP_DIR: ${{ vars.PROD_APP_DIR || '/home/jedborseth/jedflix' }}
+        with:
+          host: ${{ secrets.PROD_SSH_HOST }}
+          username: ${{ secrets.PROD_SSH_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          envs: PROD_APP_DIR
+          script: |
+            set -euo pipefail
+            cd "${PROD_APP_DIR}"
+            if ! git diff --quiet || ! git diff --cached --quiet; then
+              echo "Refusing to deploy: tracked files have local changes on the server."
+              git status --short --untracked-files=no
+              exit 1
+            fi
+
+      # Always deploy: a skipped or cancelled earlier run must not leave
+      # Convex behind the Docker stack.
       - name: Deploy Convex backend
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
-          BEFORE_SHA: ${{ github.event.before }}
         run: |
           if [ -z "${CONVEX_DEPLOY_KEY}" ]; then
             echo "CONVEX_DEPLOY_KEY is required to deploy Convex schema and functions."
             exit 1
-          fi
-          if [ -n "${BEFORE_SHA}" ] && [ "${BEFORE_SHA}" != "0000000000000000000000000000000000000000" ]; then
-            git fetch --depth=50 origin "${BEFORE_SHA}" 2>/dev/null || true
-            if git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
-              if ! git diff --name-only "${BEFORE_SHA}" "${GITHUB_SHA}" | grep -Eq '^(convex/|packages/shared/|package.json|bun.lock)'; then
-                echo "Skipping Convex deploy; no convex/shared/lockfile changes."
-                exit 0
-              fi
-            fi
           fi
           bunx convex deploy
 
@@ -122,23 +134,26 @@ jobs:
               exit 1
             fi
 
-            # Diff against the last revision that deployed successfully, so a
-            # retry after a failed build still rebuilds the affected services.
-            marker=".git/jedflix-last-deployed"
-            before="$(cat "${marker}" 2>/dev/null || true)"
-            if [ -z "${before}" ] || ! git cat-file -e "${before}^{commit}" 2>/dev/null; then
-              before="$(git rev-parse HEAD)"
+            # Diff against the last successful deploy and, after a failed
+            # attempt, against that attempt too: its partial rollout may have
+            # recreated services the next commit no longer touches.
+            git fetch origin main
+            deployed="$(cat .git/jedflix-last-deployed 2>/dev/null || echo unknown)"
+            attempted="$(cat .git/jedflix-deploy-attempted 2>/dev/null || true)"
+            since=(--since "${deployed}")
+            if [ -n "${attempted}" ] && [ "${attempted}" != "${deployed}" ]; then
+              since+=(--since "${attempted}")
             fi
 
             # Deploy exactly the commit that CI tested and pushed to Convex.
-            git fetch origin main
             git reset --hard "${DEPLOY_SHA}"
+            echo "${DEPLOY_SHA}" > .git/jedflix-deploy-attempted
             chmod +x scripts/deploy-compose.sh
 
             if [ "${FULL_STACK:-false}" = "true" ]; then
               ./scripts/deploy-compose.sh --full
             else
-              ./scripts/deploy-compose.sh --since "${before}"
+              ./scripts/deploy-compose.sh "${since[@]}"
             fi
 
             docker image prune -f || true
@@ -161,7 +176,7 @@ jobs:
               docker compose logs --tail=50 backend || true
               exit 1
             fi
-            echo "${DEPLOY_SHA}" > "${marker}"
+            echo "${DEPLOY_SHA}" > .git/jedflix-last-deployed
 
             echo "== Smoke: pgvector extension =="
             docker compose exec -T musicbrainz-db psql -U musicbrainz -d musicbrainz -c "CREATE EXTENSION IF NOT EXISTS vector; SELECT extname, extversion FROM pg_extension WHERE extname IN ('vector','pg_trgm');" || true
