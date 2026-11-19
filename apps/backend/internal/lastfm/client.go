@@ -3,6 +3,7 @@ package lastfm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -93,7 +94,7 @@ func (c *Client) GetSimilarArtists(ctx context.Context, artist string, limit int
 		return nil, err
 	}
 	if payload.Error != 0 {
-		return nil, mapAPIError(payload.Error, payload.Message)
+		return nil, mapAPIError(payload.Error)
 	}
 
 	artists := make([]SimilarArtist, 0, len(payload.SimilarArtists.Artist))
@@ -144,7 +145,7 @@ func (c *Client) GetSimilarTracks(ctx context.Context, artist, track string, lim
 		return nil, err
 	}
 	if payload.Error != 0 {
-		return nil, mapAPIError(payload.Error, payload.Message)
+		return nil, mapAPIError(payload.Error)
 	}
 
 	tracks := make([]SimilarTrack, 0, len(payload.SimilarTracks.Track))
@@ -193,7 +194,7 @@ func (c *Client) GetArtistTopTags(ctx context.Context, artist string) ([]Tag, er
 		return nil, err
 	}
 	if payload.Error != 0 {
-		return nil, mapAPIError(payload.Error, payload.Message)
+		return nil, mapAPIError(payload.Error)
 	}
 
 	tags := make([]Tag, 0, len(payload.TopTags.Tag))
@@ -218,28 +219,39 @@ func (c *Client) getJSON(ctx context.Context, params url.Values, dest any) error
 	reqURL := c.apiBase + "/?" + params.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
-		return err
+		return lastFMRequestError(err)
 	}
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrFetchFailed, err)
+		return lastFMRequestError(err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 	if err != nil {
-		return fmt.Errorf("%w: read body: %v", ErrFetchFailed, err)
+		return lastFMRequestError(err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("%w: status %d", ErrFetchFailed, resp.StatusCode)
 	}
 	if err := json.Unmarshal(body, dest); err != nil {
-		return fmt.Errorf("%w: decode: %v", ErrFetchFailed, err)
+		return ErrFetchFailed
 	}
 	return nil
+}
+
+func lastFMRequestError(err error) error {
+	switch {
+	case errors.Is(err, context.Canceled):
+		return context.Canceled
+	case errors.Is(err, context.DeadlineExceeded):
+		return context.DeadlineExceeded
+	default:
+		return ErrFetchFailed
+	}
 }
 
 func (c *Client) getCache(key string) (any, bool) {
@@ -365,18 +377,14 @@ func imageSizeRank(size string) int {
 	}
 }
 
-func mapAPIError(code int, message string) error {
-	msg := strings.TrimSpace(message)
+func mapAPIError(code int) error {
 	switch code {
 	case 6:
-		return fmt.Errorf("%w: %s", ErrBadRequest, msg)
+		return ErrBadRequest
 	case 7:
-		return fmt.Errorf("%w: %s", ErrNotFound, msg)
+		return ErrNotFound
 	default:
-		if msg == "" {
-			msg = fmt.Sprintf("last.fm error %d", code)
-		}
-		return fmt.Errorf("%w: %s", ErrFetchFailed, msg)
+		return ErrFetchFailed
 	}
 }
 
@@ -388,8 +396,7 @@ type lfmImage struct {
 }
 
 type similarArtistsResponse struct {
-	Error          int    `json:"error"`
-	Message        string `json:"message"`
+	Error          int `json:"error"`
 	SimilarArtists struct {
 		Artist []struct {
 			Name  string          `json:"name"`
@@ -402,8 +409,7 @@ type similarArtistsResponse struct {
 }
 
 type similarTracksResponse struct {
-	Error         int    `json:"error"`
-	Message       string `json:"message"`
+	Error         int `json:"error"`
 	SimilarTracks struct {
 		Track []struct {
 			Name   string          `json:"name"`
@@ -420,8 +426,7 @@ type similarTracksResponse struct {
 }
 
 type topTagsResponse struct {
-	Error   int    `json:"error"`
-	Message string `json:"message"`
+	Error   int `json:"error"`
 	TopTags struct {
 		Tag []struct {
 			Name  string `json:"name"`

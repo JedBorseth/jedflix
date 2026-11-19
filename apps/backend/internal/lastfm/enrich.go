@@ -267,7 +267,7 @@ func (c *Client) GetArtistInfo(ctx context.Context, artist string) (*ArtistInfo,
 		return nil, err
 	}
 	if payload.Error != 0 {
-		return nil, mapAPIError(payload.Error, payload.Message)
+		return nil, mapAPIError(payload.Error)
 	}
 	name := strings.TrimSpace(payload.Artist.Name)
 	if name == "" {
@@ -310,7 +310,7 @@ func (c *Client) GetArtistTopTracks(ctx context.Context, artist string, limit in
 		return nil, err
 	}
 	if payload.Error != 0 {
-		return nil, mapAPIError(payload.Error, payload.Message)
+		return nil, mapAPIError(payload.Error)
 	}
 
 	out := make([]TopTrackHint, 0, len(payload.TopTracks.Track))
@@ -362,7 +362,7 @@ func (c *Client) GetTagTopArtists(ctx context.Context, tag string, limit int) ([
 		return nil, err
 	}
 	if payload.Error != 0 {
-		return nil, mapAPIError(payload.Error, payload.Message)
+		return nil, mapAPIError(payload.Error)
 	}
 
 	out := make([]TagArtist, 0, len(payload.TopArtists.Artist))
@@ -407,7 +407,7 @@ func (c *Client) GetTagTopAlbums(ctx context.Context, tag string, limit int) ([]
 		return nil, err
 	}
 	if payload.Error != 0 {
-		return nil, mapAPIError(payload.Error, payload.Message)
+		return nil, mapAPIError(payload.Error)
 	}
 
 	albums := payload.albums()
@@ -456,7 +456,7 @@ func (c *Client) GetTagTopTracks(ctx context.Context, tag string, limit int) ([]
 		return nil, err
 	}
 	if payload.Error != 0 {
-		return nil, mapAPIError(payload.Error, payload.Message)
+		return nil, mapAPIError(payload.Error)
 	}
 
 	out := make([]TagTrack, 0, len(payload.TopTracks.Track))
@@ -504,7 +504,7 @@ func (c *Client) SearchArtists(ctx context.Context, query string, limit int) ([]
 		return nil, err
 	}
 	if payload.Error != 0 {
-		return nil, mapAPIError(payload.Error, payload.Message)
+		return nil, mapAPIError(payload.Error)
 	}
 
 	out := make([]TagArtist, 0, len(payload.Results.ArtistMatches.Artist))
@@ -549,7 +549,7 @@ func (c *Client) SearchAlbums(ctx context.Context, query string, limit int) ([]T
 		return nil, err
 	}
 	if payload.Error != 0 {
-		return nil, mapAPIError(payload.Error, payload.Message)
+		return nil, mapAPIError(payload.Error)
 	}
 
 	out := make([]TagAlbum, 0, len(payload.Results.AlbumMatches.Album))
@@ -596,7 +596,7 @@ func (c *Client) SearchTracks(ctx context.Context, query string, limit int) ([]S
 		return nil, err
 	}
 	if payload.Error != 0 {
-		return nil, mapAPIError(payload.Error, payload.Message)
+		return nil, mapAPIError(payload.Error)
 	}
 
 	out := make([]SearchTrack, 0, len(payload.Results.TrackMatches.Track))
@@ -617,9 +617,8 @@ func (c *Client) SearchTracks(ctx context.Context, query string, limit int) ([]S
 }
 
 type artistInfoResponse struct {
-	Error   int    `json:"error"`
-	Message string `json:"message"`
-	Artist  struct {
+	Error  int `json:"error"`
+	Artist struct {
 		Name  string     `json:"name"`
 		MBID  string     `json:"mbid"`
 		Image []lfmImage `json:"image"`
@@ -630,8 +629,7 @@ type artistInfoResponse struct {
 }
 
 type topTracksResponse struct {
-	Error     int    `json:"error"`
-	Message   string `json:"message"`
+	Error     int `json:"error"`
 	TopTracks struct {
 		Track []struct {
 			Name     string     `json:"name"`
@@ -643,8 +641,7 @@ type topTracksResponse struct {
 }
 
 type tagTopArtistsResponse struct {
-	Error      int    `json:"error"`
-	Message    string `json:"message"`
+	Error      int `json:"error"`
 	TopArtists struct {
 		Artist []struct {
 			Name  string     `json:"name"`
@@ -671,7 +668,6 @@ type tagAlbumList struct {
 // Last.fm JSON uses "albums" here; official XML/docs say "topalbums".
 type tagTopAlbumsResponse struct {
 	Error     int          `json:"error"`
-	Message   string       `json:"message"`
 	Albums    tagAlbumList `json:"albums"`
 	TopAlbums tagAlbumList `json:"topalbums"`
 }
@@ -684,8 +680,7 @@ func (p tagTopAlbumsResponse) albums() []tagAlbumItem {
 }
 
 type tagTopTracksResponse struct {
-	Error     int    `json:"error"`
-	Message   string `json:"message"`
+	Error     int `json:"error"`
 	TopTracks struct {
 		Track []struct {
 			Name   string `json:"name"`
@@ -700,8 +695,7 @@ type tagTopTracksResponse struct {
 }
 
 type artistSearchResponse struct {
-	Error   int    `json:"error"`
-	Message string `json:"message"`
+	Error   int `json:"error"`
 	Results struct {
 		ArtistMatches struct {
 			Artist []struct {
@@ -714,8 +708,7 @@ type artistSearchResponse struct {
 }
 
 type albumSearchResponse struct {
-	Error   int    `json:"error"`
-	Message string `json:"message"`
+	Error   int `json:"error"`
 	Results struct {
 		AlbumMatches struct {
 			Album []struct {
@@ -729,8 +722,7 @@ type albumSearchResponse struct {
 }
 
 type trackSearchResponse struct {
-	Error   int    `json:"error"`
-	Message string `json:"message"`
+	Error   int `json:"error"`
 	Results struct {
 		TrackMatches struct {
 			Track []struct {

@@ -2,6 +2,7 @@ package lastfm
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -303,4 +304,30 @@ func TestPickImageSkipsLastFMPlaceholder(t *testing.T) {
 	}) != "" {
 		t.Fatal("expected empty when only placeholder images exist")
 	}
+}
+
+func TestClientTransportErrorOmitsAPIKey(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	upstream.Close()
+	const key = "fake-lastfm-key"
+	client := NewClient(config.Config{LastFMAPIKey: key, LastFMAPIBaseURL: upstream.URL})
+	for _, tc := range []struct {
+		ctx  context.Context
+		want error
+	}{
+		{context.Background(), ErrFetchFailed},
+		{canceledContext(t), context.Canceled},
+	} {
+		_, err := client.GetSimilarArtists(tc.ctx, "Artist", 5)
+		if !errors.Is(err, tc.want) || strings.Contains(err.Error(), key) {
+			t.Fatalf("got %v, want %v without the API key", err, tc.want)
+		}
+	}
+}
+
+func canceledContext(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	return ctx
 }

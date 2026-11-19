@@ -1009,19 +1009,25 @@ func writeMusicCatalogError(w http.ResponseWriter, err error) {
 
 func writeLastFMError(w http.ResponseWriter, err error) {
 	status := http.StatusBadGateway
+	message := "last.fm request failed"
 	switch {
 	case errors.Is(err, lastfm.ErrBadRequest):
 		status = http.StatusBadRequest
+		message = "invalid last.fm request"
 	case errors.Is(err, lastfm.ErrNotFound):
 		status = http.StatusNotFound
+		message = "last.fm resource not found"
 	case errors.Is(err, lastfm.ErrNotConfigured):
 		status = http.StatusServiceUnavailable
+		message = "last.fm is not configured"
 	case errors.Is(err, context.Canceled):
 		status = http.StatusRequestTimeout
+		message = "last.fm request canceled"
 	case errors.Is(err, context.DeadlineExceeded):
 		status = http.StatusGatewayTimeout
+		message = "last.fm request timed out"
 	}
-	writeJSON(w, status, map[string]string{"error": err.Error()})
+	writeJSON(w, status, map[string]string{"error": message})
 }
 
 func parsePositiveInt(raw string, fallback int) int {
