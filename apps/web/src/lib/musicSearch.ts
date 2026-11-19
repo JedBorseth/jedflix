@@ -28,13 +28,14 @@ export function normalizeMusicDedupeKey(artists: string[], name: string): string
     .replace(/\b(official audio|official video|official music video|lyrics?|audio only|visualizer|mv)\b/g, "")
     .replace(/\s+/g, " ")
     .trim();
-  return `${artist}|${title}`;
+  return artist || title ? `${artist}|${title}` : "";
 }
 
 function normalizeToken(value: string): string {
   return value
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
+    .normalize("NFC")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -94,27 +95,25 @@ export function mergeMusicSearchTracks(
   const seen = new Set<string>();
 
   for (const track of spotifyTracks) {
-    const key = normalizeMusicDedupeKey(track.artists, track.name);
-    if (!key || key === "|") {
-      continue;
-    }
+    const source = track.source ?? "spotify";
+    const key = normalizeMusicDedupeKey(track.artists, track.name) ||
+      `id:${source}:${track.id}`;
     if (seen.has(key)) {
       continue;
     }
     seen.add(key);
-    merged.push({ ...track, source: track.source ?? "spotify" });
+    merged.push({ ...track, source });
   }
 
   for (const track of youtubeTracks) {
-    const key = normalizeMusicDedupeKey(track.artists, track.name);
-    if (!key || key === "|") {
-      continue;
-    }
+    const source = "youtube";
+    const key = normalizeMusicDedupeKey(track.artists, track.name) ||
+      `id:${source}:${track.id}`;
     if (seen.has(key)) {
       continue;
     }
     seen.add(key);
-    merged.push({ ...track, source: "youtube" });
+    merged.push({ ...track, source });
   }
 
   return merged;

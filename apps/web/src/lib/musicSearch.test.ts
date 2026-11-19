@@ -33,6 +33,27 @@ describe("musicSearch merge", () => {
     );
   });
 
+  test("keeps distinct non-Latin tracks and dedupes matching titles", () => {
+    const first = spotifyTrack({ id: "sp1", artists: ["宇多田ヒカル"], name: "初恋" });
+    const second = spotifyTrack({ id: "sp2", artists: ["宇多田ヒカル"], name: "光" });
+    const duplicate = { ...first, id: "yt:first", name: "初恋 (Official Video)" };
+
+    expect(mergeMusicSearchTracks([first, second], [duplicate]).map(({ id }) => id)).toEqual([
+      "sp1",
+      "sp2",
+    ]);
+  });
+
+  test("falls back to source IDs for empty text keys", () => {
+    const first = spotifyTrack({ id: "sp1", artists: [], name: "♪" });
+    const second = spotifyTrack({ id: "sp2", artists: [], name: "♫" });
+
+    expect(mergeMusicSearchTracks([first, first, second], []).map(({ id }) => id)).toEqual([
+      "sp1",
+      "sp2",
+    ]);
+  });
+
   test("merge prefers Spotify when title+artist match YouTube", () => {
     const merged = mergeMusicSearchTracks(
       [spotifyTrack({ id: "sp1", name: "Karma Police" })],

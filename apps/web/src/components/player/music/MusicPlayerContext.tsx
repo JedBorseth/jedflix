@@ -237,8 +237,17 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const metadataAbortRef = useRef<AbortController | null>(null);
   /** Prevents double-advance when catalog end and stream `ended` both fire. */
   const catalogEndedRef = useRef(false);
-  const [queue, setQueue] = useState<MusicQueueTrack[]>([]);
-  const [queueIndex, setQueueIndex] = useState(0);
+  const [queueState, setQueueState] = useState<{ queue: MusicQueueTrack[]; queueIndex: number }>({
+    queue: [],
+    queueIndex: 0,
+  });
+  const { queue, queueIndex } = queueState;
+  const queueStateRef = useRef(queueState);
+  const commitQueue = useCallback((queue: MusicQueueTrack[], queueIndex: number) => {
+    const next = { queue, queueIndex };
+    queueStateRef.current = next;
+    setQueueState(next);
+  }, []);
   const [playIntent, setPlayIntent] = useState(false);
   const [audible, setAudible] = useState(false);
   const [hasData, setHasData] = useState(false);
@@ -253,17 +262,11 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const [volume, setVolumeState] = useState(storedMusicVolume);
   const [muted, setMutedState] = useState(storedMusicMuted);
   const [error, setError] = useState<string | null>(null);
-  const queueIndexRef = useRef(0);
-  queueIndexRef.current = queueIndex;
-  const queueRef = useRef(queue);
-  queueRef.current = queue;
   const infiniteQueueRef = useRef(false);
-  infiniteQueueRef.current = infiniteQueue;
   const upcomingRecommendationsRef = useRef<MusicQueueTrack[]>([]);
-  upcomingRecommendationsRef.current = upcomingRecommendations;
   /** Recently played tracks for Infinite Queue recommendation context. */
   const playHistoryRef = useRef<MusicQueueTrack[]>([]);
-  const infiniteRefillInFlightRef = useRef(false);
+  const infiniteRefillInFlightRef = useRef<symbol | null>(null);
   const logMusic = useMusicInteractionLog();
 
   const clearStallTimer = () => {
@@ -498,7 +501,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           msSinceLoad: AUDIO_STALL_TIMEOUT_MS,
           retryCount: errorRetryRef.current,
           consecutiveFailSkips: consecutiveFailSkipRef.current,
-          hasNextTrack: queueIndexRef.current < queueRef.current.length - 1,
+          hasNextTrack: queueStateRef.current.queueIndex < queueStateRef.current.queue.length - 1,
         });
         if (action === "wait") {
           return;
@@ -530,28 +533,25 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         title: track.title,
         artists: track.artists,
       });
-      setQueue(stripQueueArtwork(list, index));
-      setQueueIndex(index);
+      commitQueue(stripQueueArtwork(list, index), index);
       setQueueOpen(false);
       loadAndPlay(list[index] ?? track, { immediatePlay: true });
       return session;
     },
-    [loadAndPlay, logMusic],
+    [commitQueue, loadAndPlay, logMusic],
   );
 
   const syncPartyQueue = useCallback((tracks: MusicQueueTrack[]) => {
-    const currentId = queueRef.current[queueIndexRef.current]?.id;
+    const { queue, queueIndex } = queueStateRef.current;
+    const currentId = queue[queueIndex]?.id;
     const index = tracks.findIndex((track) => track.id === currentId);
     if (index < 0) return;
-    const history = queueRef.current.slice(0, queueIndexRef.current);
+    const history = queue.slice(0, queueIndex);
     const next = [...history, ...tracks.slice(index)];
     const nextIndex = history.length;
     queueDirtyRef.current = true;
-    queueRef.current = next;
-    queueIndexRef.current = nextIndex;
-    setQueue(stripQueueArtwork(next, nextIndex));
-    setQueueIndex(nextIndex);
-  }, []);
+    commitQueue(stripQueueArtwork(next, nextIndex), nextIndex);
+  }, [commitQueue]);
 
   const extendQueueFromSource = useCallback(
     (next: MusicQueueTrack[], generation: number) => {
@@ -562,8 +562,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       ) {
         return;
       }
-      const prev = queueRef.current;
-      const currentId = prev[queueIndexRef.current]?.id ?? null;
+      const { queue: prev, queueIndex } = queueStateRef.current;
+      const currentId = prev[queueIndex]?.id ?? null;
       const planned = planQueueSourceSync({
         prev,
         next,
@@ -572,12 +572,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       if (!planned) {
         return;
       }
-      setQueue(stripQueueArtwork(planned.queue, planned.queueIndex));
-      if (planned.queueIndex !== queueIndexRef.current) {
-        setQueueIndex(planned.queueIndex);
-      }
+      commitQueue(stripQueueArtwork(planned.queue, planned.queueIndex), planned.queueIndex);
     },
-    [],
+    [commitQueue],
   );
 
   const playAlbumTracks = useCallback(
@@ -606,63 +603,62 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       queueDirtyRef.current = false;
       prefetchedIdsRef.current = new Set([startTrack.id]);
       playHistoryRef.current = [];
-      setQueue(stripQueueArtwork(list, index));
-      setQueueIndex(index);
+      commitQueue(stripQueueArtwork(list, index), index);
       setQueueOpen(false);
       loadAndPlay(startTrack, { immediatePlay: true });
     },
-    [loadAndPlay],
+    [commitQueue, loadAndPlay],
   );
 
   const playQueueIndex = useCallback(
     (index: number) => {
+      const { queue } = queueStateRef.current;
       const track = queue[index];
       if (!track) {
         return;
       }
       consecutiveFailSkipRef.current = 0;
-      setQueueIndex(index);
-      setQueue((prev) => stripQueueArtwork(prev, index));
+      commitQueue(stripQueueArtwork(queue, index), index);
       loadAndPlay(track, { immediatePlay: true });
     },
-    [loadAndPlay, queue],
+    [commitQueue, loadAndPlay],
   );
 
   const addToQueue = useCallback(
     (track: MusicQueueTrack) => {
+      const { queue, queueIndex } = queueStateRef.current;
       if (queue.length === 0) {
         playTrack(track);
         return;
       }
       queueDirtyRef.current = true;
       const manualTrack = { ...track, autoQueued: false };
-      setQueue((prev) => {
-        // Manual adds jump ahead of Infinite Queue auto-fills.
-        const insertAt = findManualInsertIndex(prev, queueIndexRef.current);
-        const next = [...prev];
-        next.splice(insertAt, 0, manualTrack);
-        return next;
-      });
+      // Manual adds jump ahead of Infinite Queue auto-fills.
+      const insertAt = findManualInsertIndex(queue, queueIndex);
+      const next = [...queue];
+      next.splice(insertAt, 0, manualTrack);
+      commitQueue(next, queueIndex);
     },
-    [playTrack, queue.length],
+    [commitQueue, playTrack],
   );
 
   const playNext = useCallback(
     (track: MusicQueueTrack) => {
+      const { queue, queueIndex } = queueStateRef.current;
       if (queue.length === 0) {
         playTrack(track);
         return;
       }
       queueDirtyRef.current = true;
       const manualTrack = { ...track, autoQueued: false };
-      setQueue((prev) => insertPlayNext(prev, queueIndexRef.current, manualTrack));
+      commitQueue(insertPlayNext(queue, queueIndex, manualTrack), queueIndex);
     },
-    [playTrack, queue.length],
+    [commitQueue, playTrack],
   );
 
   const addUpcomingToQueue = useCallback(
     (track: MusicQueueTrack) => {
-      const currentQueue = queueRef.current;
+      const { queue: currentQueue, queueIndex } = queueStateRef.current;
       const currentPreview = upcomingRecommendationsRef.current;
       const result = promoteRecommendationToQueue(
         currentQueue,
@@ -682,27 +678,30 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         return;
       }
       queueDirtyRef.current = true;
-      setQueue(
+      commitQueue(
         result.queue.map((item) =>
           item.id === result.promoted?.id
             ? { ...item, autoQueued: false }
             : item,
         ),
+        queueIndex,
       );
     },
-    [playTrack],
+    [commitQueue, playTrack],
   );
 
   const reorderQueue = useCallback((fromIndex: number, toIndex: number) => {
     queueDirtyRef.current = true;
-    setQueue((prev) => reorderItems(prev, fromIndex, toIndex));
-    setQueueIndex((currentIndex) =>
-      remapIndexAfterReorder(currentIndex, fromIndex, toIndex),
+    const { queue, queueIndex } = queueStateRef.current;
+    commitQueue(
+      reorderItems(queue, fromIndex, toIndex),
+      remapIndexAfterReorder(queueIndex, fromIndex, toIndex),
     );
-  }, []);
+  }, [commitQueue]);
 
   const removeFromQueue = useCallback(
     (index: number) => {
+      const { queue, queueIndex } = queueStateRef.current;
       if (index < 0 || index >= queue.length) {
         return;
       }
@@ -720,8 +719,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           audio.removeAttribute("src");
           audio.load();
         }
-        setQueue([]);
-        setQueueIndex(0);
+        commitQueue([], 0);
         setExpanded(false);
         setQueueOpen(false);
         setCurrentTime(0);
@@ -737,8 +735,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         index < queueIndex
           ? queueIndex - 1
           : Math.min(queueIndex, nextQueue.length - 1);
-      setQueue(nextQueue);
-      setQueueIndex(nextIndex);
+      commitQueue(nextQueue, nextIndex);
       if (removingCurrent) {
         const track = nextQueue[nextIndex];
         if (track) {
@@ -746,36 +743,31 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         }
       }
     },
-    [loadAndPlay, queue, queueIndex, writeAudible, writePlayIntent],
+    [commitQueue, loadAndPlay, writeAudible, writePlayIntent],
   );
 
   const clearUpcoming = useCallback(() => {
     queueDirtyRef.current = true;
     upcomingRecommendationsRef.current = [];
     setUpcomingRecommendations([]);
-    setQueue((prev) => {
-      if (prev.length === 0) {
-        return prev;
-      }
-      const currentTrack = prev[queueIndex];
-      return currentTrack ? [currentTrack] : [];
-    });
-    setQueueIndex(0);
-  }, [queueIndex]);
+    const { queue, queueIndex } = queueStateRef.current;
+    const currentTrack = queue[queueIndex];
+    commitQueue(currentTrack ? [currentTrack] : [], 0);
+  }, [commitQueue]);
 
   const appendInfiniteRecommendations = useCallback(async () => {
     if (!infiniteQueueRef.current || infiniteRefillInFlightRef.current) {
       return;
     }
-    const currentQueue = queueRef.current;
-    const index = queueIndexRef.current;
+    const { queue: currentQueue, queueIndex: index } = queueStateRef.current;
     const remaining = remainingUpcomingCount(currentQueue.length, index);
     const currentTrack = currentQueue[index] ?? null;
     if (!currentTrack) {
       return;
     }
 
-    infiniteRefillInFlightRef.current = true;
+    const refill = Symbol();
+    infiniteRefillInFlightRef.current = refill;
     const session = queueSessionRef.current;
     try {
       const recent = playHistoryRef.current.slice(-8);
@@ -799,28 +791,29 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         });
       };
 
-      let playableQueue = currentQueue;
       if (shouldAppendInfiniteRecommendations(remaining)) {
         let toAppend = upcomingRecommendationsRef.current;
         if (toAppend.length === 0) {
           toAppend = await fetchRecommendations(
-            exclusionIdsFromTracks(playableQueue, playHistoryRef.current),
+            exclusionIdsFromTracks(currentQueue, playHistoryRef.current),
             INFINITE_QUEUE_PREVIEW_SIZE,
           );
         }
         if (session !== queueSessionRef.current || !infiniteQueueRef.current) {
           return;
         }
+        const { queue: liveQueue, queueIndex: liveIndex } = queueStateRef.current;
+        if (!liveQueue[liveIndex]) {
+          return;
+        }
         const added = uniqueQueueTracks(
           toAppend,
-          playableQueue.map((track) => track.id),
+          liveQueue.map((track) => track.id),
           INFINITE_QUEUE_PREVIEW_SIZE,
-          playableQueue,
+          liveQueue,
         ).map((track) => ({ ...track, autoQueued: true }));
         if (added.length > 0) {
-          playableQueue = [...playableQueue, ...added];
-          queueRef.current = playableQueue;
-          setQueue(playableQueue);
+          commitQueue([...liveQueue, ...added], liveIndex);
         }
         upcomingRecommendationsRef.current = [];
         setUpcomingRecommendations([]);
@@ -831,7 +824,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       if (previewNeed > 0) {
         const preview = await fetchRecommendations(
           exclusionIdsFromTracks(
-            playableQueue,
+            queueStateRef.current.queue,
             upcomingRecommendationsRef.current,
             playHistoryRef.current,
           ),
@@ -840,11 +833,15 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         if (session !== queueSessionRef.current || !infiniteQueueRef.current) {
           return;
         }
+        const { queue: liveQueue, queueIndex: liveIndex } = queueStateRef.current;
+        if (!liveQueue[liveIndex]) {
+          return;
+        }
         const nextPreview = uniqueQueueTracks(
           [...upcomingRecommendationsRef.current, ...preview],
-          playableQueue.map((track) => track.id),
+          liveQueue.map((track) => track.id),
           INFINITE_QUEUE_PREVIEW_SIZE,
-          playableQueue,
+          liveQueue,
         );
         upcomingRecommendationsRef.current = nextPreview;
         setUpcomingRecommendations(nextPreview);
@@ -852,9 +849,11 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     } catch {
       // Recommendation / network failures must never interrupt playback.
     } finally {
-      infiniteRefillInFlightRef.current = false;
+      if (infiniteRefillInFlightRef.current === refill) {
+        infiniteRefillInFlightRef.current = null;
+      }
     }
-  }, []);
+  }, [commitQueue]);
 
   const setInfiniteQueue = useCallback(
     (enabled: boolean) => {
@@ -969,8 +968,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   }, [applyPlayResult, current, loadAndPlay]);
 
   const next = useCallback(() => {
-    const list = queueRef.current;
-    const index = queueIndexRef.current;
+    const { queue: list, queueIndex: index } = queueStateRef.current;
     if (index >= list.length - 1) {
       return false;
     }
@@ -992,12 +990,11 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     if (!track) {
       return false;
     }
-    setQueueIndex(nextIndex);
-    setQueue((prev) => stripQueueArtwork(prev, nextIndex));
+    commitQueue(stripQueueArtwork(list, nextIndex), nextIndex);
     // immediatePlay keeps iOS Media Session / Control Center activation.
     loadAndPlay(track, { immediatePlay: true });
     return true;
-  }, [loadAndPlay, logMusic]);
+  }, [commitQueue, loadAndPlay, logMusic]);
 
   /**
    * Shared limiter for media errors and stall timeouts. Returns true when
@@ -1014,7 +1011,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         return true;
       }
       clearStallTimer();
-      const track = queueRef.current[queueIndexRef.current];
+      const track = queueStateRef.current.queue[queueStateRef.current.queueIndex];
       if (action === "retry" && track) {
         errorRetryRef.current += 1;
         const runRetry = () => {
@@ -1024,7 +1021,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           if (!playIntentRef.current) {
             return;
           }
-          const currentTrack = queueRef.current[queueIndexRef.current];
+          const currentTrack = queueStateRef.current.queue[queueStateRef.current.queueIndex];
           if (!currentTrack || currentTrack.id !== track.id) {
             return;
           }
@@ -1062,7 +1059,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       return;
     }
     catalogEndedRef.current = true;
-    const currentTrack = queueRef.current[queueIndexRef.current];
+    const { queue, queueIndex } = queueStateRef.current;
+    const currentTrack = queue[queueIndex];
     if (currentTrack) {
       logMusic({
         kind: "complete",
@@ -1071,7 +1069,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         artists: currentTrack.artists,
       });
     }
-    if (queueIndexRef.current < queueRef.current.length - 1) {
+    if (queueIndex < queue.length - 1) {
       next();
       return;
     }
@@ -1098,6 +1096,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       setCurrentTime(0);
       return;
     }
+    const { queue, queueIndex } = queueStateRef.current;
     if (queueIndex <= 0) {
       if (audio) {
         audio.currentTime = 0;
@@ -1110,10 +1109,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     if (!track) {
       return;
     }
-    setQueueIndex(index);
-    setQueue((prev) => stripQueueArtwork(prev, index));
+    commitQueue(stripQueueArtwork(queue, index), index);
     loadAndPlay(track, { immediatePlay: true });
-  }, [loadAndPlay, queue, queueIndex]);
+  }, [commitQueue, loadAndPlay]);
 
   const seek = useCallback(
     (timeSec: number) => {
@@ -1201,16 +1199,15 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     queueDirtyRef.current = false;
     playHistoryRef.current = [];
     upcomingRecommendationsRef.current = [];
-    infiniteRefillInFlightRef.current = false;
-    setQueue([]);
-    setQueueIndex(0);
+    infiniteRefillInFlightRef.current = null;
+    commitQueue([], 0);
     setExpanded(false);
     setQueueOpen(false);
     setUpcomingRecommendations([]);
     setCurrentTime(0);
     setDuration(0);
     setError(null);
-  }, [writeAudible, writePlayIntent]);
+  }, [commitQueue, writeAudible, writePlayIntent]);
 
   const handleSetExpanded = useCallback((nextExpanded: boolean) => {
     setExpanded(nextExpanded);
@@ -1408,7 +1405,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           const trustedSec = playbackDurationSecRef.current;
           if (trustedSec > 0) {
             setCurrentTime(Math.min(time, trustedSec));
-            // YouTube files can outlast the real song; advance at yt-dlp/catalog end.
+            // Advance at the catalog end when the stream outlasts the song.
             if (time >= trustedSec - 0.25) {
               handleTrackEnded();
             }
@@ -1450,7 +1447,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
             retryCount: errorRetryRef.current,
             consecutiveFailSkips: consecutiveFailSkipRef.current,
             hasNextTrack:
-              queueIndexRef.current < queueRef.current.length - 1,
+              queueStateRef.current.queueIndex < queueStateRef.current.queue.length - 1,
           });
           if (applyPlaybackFailure(generation, action, AUDIO_RETRY_DELAY_MS)) {
             return;

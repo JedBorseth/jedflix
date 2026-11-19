@@ -6,23 +6,29 @@ import {
 } from "./musicDuration";
 
 describe("pickMusicDurationSec", () => {
-  test("prefers yt-dlp resolved duration over catalog and stream", () => {
+  test("prefers catalog duration over resolved and stream durations", () => {
     expect(
       pickMusicDurationSec({
         catalogSec: 180,
         resolvedSec: 181.2,
         streamSec: 360,
       }),
-    ).toBe(181.2);
+    ).toBe(180);
   });
 
-  test("falls back to catalog when yt-dlp has not resolved yet", () => {
+  test("keeps catalog duration while yt-dlp resolves", () => {
     expect(
       pickMusicDurationSec({
         catalogSec: 180,
         streamSec: 360,
       }),
     ).toBe(180);
+  });
+
+  test("falls back to resolved duration when the catalog duration is missing or invalid", () => {
+    for (const catalogSec of [undefined, null, 0, -1, NaN, Infinity]) {
+      expect(pickMusicDurationSec({ catalogSec, resolvedSec: 181.2 })).toBe(181.2);
+    }
   });
 
   test("does not use inflated HTML5 stream duration alone", () => {
