@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import videojs from "video.js";
 import type Player from "video.js/dist/types/player";
 import { guessContentType } from "@/lib/streamPlayback";
@@ -109,11 +109,17 @@ export function useVideoJs() {
     };
 
     player.on("error", onError);
-    player.on("ended", () => emit("ended"));
-    player.on("timeupdate", syncState);
+    player.on("ended", () => emit("ended", player.currentTime()));
+    player.on("timeupdate", () => {
+      syncState();
+      emit("timeupdate", player.currentTime());
+    });
     player.on("loadedmetadata", syncState);
     player.on("play", syncState);
-    player.on("pause", syncState);
+    player.on("pause", () => {
+      syncState();
+      emit("pause", player.currentTime());
+    });
     player.on("volumechange", syncState);
     player.on("waiting", () => setState((current) => ({ ...current, buffering: true })));
     player.on("canplay", () => setState((current) => ({ ...current, buffering: false })));
@@ -218,6 +224,8 @@ export function useVideoJs() {
     setState((current) => ({ ...current, muted }));
   }, []);
 
+  const events = useMemo(() => ({ on, off }), [on, off]);
+
   return {
     containerRef,
     state,
@@ -227,6 +235,6 @@ export function useVideoJs() {
     setTime,
     setVolume,
     setMuted,
-    events: { on, off },
+    events,
   };
 }

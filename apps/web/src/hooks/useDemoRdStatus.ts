@@ -11,16 +11,16 @@ export function useDemoRdStatus(realDebridApiKey: string): DemoRdStatus {
       return;
     }
 
-    let cancelled = false;
-    void fetchDemoRdStatus(key).then((next) => {
-      if (!cancelled) {
-        setStatus(next);
-      }
-    });
+    const controller = new AbortController();
+    void fetchDemoRdStatus(key, { signal: controller.signal })
+      .catch((): DemoRdStatus => ({ demo: false }))
+      .then((next) => {
+        if (!controller.signal.aborted) {
+          setStatus(next);
+        }
+      });
 
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
   }, [realDebridApiKey]);
 
   return status;

@@ -1,11 +1,8 @@
-import debounce from "lodash.debounce";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { useMutation } from "convex/react";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "@convex/_generated/api";
 import { useMediaSession } from "@/hooks/useMediaSession";
-import { fetchSources, type StreamSource } from "@/lib/streamApi";
+import type { SourcesRequest, StreamSource } from "@/lib/streamApi";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { isDirectPlaybackIncompatible } from "@jedflix/shared";
 import { IOS_PLAYBACK_ERROR_HINT, isIosDevice } from "@/lib/iosPlayback";
@@ -21,6 +18,8 @@ import {
   isInNextEpisodeWindow,
   resolveNextEpisode,
 } from "../shared/resolveNextEpisode";
+import { useStreamSources } from "../shared/useStreamSources";
+import { useWatchProgressSaver } from "../shared/useWatchProgressSaver";
 import { StreamSourcePicker } from "../stremio/StreamSourcePicker";
 import { useStreamResolve } from "../stremio/useStreamResolve";
 import "../stremio/player.css";
@@ -37,8 +36,6 @@ type NativeVideoPlayerProps = {
   initialProgressSeconds?: number;
   backPath: string;
 };
-
-type DebouncedSaveProgress = ((progressSeconds: number) => void) & { cancel: () => void };
 
 export function NativeVideoPlayer({
   movieId,
@@ -57,9 +54,6 @@ export function NativeVideoPlayer({
   const loadedUrlRef = useRef<string | null>(null);
   const initialProgressAppliedRef = useRef(false);
   const fallbackAttemptsRef = useRef(0);
-  const [sources, setSources] = useState<StreamSource[]>([]);
-  const [sourcesLoading, setSourcesLoading] = useState(true);
-  const [sourcesError, setSourcesError] = useState<string | null>(null);
   const [skipCompatFilters, setSkipCompatFilters] = useState(false);
   const [selectedSource, setSelectedSource] = useState<StreamSource | null>(null);
   const [showSourcePicker, setShowSourcePicker] = useState(true);
@@ -71,21 +65,7 @@ export function NativeVideoPlayer({
   const [positionSec, setPositionSec] = useState(0);
   const [durationSec, setDurationSec] = useState(0);
 
-  const upsertProgress = useMutation(api.watchHistory.upsertProgress);
-  const saveProgressRef = useRef<DebouncedSaveProgress | null>(null);
-  if (saveProgressRef.current === null) {
-    saveProgressRef.current = debounce((progressSeconds: number) => {
-      void upsertProgress({
-        movieId,
-        mediaType,
-        progressSeconds,
-        season,
-        episode,
-      }).catch(() => {
-        // Guests cannot save progress.
-      });
-    }, 10000) as DebouncedSaveProgress;
-  }
+  const progressSaver = useWatchProgressSaver(movieId, mediaType, season, episode);
 
   const seasonsQuery = useQuery({
     queryKey: catalogQueryKeys.tmdb.seasons(movieId),
@@ -116,9 +96,7 @@ export function NativeVideoPlayer({
     [episode, imdbId, mediaType, season, title],
   );
 
-  const loadSources = useCallback(async () => {
-    setSourcesLoading(true);
-    setSourcesError(null);
+  const resetForSourceLoad = useCallback(() => {
     setSelectedSource(null);
     setFallbackProgress(null);
     setPlaybackError(null);
@@ -128,26 +106,21 @@ export function NativeVideoPlayer({
     loadedUrlRef.current = null;
     initialProgressAppliedRef.current = false;
     setShowSourcePicker(true);
-    try {
-      const found = await fetchSources(
-        {
-          ...baseRequest,
-          playbackProfile: skipCompatFilters ? "external" : "browser",
-        },
-        realDebridApiKey.trim() || undefined,
-      );
-      setSources(found);
-    } catch (error) {
-      setSources([]);
-      setSourcesError(error instanceof Error ? error.message : "Failed to load streams");
-    } finally {
-      setSourcesLoading(false);
-    }
-  }, [baseRequest, realDebridApiKey, skipCompatFilters]);
+  }, []);
 
-  useEffect(() => {
-    void loadSources();
-  }, [loadSources]);
+  const sourcesRequest = useMemo<SourcesRequest>(
+    () => ({
+      ...baseRequest,
+      playbackProfile: skipCompatFilters ? "external" : "browser",
+    }),
+    [baseRequest, skipCompatFilters],
+  );
+
+  const { sources, sourcesLoading, sourcesError, loadSources } = useStreamSources(
+    sourcesRequest,
+    realDebridApiKey.trim() || undefined,
+    resetForSourceLoad,
+  );
 
   const resolveRequest = useMemo(
     () =>
@@ -194,13 +167,6 @@ export function NativeVideoPlayer({
     video.src = absolutePlaybackUrl;
     void playMediaElement(video);
   }, [absolutePlaybackUrl]);
-
-  useEffect(() => {
-    const saveProgress = saveProgressRef.current;
-    return () => {
-      saveProgress?.cancel();
-    };
-  }, []);
 
   const sessionTitle = formatWatchSessionTitle(
     title,
@@ -355,7 +321,13 @@ export function NativeVideoPlayer({
           playsInline
           preload="metadata"
           onPlay={() => setPlaying(true)}
-          onPause={() => setPlaying(false)}
+          onPause={(event) => {
+            setPlaying(false);
+            progressSaver.finish(Math.floor(event.currentTarget.currentTime));
+          }}
+          onEnded={(event) => {
+            progressSaver.finish(Math.floor(event.currentTarget.currentTime));
+          }}
           onLoadedMetadata={() => {
             const video = videoRef.current;
             if (!video) {
@@ -376,7 +348,7 @@ export function NativeVideoPlayer({
               return;
             }
             setPositionSec(video.currentTime);
-            saveProgressRef.current?.(Math.floor(video.currentTime));
+            progressSaver.update(Math.floor(video.currentTime));
           }}
           onError={handlePlaybackError}
         />

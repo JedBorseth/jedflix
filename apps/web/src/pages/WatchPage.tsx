@@ -164,6 +164,7 @@ export function WatchPage() {
   };
 
   const backPath = getMediaDetailPath(movie);
+  const playbackKey = `${movie.mediaType}:${movie.id}:${season}:${episode}`;
 
   return (
     <PlayerErrorBoundary backPath={backPath}>
@@ -179,10 +180,10 @@ export function WatchPage() {
           destination={destination}
         />
       ) : isMobileViewport() ? (
-        <NativeVideoPlayer {...playerProps} />
+        <NativeVideoPlayer key={playbackKey} {...playerProps} />
       ) : (
         <Suspense fallback={<WatchPageFallback />}>
-          <VideoJsPlayer {...playerProps} />
+          <VideoJsPlayer key={playbackKey} {...playerProps} />
         </Suspense>
       )}
     </PlayerErrorBoundary>

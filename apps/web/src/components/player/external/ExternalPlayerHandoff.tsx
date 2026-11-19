@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { fetchSources, getExternalPlaybackUrl, type StreamSource } from "@/lib/streamApi";
+import { getExternalPlaybackUrl, type StreamSource } from "@/lib/streamApi";
 import {
   buildExternalPlayerUrl,
   getExternalPlayerLabel,
@@ -14,6 +14,7 @@ import { PlayerErrorOverlay } from "../shared/PlayerErrorOverlay";
 import { isFallbackError, MAX_AUTO_FALLBACKS } from "../shared/playbackErrors";
 import { ResolveProgressHint } from "../shared/ResolveProgressHint";
 import { StreamSourcePicker } from "../stremio/StreamSourcePicker";
+import { useStreamSources } from "../shared/useStreamSources";
 import { useStreamResolve } from "../stremio/useStreamResolve";
 import "../stremio/player.css";
 
@@ -40,9 +41,6 @@ export function ExternalPlayerHandoff({
 }: ExternalPlayerHandoffProps) {
   const openedUrlRef = useRef<string | null>(null);
   const fallbackAttemptsRef = useRef(0);
-  const [sources, setSources] = useState<StreamSource[]>([]);
-  const [sourcesLoading, setSourcesLoading] = useState(true);
-  const [sourcesError, setSourcesError] = useState<string | null>(null);
   const [selectedSource, setSelectedSource] = useState<StreamSource | null>(null);
   const [showSourcePicker, setShowSourcePicker] = useState(true);
   const [fallbackProgress, setFallbackProgress] = useState<string | null>(null);
@@ -64,9 +62,7 @@ export function ExternalPlayerHandoff({
     [episode, imdbId, mediaType, season, title],
   );
 
-  const loadSources = useCallback(async () => {
-    setSourcesLoading(true);
-    setSourcesError(null);
+  const resetForSourceLoad = useCallback(() => {
     setSelectedSource(null);
     setFallbackProgress(null);
     setOpenFailed(false);
@@ -74,23 +70,13 @@ export function ExternalPlayerHandoff({
     fallbackAttemptsRef.current = 0;
     openedUrlRef.current = null;
     setShowSourcePicker(true);
-    try {
-      const found = await fetchSources(
-        { ...baseRequest, playbackProfile: "external" },
-        realDebridApiKey.trim() || undefined,
-      );
-      setSources(found);
-    } catch (error) {
-      setSources([]);
-      setSourcesError(error instanceof Error ? error.message : "Failed to load streams");
-    } finally {
-      setSourcesLoading(false);
-    }
-  }, [baseRequest, realDebridApiKey]);
+  }, []);
 
-  useEffect(() => {
-    void loadSources();
-  }, [loadSources]);
+  const { sources, sourcesLoading, sourcesError, loadSources } = useStreamSources(
+    baseRequest,
+    realDebridApiKey.trim() || undefined,
+    resetForSourceLoad,
+  );
 
   const resolveRequest = useMemo(
     () =>

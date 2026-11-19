@@ -1,4 +1,5 @@
 export type {
+  DemoRdStatus,
   LetterboxdFilm,
   LetterboxdFilmsResponse,
   LetterboxdVerifyResponse,

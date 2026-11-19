@@ -9,31 +9,8 @@ const streamClient = createStreamClient({
   getRequestHeaders: getDemoRdRequestHeaders,
 });
 
-export type DemoRdStatus = {
-  demo: boolean;
-  remaining?: number;
-  playLimit?: number;
-};
-
-export async function fetchDemoRdStatus(realDebridToken: string): Promise<DemoRdStatus> {
-  const token = realDebridToken.trim();
-  if (!token) {
-    return { demo: false };
-  }
-
-  const response = await fetch(`${apiBase}/api/v1/demo-rd/status`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...getDemoRdRequestHeaders(token),
-    },
-  });
-  if (!response.ok) {
-    return { demo: false };
-  }
-  return (await response.json()) as DemoRdStatus;
-}
-
 export type {
+  DemoRdStatus,
   LetterboxdFilm,
   LetterboxdFilmsResponse,
   LetterboxdVerifyResponse,
@@ -54,6 +31,7 @@ export const {
   resolveStreamUrl,
   getPlaybackUrl,
   getExternalPlaybackUrl,
+  fetchDemoRdStatus,
   fetchSources,
   resolveStream,
   fetchLetterboxdFilmsByDate,

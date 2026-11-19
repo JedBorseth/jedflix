@@ -1,14 +1,11 @@
-import debounce from "lodash.debounce";
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { useMutation } from "convex/react";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "@convex/_generated/api";
 import { useMediaSession } from "@/hooks/useMediaSession";
 import { useScreenOrientationLock } from "@/hooks/useScreenOrientationLock";
 import { formatWatchSessionTitle } from "@/lib/mediaSession";
 import { catalogQueryKeys } from "@/lib/queryClient";
-import { fetchSources, type StreamSource } from "@/lib/streamApi";
+import type { SourcesRequest, StreamSource } from "@/lib/streamApi";
 import { getTvSeasons, getWatchPath } from "@/lib/tmdb";
 import type { MediaType } from "@/lib/types";
 import { PlayerErrorOverlay } from "../shared/PlayerErrorOverlay";
@@ -21,6 +18,8 @@ import {
 } from "../shared/resolveNextEpisode";
 import { ControlBar } from "../stremio/ControlBar";
 import { toDisplaySeconds } from "../stremio/time";
+import { useStreamSources } from "../shared/useStreamSources";
+import { useWatchProgressSaver } from "../shared/useWatchProgressSaver";
 import { StreamSourcePicker } from "../stremio/StreamSourcePicker";
 import { useStreamResolve } from "../stremio/useStreamResolve";
 import { useVideoJs } from "./useVideoJs";
@@ -39,8 +38,6 @@ type VideoJsPlayerProps = {
   backPath: string;
 };
 
-type DebouncedSaveProgress = ((progressSeconds: number) => void) & { cancel: () => void };
-
 export function VideoJsPlayer({
   movieId,
   mediaType,
@@ -58,9 +55,6 @@ export function VideoJsPlayer({
     useVideoJs();
   const [controlsHidden, setControlsHidden] = useState(false);
   const hideControlsTimeoutRef = useRef<number | null>(null);
-  const [sources, setSources] = useState<StreamSource[]>([]);
-  const [sourcesLoading, setSourcesLoading] = useState(true);
-  const [sourcesError, setSourcesError] = useState<string | null>(null);
   const [skipCompatFilters, setSkipCompatFilters] = useState(false);
   const [selectedSource, setSelectedSource] = useState<StreamSource | null>(null);
   const [showSourcePicker, setShowSourcePicker] = useState(true);
@@ -68,21 +62,7 @@ export function VideoJsPlayer({
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const loadedUrlRef = useRef<string | null>(null);
   const fallbackAttemptsRef = useRef(0);
-  const upsertProgress = useMutation(api.watchHistory.upsertProgress);
-  const saveProgressRef = useRef<DebouncedSaveProgress | null>(null);
-  if (saveProgressRef.current === null) {
-    saveProgressRef.current = debounce((progressSeconds: number) => {
-      void upsertProgress({
-        movieId,
-        mediaType,
-        progressSeconds,
-        season,
-        episode,
-      }).catch(() => {
-        // Guests cannot save progress.
-      });
-    }, 10000) as DebouncedSaveProgress;
-  }
+  const progressSaver = useWatchProgressSaver(movieId, mediaType, season, episode);
 
   const seasonsQuery = useQuery({
     queryKey: catalogQueryKeys.tmdb.seasons(movieId),
@@ -111,35 +91,28 @@ export function VideoJsPlayer({
     [episode, imdbId, mediaType, season, title],
   );
 
-  const loadSources = useCallback(async () => {
-    setSourcesLoading(true);
-    setSourcesError(null);
+  const resetForSourceLoad = useCallback(() => {
     setSelectedSource(null);
     setFallbackProgress(null);
     setPlaybackError(null);
     fallbackAttemptsRef.current = 0;
     loadedUrlRef.current = null;
     setShowSourcePicker(true);
-    try {
-      const found = await fetchSources(
-        {
-          ...baseRequest,
-          playbackProfile: skipCompatFilters ? "external" : "browser",
-        },
-        realDebridApiKey.trim() || undefined,
-      );
-      setSources(found);
-    } catch (error) {
-      setSources([]);
-      setSourcesError(error instanceof Error ? error.message : "Failed to load streams");
-    } finally {
-      setSourcesLoading(false);
-    }
-  }, [baseRequest, realDebridApiKey, skipCompatFilters]);
+  }, []);
 
-  useEffect(() => {
-    void loadSources();
-  }, [loadSources]);
+  const sourcesRequest = useMemo<SourcesRequest>(
+    () => ({
+      ...baseRequest,
+      playbackProfile: skipCompatFilters ? "external" : "browser",
+    }),
+    [baseRequest, skipCompatFilters],
+  );
+
+  const { sources, sourcesLoading, sourcesError, loadSources } = useStreamSources(
+    sourcesRequest,
+    realDebridApiKey.trim() || undefined,
+    resetForSourceLoad,
+  );
 
   const resolveRequest = useMemo(
     () =>
@@ -259,20 +232,29 @@ export function VideoJsPlayer({
     setSelectedSource(nextSource);
   }, [resolveState.error, resolveState.errorCode, resolveState.status, selectedSource, sources]);
 
-  useEffect(() => {
-    const time = state.time;
-    if (typeof time === "number" && toDisplaySeconds(time) > 0) {
-      saveProgressRef.current?.(toDisplaySeconds(time));
-    }
-  }, [state.time]);
-
-  useEffect(() => {
-    const saveProgress = saveProgressRef.current;
-    return () => {
-      saveProgress?.cancel();
-      unload();
+  useLayoutEffect(() => {
+    const onTimeUpdate = (seconds: unknown) => {
+      if (typeof seconds === "number") {
+        progressSaver.update(seconds);
+      }
     };
-  }, [unload]);
+    const onPlaybackStop = (seconds: unknown) => {
+      if (typeof seconds === "number") {
+        progressSaver.finish(seconds);
+      }
+    };
+
+    events.on("timeupdate", onTimeUpdate);
+    events.on("pause", onPlaybackStop);
+    events.on("ended", onPlaybackStop);
+    return () => {
+      events.off("timeupdate", onTimeUpdate);
+      events.off("pause", onPlaybackStop);
+      events.off("ended", onPlaybackStop);
+    };
+  }, [events, progressSaver]);
+
+  useEffect(() => unload, [unload]);
 
   const CONTROLS_HIDE_DELAY_MS = 8000;
 

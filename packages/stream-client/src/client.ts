@@ -279,6 +279,12 @@ export type MusicRecommendResponse = {
   tracks: SpotifyTopTrack[];
 };
 
+export type DemoRdStatus = {
+  demo: boolean;
+  remaining?: number;
+  playLimit?: number;
+};
+
 export type StreamClientConfig = {
   apiBase: string;
   getRequestHeaders?: (realDebridToken?: string) => Record<string, string>;
@@ -288,6 +294,10 @@ export type StreamClient = {
   resolveStreamUrl: (relativeOrAbsolute: string) => string;
   getPlaybackUrl: (stream: StreamResult) => string;
   getExternalPlaybackUrl: (stream: StreamResult) => string;
+  fetchDemoRdStatus: (
+    realDebridToken: string,
+    options?: { signal?: AbortSignal },
+  ) => Promise<DemoRdStatus>;
   fetchSources: (request: SourcesRequest, realDebridToken?: string) => Promise<StreamSource[]>;
   resolveStream: (
     source: StreamSource,
@@ -381,6 +391,22 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
 
   function getExternalPlaybackUrl(stream: StreamResult): string {
     return stream.directUrl ?? getPlaybackUrl(stream);
+  }
+
+  async function fetchDemoRdStatus(
+    realDebridToken: string,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<DemoRdStatus> {
+    const token = realDebridToken.trim();
+    if (!token) {
+      return { demo: false };
+    }
+
+    const response = await fetch(`${apiBase}/api/v1/demo-rd/status`, {
+      headers: headers(token),
+      signal: options.signal,
+    });
+    return response.ok ? (await response.json()) as DemoRdStatus : { demo: false };
   }
 
   async function fetchSources(
@@ -942,6 +968,7 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
     resolveStreamUrl,
     getPlaybackUrl,
     getExternalPlaybackUrl,
+    fetchDemoRdStatus,
     fetchSources,
     resolveStream,
     fetchLetterboxdFilmsByDate,

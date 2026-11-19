@@ -53,7 +53,11 @@ export function ReadPage() {
   const [sourcesError, setSourcesError] = useState<string>();
   const [selected, setSelected] = useState<StreamSource | null>(null);
   const [searchKey, setSearchKey] = useState(0);
-  const [activeFileIndex, setActiveFileIndex] = useState(0);
+  const [fileSelection, setFileSelection] = useState<{
+    workId: string;
+    files: StreamFile[];
+    index: number;
+  } | null>(null);
 
   const book = bookQuery.data;
   const author = book?.authors[0] ?? "";
@@ -111,24 +115,17 @@ export function ReadPage() {
   const resolveState = useStreamResolve(resolveRequest, selected);
   const files = useMemo(() => resolveState.stream?.files ?? [], [resolveState.stream?.files]);
 
-  useEffect(() => {
-    if (files.length === 0) {
-      return;
-    }
-    const preferred =
-      files.findIndex(isEpub) >= 0
-        ? files.findIndex(isEpub)
-        : files.findIndex(isPdf) >= 0
-          ? files.findIndex(isPdf)
-          : 0;
-    setActiveFileIndex(savedProgress?.fileIndex ?? preferred);
-  }, [files, savedProgress?.fileIndex]);
-
-  const activeFile = files[activeFileIndex] ?? files[0];
+  const preferredFile = files.find(isEpub) ?? files.find(isPdf) ?? files[0];
+  const resumeFileIndex = savedProgress?.fileIndex ?? preferredFile?.index;
+  const selectedFileIndex = fileSelection?.workId === workId && fileSelection.files === files
+    ? fileSelection.index
+    : resumeFileIndex;
+  const activeFile = files.find((file) => file.index === selectedFileIndex) ?? preferredFile;
+  const activeFileIndex = activeFile?.index;
 
   const onLocationChange = useCallback(
     (location: string) => {
-      if (!workId) {
+      if (!workId || activeFileIndex === undefined) {
         return;
       }
       void upsertProgress({
@@ -199,7 +196,7 @@ export function ReadPage() {
                   <button
                     key={`${file.fileId}-${file.index}`}
                     type="button"
-                    onClick={() => setActiveFileIndex(file.index)}
+                    onClick={() => setFileSelection({ workId, files, index: file.index })}
                     className={`rounded-md px-3 py-1.5 text-xs ${
                       file.index === activeFileIndex
                         ? "bg-red-600 text-white"
@@ -214,8 +211,9 @@ export function ReadPage() {
 
             {isEpub(activeFile) ? (
               <EpubReader
+                key={JSON.stringify([workId, activeFile.fileId, activeFile.index, activeFile.url])}
                 streamUrl={activeFile.url}
-                initialLocation={savedProgress?.location}
+                initialLocation={resumeFileIndex === activeFile.index ? savedProgress?.location : undefined}
                 onLocationChange={onLocationChange}
               />
             ) : isPdf(activeFile) ? (

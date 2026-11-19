@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import ePub from "epubjs";
 
 type EpubReaderProps = {
@@ -9,6 +9,13 @@ type EpubReaderProps = {
 
 export function EpubReader({ streamUrl, initialLocation, onLocationChange }: EpubReaderProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const initialLocationRef = useRef(initialLocation);
+  const onLocationChangeRef = useRef(onLocationChange);
+
+  useLayoutEffect(() => {
+    initialLocationRef.current = initialLocation;
+    onLocationChangeRef.current = onLocationChange;
+  }, [initialLocation, onLocationChange]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -23,12 +30,12 @@ export function EpubReader({ streamUrl, initialLocation, onLocationChange }: Epu
       flow: "paginated",
     });
 
-    void rendition.display(initialLocation || undefined);
+    void rendition.display(initialLocationRef.current || undefined);
 
     const onRelocated = (location: { start?: { cfi?: string } }) => {
       const cfi = location?.start?.cfi;
       if (cfi) {
-        onLocationChange?.(cfi);
+        onLocationChangeRef.current?.(cfi);
       }
     };
     rendition.on("relocated", onRelocated);
@@ -47,7 +54,7 @@ export function EpubReader({ streamUrl, initialLocation, onLocationChange }: Epu
       rendition.off("relocated", onRelocated);
       book.destroy();
     };
-  }, [streamUrl, initialLocation, onLocationChange]);
+  }, [streamUrl]);
 
   return (
     <div className="space-y-3">
