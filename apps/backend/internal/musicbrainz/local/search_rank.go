@@ -85,17 +85,32 @@ type searchRanking struct {
 func (r searchRanking) lookup(ctx context.Context, tx *sql.Tx, limit int, relaxed bool) ([]SearchHit, error) {
 	groupQueries := make([]string, 0, len(r.groups))
 	titleQueries := make([]string, 0, len(r.groups))
-	common := 0
+	var rareQueries, establishedQueries []string
 	for _, group := range r.groups {
-		groupQueries = append(groupQueries, group.tsquery(""))
+		query := group.tsquery("")
+		groupQueries = append(groupQueries, query)
 		titleQueries = append(titleQueries, group.tsquery("A"))
-		if group.ndoc >= commonDocumentCount {
-			common++
+		if group.ndoc < commonDocumentCount {
+			rareQueries = append(rareQueries, query)
+		}
+		// An established spelling in the title or artist credit is strong
+		// evidence when a correction only matches peripheral metadata.
+		if len(group.lexemes) > 1 && group.originalDocs >= 100 {
+			establishedQueries = append(establishedQueries, quoteTSQueryLexeme(group.lexemes[0], "AB", false))
 		}
 	}
+	common := len(r.groups) - len(rareQueries)
 	join := " & "
 	if relaxed {
 		join = " | "
+	}
+
+	fullQuery := strings.Join(groupQueries, join)
+	indexQuery := fullQuery
+	if !relaxed && common > 0 && len(rareQueries) > 0 {
+		// Read the selective posting lists and check common groups on those
+		// rows, avoiding the full posting list for words such as "the".
+		indexQuery = strings.Join(rareQueries, " & ")
 	}
 
 	popularity := ratingPopularitySQL
@@ -114,7 +129,10 @@ func (r searchRanking) lookup(ctx context.Context, tx *sql.Tx, limit int, relaxe
 		WITH candidates AS MATERIALIZED (
 			SELECT d.*, (`+popularity+`)::float8 AS pop_score
 			FROM jedflix.search_documents d
-			WHERE d.tsv @@ to_tsquery('simple', $1)
+			WHERE d.tsv @@ to_tsquery('simple', $9)
+			  AND (d.entity_type <> 'artist'
+			       OR d.name NOT IN ('Various Artists', '[unknown]', '[no artist]', '[anonymous]')
+			       OR `+nameNorm+` = $3)
 			`+pick+`
 		), features AS (
 			SELECT d.*, `+nameNorm+` AS title_norm,
@@ -124,8 +142,10 @@ func (r searchRanking) lookup(ctx context.Context, tx *sql.Tx, limit int, relaxe
 				       SELECT count(*) FROM unnest($4::text[]) g WHERE d.tsv @@ to_tsquery('simple', g)
 			       ) ELSE 0 END AS groups_matched
 			FROM candidates d
+			WHERE $9 = $1 OR d.tsv @@ to_tsquery('simple', $1)
 		), ranked AS (
 			SELECT d.*, pop_score + LEAST(lexical * 4, 1.25)
+			       + CASE WHEN tsv @@ to_tsquery('simple', NULLIF($8, '')) THEN 4.0 ELSE 0 END
 			       + CASE WHEN title_norm = $3 THEN CASE WHEN $6 THEN 1.0 ELSE 2.6 END
 			              WHEN length($3) >= 2 AND starts_with(title_norm, $3)
 			              THEN CASE WHEN $6 THEN 0.25 ELSE 0.9 END
@@ -142,8 +162,8 @@ func (r searchRanking) lookup(ctx context.Context, tx *sql.Tx, limit int, relaxe
 		FROM ranked
 		ORDER BY groups_matched DESC, score DESC, popularity DESC, entity_type, mbid
 		LIMIT $7
-	`, strings.Join(groupQueries, join), strings.Join(titleQueries, " <-> "), r.query,
-		groupQueries, relaxed, r.corrected, limit)
+	`, fullQuery, strings.Join(titleQueries, " <-> "), r.query,
+		groupQueries, relaxed, r.corrected, limit, strings.Join(establishedQueries, " & "), indexQuery)
 	if err != nil {
 		return nil, err
 	}

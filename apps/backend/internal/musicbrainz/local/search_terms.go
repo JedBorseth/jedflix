@@ -33,9 +33,10 @@ type searchToken struct {
 }
 
 type termGroup struct {
-	lexemes []string
-	prefix  bool
-	ndoc    int
+	lexemes      []string
+	prefix       bool
+	ndoc         int
+	originalDocs int
 }
 
 // PostgreSQL supplies the same lexemes used by the indexed vectors. It parses
@@ -157,7 +158,7 @@ func chooseCorrections(token searchToken) []termCandidate {
 func buildTermGroups(tokens []searchToken) (groups []termGroup, corrected bool) {
 	for i, token := range tokens {
 		prefix := i == len(tokens)-1 && utf8.RuneCountInString(token.text) >= 2
-		group := termGroup{prefix: prefix, ndoc: token.ndoc, lexemes: []string{token.text}}
+		group := termGroup{prefix: prefix, ndoc: token.ndoc, originalDocs: token.ndoc, lexemes: []string{token.text}}
 		if prefix {
 			group.ndoc = max(group.ndoc, token.prefixDocs)
 		}
@@ -176,17 +177,20 @@ var tsqueryEscaper = strings.NewReplacer(`\`, `\\`, "'", "''")
 func (g termGroup) tsquery(weight string) string {
 	terms := make([]string, 0, len(g.lexemes))
 	for i, lexeme := range g.lexemes {
-		modifiers := weight
-		if i == 0 && g.prefix {
-			modifiers += "*"
-		}
-		term := "'" + tsqueryEscaper.Replace(lexeme) + "'"
-		if modifiers != "" {
-			term += ":" + modifiers
-		}
-		terms = append(terms, term)
+		terms = append(terms, quoteTSQueryLexeme(lexeme, weight, i == 0 && g.prefix))
 	}
 	return "(" + strings.Join(terms, " | ") + ")"
+}
+
+func quoteTSQueryLexeme(lexeme, weight string, prefix bool) string {
+	if prefix {
+		weight += "*"
+	}
+	term := "'" + tsqueryEscaper.Replace(lexeme) + "'"
+	if weight != "" {
+		return term + ":" + weight
+	}
+	return term
 }
 
 // damerauLevenshtein computes edit distance on Unicode code points, including
