@@ -133,6 +133,9 @@ export function ListenPage() {
     }
 
     let cancelled = false;
+    // Cancel a superseded search (e.g. when the RD key or history loads) so
+    // the backend does not scrape AudiobookBay and probe Real Debrid twice.
+    const controller = new AbortController();
     setSourcesLoading(true);
     setSourcesError(undefined);
 
@@ -144,6 +147,7 @@ export function ListenPage() {
         query: `${book.title} ${author}`.trim(),
       },
       rdToken || undefined,
+      { signal: controller.signal },
     )
       .then((found) => {
         if (!cancelled) {
@@ -164,6 +168,7 @@ export function ListenPage() {
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [
     author,
@@ -217,12 +222,14 @@ export function ListenPage() {
     return {
       type: "audiobook",
       mediaTitle: book?.title,
+      // Lets the backend match an Audible edition for chapter markers.
+      author: author || undefined,
       realDebridToken: rdToken,
       abbPostUrl: canSkipAbb ? undefined : selected.abbPostUrl,
       magnet: selected.magnet,
       infoHash: selected.infoHash,
     };
-  }, [book?.title, rdToken, selected]);
+  }, [author, book?.title, rdToken, selected]);
 
   const resolveState = useStreamResolve(resolveRequest, selected);
 

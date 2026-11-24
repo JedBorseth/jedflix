@@ -110,7 +110,11 @@ export function BookSourcePicker({
                     {lastUsed ? (
                       <span className="font-medium text-emerald-400">Last used</span>
                     ) : null}
-                    {showSeeders && source.seeders !== undefined ? (
+                    {source.cached ? (
+                      <span className="text-emerald-400" title="Already in your Real Debrid account">
+                        Cached
+                      </span>
+                    ) : showSeeders && source.seeders !== undefined ? (
                       <SeederCount seeders={source.seeders} />
                     ) : null}
                     {match ? <span className="text-zinc-400">{match}</span> : null}

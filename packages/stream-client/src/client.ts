@@ -49,6 +49,12 @@ export type ResolveRequest = {
   realDebridToken?: string;
 };
 
+export type StreamChapter = {
+  title: string;
+  startSec: number;
+  endSec: number;
+};
+
 export type StreamFile = {
   index: number;
   fileId: number;
@@ -56,6 +62,10 @@ export type StreamFile = {
   url: string;
   filesize: number;
   mimeType?: string;
+  /** Chapters inside this file (single-file audiobooks). */
+  chapters?: StreamChapter[];
+  /** "embedded" (from the file) or "audible" (matched catalog edition). */
+  chapterSource?: "embedded" | "audible";
 };
 
 export type PackKind = "single" | "chapters" | "series";
@@ -298,7 +308,11 @@ export type StreamClient = {
     realDebridToken: string,
     options?: { signal?: AbortSignal },
   ) => Promise<DemoRdStatus>;
-  fetchSources: (request: SourcesRequest, realDebridToken?: string) => Promise<StreamSource[]>;
+  fetchSources: (
+    request: SourcesRequest,
+    realDebridToken?: string,
+    options?: { signal?: AbortSignal },
+  ) => Promise<StreamSource[]>;
   resolveStream: (
     source: StreamSource,
     request: ResolveRequest,
@@ -412,10 +426,12 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
   async function fetchSources(
     request: SourcesRequest,
     realDebridToken?: string,
+    options: { signal?: AbortSignal } = {},
   ): Promise<StreamSource[]> {
     const response = await fetch(`${apiBase}/api/v1/sources`, {
       method: "POST",
       headers: headers(realDebridToken),
+      signal: options.signal,
       body: JSON.stringify({
         ...request,
         playbackProfile: request.playbackProfile ?? "browser",
@@ -459,6 +475,7 @@ export function createStreamClient(config: StreamClientConfig): StreamClient {
       infoHash,
       title: source.title,
       mediaTitle: request.mediaTitle,
+      author: request.author,
       fileIdx: source.fileIdx ?? request.fileIdx,
       season: request.season,
       episode: request.episode,

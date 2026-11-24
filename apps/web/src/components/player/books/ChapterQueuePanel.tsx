@@ -1,36 +1,32 @@
 import { Cross2Icon, ListBulletIcon } from "@radix-ui/react-icons";
 import { useDrag } from "@use-gesture/react";
-import { useEffect, useState } from "react";
-import {
-  formatAudiobookTime,
-  humanizeChapterTitle,
-} from "@/lib/chapterTitle";
+import { useEffect, useRef, useState } from "react";
+import { chapterLength, type BookChapter } from "@/lib/bookChapters";
+import { formatAudiobookTime } from "@/lib/chapterTitle";
 import { cn } from "@/lib/utils";
-import type { PackKind, StreamFile } from "@/lib/streamApi";
+import type { PackKind } from "@/lib/streamApi";
 
 const DISMISS_DISTANCE = 80;
 const DISMISS_VELOCITY = 0.4;
 
 type ChapterQueuePanelProps = {
-  files: StreamFile[];
-  fileIndex: number;
+  chapters: BookChapter[];
+  currentIndex: number;
   packKind?: PackKind;
-  durations: Record<number, number>;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSelect: (index: number) => void;
 };
 
 export function ChapterQueuePanel({
-  files,
-  fileIndex,
+  chapters,
+  currentIndex,
   packKind,
-  durations,
   open,
   onOpenChange,
   onSelect,
 }: ChapterQueuePanelProps) {
-  if (files.length < 2) {
+  if (chapters.length < 2) {
     return null;
   }
 
@@ -40,9 +36,8 @@ export function ChapterQueuePanel({
     <>
       {open ? (
         <MobileChapterSheet
-          files={files}
-          fileIndex={fileIndex}
-          durations={durations}
+          chapters={chapters}
+          currentIndex={currentIndex}
           listLabel={listLabel}
           onClose={() => onOpenChange(false)}
           onSelect={onSelect}
@@ -50,9 +45,8 @@ export function ChapterQueuePanel({
       ) : null}
       {open ? (
         <DesktopChapterSidebar
-          files={files}
-          fileIndex={fileIndex}
-          durations={durations}
+          chapters={chapters}
+          currentIndex={currentIndex}
           listLabel={listLabel}
           onClose={() => onOpenChange(false)}
           onSelect={onSelect}
@@ -98,25 +92,31 @@ export function ChaptersToggleButton({
 }
 
 function ChapterRows({
-  files,
-  fileIndex,
-  durations,
+  chapters,
+  currentIndex,
   onSelect,
   compact,
 }: {
-  files: StreamFile[];
-  fileIndex: number;
-  durations: Record<number, number>;
+  chapters: BookChapter[];
+  currentIndex: number;
   onSelect: (index: number) => void;
   compact?: boolean;
 }) {
+  const currentRef = useRef<HTMLLIElement>(null);
+  useEffect(() => {
+    currentRef.current?.scrollIntoView?.({ block: "nearest" });
+  }, [currentIndex]);
+
   return (
     <ul>
-      {files.map((file, index) => {
-        const isCurrent = index === fileIndex;
-        const duration = durations[index];
+      {chapters.map((chapter, index) => {
+        const isCurrent = index === currentIndex;
+        const length = chapterLength(chapter);
         return (
-          <li key={`${file.fileId}-${index}`}>
+          <li
+            key={`${chapter.fileIndex}-${chapter.startSec}`}
+            ref={isCurrent ? currentRef : undefined}
+          >
             <button
               type="button"
               onClick={() => onSelect(index)}
@@ -125,6 +125,7 @@ function ChapterRows({
                 compact ? "h-14" : "h-16",
                 isCurrent && "bg-zinc-900/80",
               )}
+              aria-current={isCurrent ? "true" : undefined}
             >
               <span
                 className={cn(
@@ -140,11 +141,11 @@ function ChapterRows({
                   isCurrent ? "text-red-400" : "text-white",
                 )}
               >
-                {humanizeChapterTitle(file.filename)}
+                {chapter.title}
               </span>
-              {duration != null && duration > 0 ? (
+              {length != null ? (
                 <span className="shrink-0 text-xs tabular-nums text-zinc-500">
-                  {formatAudiobookTime(duration)}
+                  {formatAudiobookTime(length)}
                 </span>
               ) : null}
             </button>
@@ -156,16 +157,14 @@ function ChapterRows({
 }
 
 function MobileChapterSheet({
-  files,
-  fileIndex,
-  durations,
+  chapters,
+  currentIndex,
   listLabel,
   onClose,
   onSelect,
 }: {
-  files: StreamFile[];
-  fileIndex: number;
-  durations: Record<number, number>;
+  chapters: BookChapter[];
+  currentIndex: number;
   listLabel: string;
   onClose: () => void;
   onSelect: (index: number) => void;
@@ -232,16 +231,15 @@ function MobileChapterSheet({
             <div className="min-w-0 text-left">
               <p className="text-sm font-medium text-white">{listLabel}</p>
               <p className="text-xs text-zinc-500">
-                {files.length} {files.length === 1 ? "file" : "files"}
+                {chapterCountLabel(chapters.length, listLabel)}
               </p>
             </div>
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[env(safe-area-inset-bottom)]">
           <ChapterRows
-            files={files}
-            fileIndex={fileIndex}
-            durations={durations}
+            chapters={chapters}
+            currentIndex={currentIndex}
             onSelect={(index) => {
               onSelect(index);
               onClose();
@@ -255,16 +253,14 @@ function MobileChapterSheet({
 }
 
 function DesktopChapterSidebar({
-  files,
-  fileIndex,
-  durations,
+  chapters,
+  currentIndex,
   listLabel,
   onClose,
   onSelect,
 }: {
-  files: StreamFile[];
-  fileIndex: number;
-  durations: Record<number, number>;
+  chapters: BookChapter[];
+  currentIndex: number;
   listLabel: string;
   onClose: () => void;
   onSelect: (index: number) => void;
@@ -278,7 +274,7 @@ function DesktopChapterSidebar({
         <div className="min-w-0">
           <p className="text-sm font-medium text-white">{listLabel}</p>
           <p className="text-xs text-zinc-500">
-            {files.length} {files.length === 1 ? "file" : "files"}
+            {chapterCountLabel(chapters.length, listLabel)}
           </p>
         </div>
         <button
@@ -292,12 +288,16 @@ function DesktopChapterSidebar({
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         <ChapterRows
-          files={files}
-          fileIndex={fileIndex}
-          durations={durations}
+          chapters={chapters}
+          currentIndex={currentIndex}
           onSelect={onSelect}
         />
       </div>
     </aside>
   );
+}
+
+function chapterCountLabel(count: number, listLabel: string): string {
+  const noun = listLabel === "Books" ? "book" : "chapter";
+  return `${count} ${count === 1 ? noun : `${noun}s`}`;
 }

@@ -1,5 +1,5 @@
 import { beforeEach, test, expect } from "bun:test";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { AudioPlaylistPlayer } from "./AudioPlaylistPlayer";
 import type { StreamFile } from "@/lib/streamApi";
 
@@ -100,4 +100,56 @@ test("keeps the chapter duration when saved progress updates mid-playback", () =
   // The parent's live progress query echoes back the position we just saved.
   rerender(<AudioPlaylistPlayer {...props} initialPositionSec={15} />);
   expect(screen.getByText("8:00:00")).toBeTruthy();
+});
+
+const singleFileBook: StreamFile[] = [
+  {
+    index: 0,
+    fileId: 2,
+    filename: "Harry Potter 1.m4b",
+    url: "https://example.com/hp1.m4b",
+    filesize: 1,
+    chapterSource: "embedded",
+    chapters: [
+      { title: "Opening Credits", startSec: 0, endSec: 63 },
+      { title: "Chapter 1 - The Boy Who Lived", startSec: 63, endSec: 1970 },
+      { title: "Chapter 2 - The Vanishing Glass", startSec: 1970, endSec: 3318 },
+    ],
+  },
+];
+
+test("lists chapters inside a single-file book and seeks to them", async () => {
+  const { container } = render(
+    <AudioPlaylistPlayer title="Harry Potter" files={singleFileBook} />,
+  );
+  const audio = container.querySelector("audio")!;
+  expect(screen.getByText("1. Opening Credits")).toBeTruthy();
+
+  fireEvent.click(screen.getAllByRole("button", { name: "Open chapters" })[0]!);
+  await act(async () => {
+    fireEvent.click(screen.getAllByText("Chapter 2 - The Vanishing Glass")[0]!);
+  });
+
+  expect(audio.currentTime).toBe(1970);
+  expect(screen.getByText("3. Chapter 2 - The Vanishing Glass")).toBeTruthy();
+});
+
+test("next and previous move between chapters within the file", async () => {
+  const { container } = render(
+    <AudioPlaylistPlayer title="Harry Potter" files={singleFileBook} />,
+  );
+  const audio = container.querySelector("audio")!;
+
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Next chapter" }));
+  });
+  expect(audio.currentTime).toBe(63);
+
+  // Well into chapter 1, "previous" restarts it rather than going back.
+  audio.currentTime = 500;
+  fireEvent.timeUpdate(audio);
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Previous chapter" }));
+  });
+  expect(audio.currentTime).toBe(63);
 });

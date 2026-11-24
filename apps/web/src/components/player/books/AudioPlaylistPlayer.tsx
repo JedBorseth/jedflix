@@ -1,5 +1,5 @@
 import { PauseIcon, PlayIcon, TrackNextIcon, TrackPreviousIcon } from "@radix-ui/react-icons";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ProgressiveCoverImage } from "@/components/browse/ProgressiveCoverImage";
 import {
   ChapterQueuePanel,
@@ -15,8 +15,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useMediaSession } from "@/hooks/useMediaSession";
 import {
+  buildBookChapters,
+  currentBookChapterIndex,
+  previousBookChapterIndex,
+} from "@/lib/bookChapters";
+import {
   formatAudiobookTime,
-  humanizeChapterTitle,
   isIgnorableAudioAbort,
   nextChapterIndex,
 } from "@/lib/chapterTitle";
@@ -103,13 +107,20 @@ export function AudioPlaylistPlayer({
   durationRef.current = duration;
 
   const currentFile = files[fileIndex];
-  const chapterTitle = currentFile
-    ? humanizeChapterTitle(currentFile.filename)
+  const chapters = useMemo(() => buildBookChapters(files, durations), [files, durations]);
+  const chapterIndex = currentBookChapterIndex(chapters, fileIndex, current);
+  const currentChapter = chapters[chapterIndex];
+  const chapterLabel = currentChapter
+    ? chapters.length > 1
+      ? `${chapterIndex + 1}. ${currentChapter.title}`
+      : currentChapter.title
     : undefined;
-  const chapterLabel =
-    files.length > 1 && chapterTitle
-      ? `${fileIndex + 1}. ${chapterTitle}`
-      : chapterTitle;
+  const chaptersRef = useRef(chapters);
+  const chapterIndexRef = useRef(chapterIndex);
+  chaptersRef.current = chapters;
+  chapterIndexRef.current = chapterIndex;
+  // Where to seek once the next file loads (a chapter in another file).
+  const pendingSeekRef = useRef<number | null>(null);
 
   useEffect(() => {
     const query = window.matchMedia("(min-width: 768px)");
@@ -185,6 +196,45 @@ export function AudioPlaylistPlayer({
     playIntentRef.current = autoplay;
     setFileIndex(index);
     setPlaying(autoplay);
+  }
+
+  function goToChapter(index: number) {
+    const chapter = chaptersRef.current[index];
+    if (!chapter) {
+      return;
+    }
+    // A chosen chapter replaces the saved resume point.
+    seekAppliedRef.current = true;
+    if (chapter.fileIndex !== fileIndexRef.current) {
+      pendingSeekRef.current = chapter.startSec > 0 ? chapter.startSec : null;
+      playFile(chapter.fileIndex, true);
+      return;
+    }
+    const audio = audioRef.current;
+    if (!audio) {
+      return;
+    }
+    audio.currentTime = chapter.startSec;
+    setCurrent(chapter.startSec);
+    if (audio.paused) {
+      void startPlayback(audio);
+    }
+  }
+
+  function previousChapter() {
+    const audio = audioRef.current;
+    const time = audio ? audio.currentTime : currentRef.current;
+    const target = previousBookChapterIndex(chaptersRef.current, chapterIndexRef.current, time);
+    if (target >= 0) {
+      goToChapter(target);
+    }
+  }
+
+  function nextChapter() {
+    const next = chapterIndexRef.current + 1;
+    if (next < chaptersRef.current.length) {
+      goToChapter(next);
+    }
   }
 
   function handleTrackEnded() {
@@ -266,19 +316,8 @@ export function AudioPlaylistPlayer({
     },
     onSeek: seekTo,
     onSeekBy: skip,
-    onPreviousTrack: () => {
-      if (fileIndexRef.current > 0) {
-        playFile(fileIndexRef.current - 1, true);
-      } else {
-        seekTo(0);
-      }
-    },
-    onNextTrack: () => {
-      const next = nextChapterIndex(fileIndexRef.current, filesRef.current.length);
-      if (next != null) {
-        playFile(next, true);
-      }
-    },
+    onPreviousTrack: previousChapter,
+    onNextTrack: nextChapter,
   });
 
   if (!currentFile) {
@@ -370,12 +409,18 @@ export function AudioPlaylistPlayer({
               setPlaybackError(undefined);
               setLoading(false);
               advancingRef.current = false;
-              applyInitialSeek(audio, {
-                fileIndex: fileIndexRef.current,
-                initialFileIndex,
-                initialPositionSec,
-                seekAppliedRef,
-              });
+              if (pendingSeekRef.current != null) {
+                audio.currentTime = pendingSeekRef.current;
+                setCurrent(pendingSeekRef.current);
+                pendingSeekRef.current = null;
+              } else {
+                applyInitialSeek(audio, {
+                  fileIndex: fileIndexRef.current,
+                  initialFileIndex,
+                  initialPositionSec,
+                  seekAppliedRef,
+                });
+              }
               if (!playIntentRef.current) {
                 return;
               }
@@ -434,8 +479,8 @@ export function AudioPlaylistPlayer({
             <button
               type="button"
               className="rounded-full p-2 text-zinc-300 transition hover:bg-zinc-800 hover:text-white disabled:opacity-40"
-              disabled={fileIndex <= 0}
-              onClick={() => playFile(fileIndex - 1, true)}
+              disabled={chapterIndex < 0}
+              onClick={previousChapter}
               aria-label="Previous chapter"
             >
               <TrackPreviousIcon className="h-6 w-6" />
@@ -472,8 +517,8 @@ export function AudioPlaylistPlayer({
             <button
               type="button"
               className="rounded-full p-2 text-zinc-300 transition hover:bg-zinc-800 hover:text-white disabled:opacity-40"
-              disabled={fileIndex >= files.length - 1}
-              onClick={() => playFile(fileIndex + 1, true)}
+              disabled={chapterIndex >= chapters.length - 1}
+              onClick={nextChapter}
               aria-label="Next chapter"
             >
               <TrackNextIcon className="h-6 w-6" />
@@ -484,7 +529,7 @@ export function AudioPlaylistPlayer({
             <PlaybackSpeedMenu rate={rate} onRateChange={setRate} />
             <ChaptersToggleButton
               open={chaptersOpen}
-              count={files.length}
+              count={chapters.length}
               onClick={() => setChaptersOpen((value) => !value)}
             />
           </div>
@@ -496,13 +541,12 @@ export function AudioPlaylistPlayer({
       </div>
 
       <ChapterQueuePanel
-        files={files}
-        fileIndex={fileIndex}
+        chapters={chapters}
+        currentIndex={chapterIndex}
         packKind={packKind}
-        durations={durations}
         open={chaptersOpen}
         onOpenChange={setChaptersOpen}
-        onSelect={(index) => playFile(index, true)}
+        onSelect={goToChapter}
       />
     </div>
   );

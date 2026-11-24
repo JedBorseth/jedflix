@@ -20,6 +20,7 @@ export type {
   SpotifySearchResponse,
   SpotifyTopTrack,
   SpotifyTrack,
+  StreamChapter,
   StreamFile,
   StreamResult,
   StreamSource,
