@@ -187,7 +187,9 @@ func (c *Client) ensureSession(ctx context.Context) error {
 
 		err := c.login(ctx)
 		c.loginMu.Lock()
-		if ctx.Err() == nil && !errors.Is(err, context.Canceled) {
+		// Remember the outcome, except when ABB was not reached at all: a
+		// proxy blip at startup must not leave the session anonymous forever.
+		if ctx.Err() == nil && !errors.Is(err, context.Canceled) && !isConnectionFailure(err) {
 			c.loginTried = true
 			c.loginErr = err
 		}
@@ -219,7 +221,7 @@ func (c *Client) login(ctx context.Context) error {
 
 	res, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("ABB login request: %w", err)
+		return fmt.Errorf("ABB login request: %w", &FetchError{Cause: err})
 	}
 	defer res.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(res.Body, 256*1024))
@@ -239,11 +241,54 @@ func (c *Client) login(ctx context.Context) error {
 	return fmt.Errorf("ABB login failed (status %d)", res.StatusCode)
 }
 
+// The WARP proxy drops connections now and then ("host unreachable", or a
+// connect that never completes). One retry on a fresh connection usually
+// lands; HTTP errors from ABB itself are returned as-is.
+const (
+	fetchAttempts       = 2
+	fetchAttemptTimeout = 12 * time.Second
+	fetchRetryDelay     = 750 * time.Millisecond
+)
+
 func (c *Client) fetchHTML(ctx context.Context, pathOrURL string) (string, error) {
 	target, err := c.validateFetchURL(pathOrURL)
 	if err != nil {
 		return "", err
 	}
+
+	var lastErr error
+	for attempt := 0; attempt < fetchAttempts; attempt++ {
+		if attempt > 0 {
+			if transport, ok := c.httpClient.Transport.(interface{ CloseIdleConnections() }); ok {
+				transport.CloseIdleConnections()
+			}
+			select {
+			case <-ctx.Done():
+				return "", ctx.Err()
+			case <-time.After(fetchRetryDelay):
+			}
+		}
+		html, err := c.fetchOnce(ctx, target)
+		if err == nil {
+			return html, nil
+		}
+		lastErr = err
+		var fetchErr *FetchError
+		if ctx.Err() != nil || !errors.As(err, &fetchErr) || fetchErr.StatusCode != 0 {
+			return "", err
+		}
+	}
+	return "", lastErr
+}
+
+func isConnectionFailure(err error) bool {
+	var fetchErr *FetchError
+	return errors.As(err, &fetchErr) && fetchErr.StatusCode == 0
+}
+
+func (c *Client) fetchOnce(ctx context.Context, target string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, fetchAttemptTimeout)
+	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {

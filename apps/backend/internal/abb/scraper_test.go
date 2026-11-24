@@ -237,3 +237,86 @@ func TestSessionWaiterCanCancel(t *testing.T) {
 		t.Fatal("a canceled login must leave the session eligible for retry")
 	}
 }
+
+// flakyTransport fails the first `failures` round trips like a dropped proxy.
+type flakyTransport struct {
+	failures int
+	calls    int
+	status   int
+}
+
+func (f *flakyTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	f.calls++
+	if f.calls <= f.failures {
+		return nil, errors.New("socks connect tcp abb-warp:40000->audiobookbay.lu:443: unknown error host unreachable")
+	}
+	status := f.status
+	if status == 0 {
+		status = http.StatusOK
+	}
+	return &http.Response{
+		StatusCode: status,
+		Body:       io.NopCloser(strings.NewReader("<html>ok</html>")),
+		Header:     http.Header{},
+		Request:    r,
+	}, nil
+}
+
+func TestFetchRetriesOnceAfterProxyDrop(t *testing.T) {
+	transport := &flakyTransport{failures: 1}
+	client := NewClient("https://audiobookbay.lu", &http.Client{Transport: transport})
+
+	html, err := client.fetchHTML(context.Background(), "/")
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if html != "<html>ok</html>" || transport.calls != 2 {
+		t.Fatalf("html = %q calls = %d", html, transport.calls)
+	}
+}
+
+func TestFetchGivesUpAfterTwoProxyDrops(t *testing.T) {
+	transport := &flakyTransport{failures: 5}
+	client := NewClient("https://audiobookbay.lu", &http.Client{Transport: transport})
+
+	_, err := client.fetchHTML(context.Background(), "/")
+	var fetchErr *FetchError
+	if !errors.As(err, &fetchErr) || fetchErr.StatusCode != 0 {
+		t.Fatalf("err = %v", err)
+	}
+	if transport.calls != 2 {
+		t.Fatalf("calls = %d", transport.calls)
+	}
+}
+
+func TestFetchDoesNotRetryHTTPErrors(t *testing.T) {
+	transport := &flakyTransport{status: http.StatusTooManyRequests}
+	client := NewClient("https://audiobookbay.lu", &http.Client{Transport: transport})
+
+	_, err := client.fetchHTML(context.Background(), "/")
+	var fetchErr *FetchError
+	if !errors.As(err, &fetchErr) || fetchErr.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("err = %v", err)
+	}
+	if transport.calls != 1 {
+		t.Fatalf("calls = %d", transport.calls)
+	}
+}
+
+func TestLoginRetriedAfterProxyDrop(t *testing.T) {
+	// Both attempts at the login page hit a proxy drop.
+	transport := &flakyTransport{failures: 2}
+	client := NewClientWithOptions(ClientOptions{
+		BaseURL: "https://audiobookbay.lu", Username: "u", Password: "p",
+		HTTPClient: &http.Client{Transport: transport},
+	})
+	_ = client.ensureSession(context.Background())
+	if client.loginTried {
+		t.Fatal("a login that never reached ABB must not be remembered")
+	}
+	// Now ABB answers, but without "logout": a real login failure.
+	_ = client.ensureSession(context.Background())
+	if !client.loginTried {
+		t.Fatal("a login ABB answered should be remembered")
+	}
+}
