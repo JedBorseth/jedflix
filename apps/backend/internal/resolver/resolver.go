@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/jedborseth/jeds-movies/backend/internal/abb"
+	"github.com/jedborseth/jeds-movies/backend/internal/bookchapters"
 	"github.com/jedborseth/jeds-movies/backend/internal/config"
 	"github.com/jedborseth/jeds-movies/backend/internal/realdebrid"
 	"github.com/jedborseth/jeds-movies/backend/internal/search"
@@ -41,6 +43,7 @@ type ResolveRequest struct {
 	InfoHash        string          `json:"infoHash,omitempty"`
 	Title           string          `json:"title,omitempty"`
 	MediaTitle      string          `json:"mediaTitle,omitempty"`
+	Author          string          `json:"author,omitempty"`
 	FileIdx         *int            `json:"fileIdx,omitempty"`
 	Season          *int            `json:"season,omitempty"`
 	Episode         *int            `json:"episode,omitempty"`
@@ -69,6 +72,9 @@ type StreamFile struct {
 	URL      string `json:"url"`
 	Filesize int64  `json:"filesize"`
 	MimeType string `json:"mimeType,omitempty"`
+	// Chapters inside this one file (single-file audiobooks).
+	Chapters      []bookchapters.Chapter `json:"chapters,omitempty"`
+	ChapterSource string                 `json:"chapterSource,omitempty"`
 }
 
 type StreamResult struct {
@@ -97,6 +103,9 @@ type Service struct {
 	searcher   search.Searcher
 	abb        *abb.Client
 	filterOpts search.FilterOptions
+	chapters   chapterFinder
+	// newRD overrides the Real Debrid client (tests).
+	newRD func(token string) *realdebrid.Client
 }
 
 func NewService(cfg config.Config, searcher search.Searcher, abbClient *abb.Client) *Service {
@@ -105,6 +114,9 @@ func NewService(cfg config.Config, searcher search.Searcher, abbClient *abb.Clie
 		searcher:   searcher,
 		abb:        abbClient,
 		filterOpts: search.FilterOptionsFromConfig(cfg),
+		chapters: bookchapters.NewFinder(bookchapters.Options{
+			HTTPClient: cfg.HTTPClient(),
+		}),
 	}
 }
 
@@ -250,8 +262,9 @@ func (s *Service) enrichBookMagnets(ctx context.Context, sources []Source, limit
 	wg.Wait()
 }
 
-// enrichBookSeedersFromRD briefly adds magnets to Real Debrid to read swarm
-// seeders for the audiobook stream picker, then deletes the torrents.
+// enrichBookSeedersFromRD marks sources already in the user's account as
+// cached, and briefly adds the others to Real Debrid to read swarm seeders
+// for the audiobook stream picker, deleting only those probe copies.
 func (s *Service) enrichBookSeedersFromRD(ctx context.Context, sources []Source, limit int, token string) {
 	token = strings.TrimSpace(token)
 	if token == "" || limit <= 0 {
@@ -261,12 +274,40 @@ func (s *Service) enrichBookSeedersFromRD(ctx context.Context, sources []Source,
 		limit = len(sources)
 	}
 
-	rd := realdebrid.NewClientWithToken(s.cfg, token)
+	rd := s.rdClient(token)
+	// Torrents already in the account are cached for this user, and the probe
+	// must never add or delete a copy of them.
+	var owned map[string][]realdebrid.TorrentSummary
+	lookupCtx, cancelLookup := context.WithTimeout(ctx, 5*time.Second)
+	if torrents, err := rd.ListTorrents(lookupCtx); err == nil {
+		owned = realdebrid.TorrentsByHash(torrents)
+	}
+	cancelLookup()
+	for i := range sources {
+		hash := strings.ToLower(sources[i].InfoHash)
+		if hash == "" {
+			hash = strings.ToLower(infoHashFromMagnet(sources[i].Magnet))
+		}
+		for _, torrent := range owned[hash] {
+			if torrent.Status == "downloaded" {
+				sources[i].Cached = true
+			}
+		}
+	}
+
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 2)
 	for i := 0; i < limit; i++ {
 		magnet := strings.TrimSpace(sources[i].Magnet)
 		if magnet == "" {
+			continue
+		}
+		if owned == nil {
+			// Could not check the account; skip probes rather than risk
+			// deleting a torrent the user keeps.
+			break
+		}
+		if _, inAccount := owned[strings.ToLower(infoHashFromMagnet(magnet))]; inAccount {
 			continue
 		}
 		wg.Add(1)
@@ -299,9 +340,15 @@ func probeRDSeeders(ctx context.Context, rd *realdebrid.Client, magnet string) (
 	torrentID, err := rd.AddMagnet(addCtx, magnet)
 	cancelAdd()
 	if err != nil || torrentID == "" {
+		// Real Debrid may have created the torrent before the error (a
+		// timeout or 5xx). The hash was not in the account before the probe,
+		// so any unstarted copy now is ours.
+		log.Printf("real-debrid: seeder probe add failed: %v", err)
+		go sweepProbeCopies(rd, infoHashFromMagnet(magnet))
 		return 0, false
 	}
-	defer cleanupRDTorrent(rd, torrentID)
+	// Off the request path: deletes are retried with backoff.
+	defer func() { go cleanupRDTorrent(rd, torrentID) }()
 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -328,16 +375,52 @@ func probeRDSeeders(ctx context.Context, rd *realdebrid.Client, magnet string) (
 		select {
 		case <-ctx.Done():
 			return 0, false
-		case <-time.After(350 * time.Millisecond):
+		case <-time.After(700 * time.Millisecond):
 		}
 	}
 	return 0, false
 }
 
+// cleanupRDTorrent removes a torrent this backend added and will not use.
+// A failed delete leaves an unstarted torrent in the user's account, so it is
+// retried; "not found" means it is already gone.
 func cleanupRDTorrent(rd *realdebrid.Client, torrentID string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	_ = rd.DeleteTorrent(ctx, torrentID)
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			time.Sleep(time.Duration(attempt) * time.Second)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		err = rd.DeleteTorrent(ctx, torrentID)
+		cancel()
+		if err == nil || realdebrid.IsNotFoundError(err) {
+			return
+		}
+	}
+	log.Printf("real-debrid: could not remove torrent %s: %v", torrentID, err)
+}
+
+// sweepProbeCopies deletes unstarted copies of a hash the account did not
+// hold before probing. Torrents with files selected are left alone: those are
+// real plays started meanwhile.
+func sweepProbeCopies(rd *realdebrid.Client, hash string) {
+	hash = strings.ToLower(strings.TrimSpace(hash))
+	if hash == "" {
+		return
+	}
+	time.Sleep(time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	torrents, err := rd.ListTorrents(ctx)
+	cancel()
+	if err != nil {
+		return
+	}
+	for _, torrent := range realdebrid.TorrentsByHash(torrents)[hash] {
+		switch torrent.Status {
+		case "magnet_conversion", "waiting_files_selection":
+			cleanupRDTorrent(rd, torrent.ID)
+		}
+	}
 }
 
 func compactMagnetURI(magnet, hash string) string {
@@ -449,81 +532,44 @@ func (s *Service) resolveVideo(
 	req ResolveRequest,
 	report func(string),
 ) (*StreamResult, error) {
-	rd := realdebrid.NewClientWithToken(s.cfg, token)
+	rd := s.rdClient(token)
 	maxBytes := int64(s.cfg.MaxVideoSizeGB * 1024 * 1024 * 1024)
-	timeout := s.cfg.ResolveTimeout
-	if timeout <= 0 {
-		timeout = 10 * time.Minute
-	}
+	timeout := s.resolveTimeout()
 
 	resolveCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	torrentID := ""
-	cleanupTorrent := false
-	defer func() {
-		if cleanupTorrent && torrentID != "" {
-			cleanupRDTorrent(rd, torrentID)
+	pick := func(files []realdebrid.TorrentFile) ([]realdebrid.TorrentFile, error) {
+		var file realdebrid.TorrentFile
+		var ok bool
+		if req.Type == "tv" && req.Season != nil && req.Episode != nil {
+			file, ok = realdebrid.PickEpisodeFile(files, *req.Season, *req.Episode, req.FileIdx)
+		} else {
+			file, ok = realdebrid.PickMovieFile(files, req.MediaTitle, req.FileIdx)
 		}
-	}()
+		if !ok {
+			return nil, &ResolveError{
+				Code:    "title_mismatch",
+				Message: "Could not find a matching video file in this torrent. Try another stream.",
+			}
+		}
+		if maxBytes > 0 && file.Bytes > maxBytes {
+			return nil, &ResolveError{Code: "size_limit", Message: "Selected file exceeds size limit."}
+		}
+		return []realdebrid.TorrentFile{file}, nil
+	}
 
-	report("Adding magnet to Real Debrid…")
-	id, err := rd.AddMagnet(resolveCtx, magnet)
+	lease, err := s.acquireTorrent(resolveCtx, rd, magnet, timeout, pick, report)
 	if err != nil {
-		return nil, mapRDError(err)
+		return nil, err
 	}
-	torrentID = id
-	cleanupTorrent = true
-	report("Magnet added to Real Debrid. Waiting for file list…")
-
-	info, err := rd.WaitForFileList(resolveCtx, torrentID, timeout)
+	links, err := s.waitAndLink(resolveCtx, rd, lease, timeout, report)
 	if err != nil {
-		if resolveCtx.Err() != nil {
-			return nil, &ResolveError{Code: "timeout", Message: "Real Debrid timed out while fetching torrent metadata. Try another source."}
-		}
-		return nil, mapRDError(err)
-	}
-
-	var file realdebrid.TorrentFile
-	var ok bool
-	if req.Type == "tv" && req.Season != nil && req.Episode != nil {
-		file, ok = realdebrid.PickEpisodeFile(info.Files, *req.Season, *req.Episode, req.FileIdx)
-	} else {
-		file, ok = realdebrid.PickMovieFile(info.Files, req.MediaTitle, req.FileIdx)
-	}
-	if !ok {
-		return nil, &ResolveError{
-			Code:    "title_mismatch",
-			Message: "Could not find a matching video file in this torrent. Try another stream.",
-		}
-	}
-	if maxBytes > 0 && file.Bytes > maxBytes {
-		return nil, &ResolveError{Code: "size_limit", Message: "Selected file exceeds size limit."}
-	}
-
-	report("Selecting video file on Real Debrid…")
-	if err := rd.SelectFiles(resolveCtx, torrentID, []int{file.ID}); err != nil {
-		return nil, mapRDError(err)
-	}
-
-	report("Waiting for Real Debrid download…")
-	info, err = rd.WaitReady(resolveCtx, torrentID, timeout, nil, report)
-	if err != nil {
-		// Keep a pending download in RD even after our resolve job stops waiting.
-		if resolveCtx.Err() != nil || strings.Contains(err.Error(), "timed out") {
-			cleanupTorrent = false
-		}
-		if resolveCtx.Err() != nil {
-			return nil, &ResolveError{Code: "timeout", Message: "Real Debrid torrent timed out."}
-		}
-		return nil, mapRDError(err)
-	}
-	if len(info.Links) == 0 {
-		return nil, &ResolveError{Code: "no_links", Message: "Real Debrid returned no links."}
+		return nil, err
 	}
 
 	report("Unrestricting Real Debrid link…")
-	unrestricted, err := rd.UnrestrictLink(resolveCtx, info.Links[0])
+	unrestricted, err := rd.UnrestrictLink(resolveCtx, links[0])
 	if err != nil {
 		return nil, mapRDError(err)
 	}
@@ -536,7 +582,7 @@ func (s *Service) resolveVideo(
 		Mode:      "direct",
 		Files: []StreamFile{{
 			Index:    0,
-			FileID:   file.ID,
+			FileID:   lease.files[0].ID,
 			Filename: unrestricted.Filename,
 			URL:      unrestricted.Download,
 			Filesize: unrestricted.Filesize,
@@ -545,113 +591,69 @@ func (s *Service) resolveVideo(
 	}, nil
 }
 
+func (s *Service) resolveTimeout() time.Duration {
+	if s.cfg.ResolveTimeout > 0 {
+		return s.cfg.ResolveTimeout
+	}
+	return 10 * time.Minute
+}
+
 func (s *Service) resolveBook(
 	ctx context.Context,
 	token, magnet string,
 	req ResolveRequest,
 	report func(string),
 ) (*StreamResult, error) {
-	rd := realdebrid.NewClientWithToken(s.cfg, token)
-	timeout := s.cfg.ResolveTimeout
-	if timeout <= 0 {
-		timeout = 10 * time.Minute
-	}
+	rd := s.rdClient(token)
+	timeout := s.resolveTimeout()
 
 	resolveCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-
-	torrentID := ""
-	cleanupTorrent := false
-	defer func() {
-		if cleanupTorrent && torrentID != "" {
-			cleanupRDTorrent(rd, torrentID)
-		}
-	}()
-
-	report("Adding magnet to Real Debrid…")
-	id, err := rd.AddMagnet(resolveCtx, magnet)
-	if err != nil {
-		return nil, mapRDError(err)
-	}
-	torrentID = id
-	cleanupTorrent = true
-	report("Magnet added to Real Debrid. Waiting for file list…")
-
-	info, err := rd.WaitForFileList(resolveCtx, torrentID, timeout)
-	if err != nil {
-		if resolveCtx.Err() != nil {
-			return nil, &ResolveError{Code: "timeout", Message: "Real Debrid timed out while fetching torrent metadata. Try another source."}
-		}
-		return nil, mapRDError(err)
-	}
 
 	kind := realdebrid.MediaKindAudiobook
 	if req.Type == "ebook" {
 		kind = realdebrid.MediaKindEbook
 	}
 
-	mediaFiles := realdebrid.FilterMediaFiles(info.Files, kind)
-	if len(mediaFiles) == 0 {
-		return nil, &ResolveError{
-			Code:    "title_mismatch",
-			Message: fmt.Sprintf("No %s files found in this torrent (%d files total). Try another source.", req.Type, len(info.Files)),
+	pick := func(files []realdebrid.TorrentFile) ([]realdebrid.TorrentFile, error) {
+		mediaFiles := realdebrid.FilterMediaFiles(files, kind)
+		if len(mediaFiles) == 0 {
+			return nil, &ResolveError{
+				Code:    "title_mismatch",
+				Message: fmt.Sprintf("No %s files found in this torrent (%d files total). Try another source.", req.Type, len(files)),
+			}
 		}
-	}
-
-	if kind == realdebrid.MediaKindEbook {
-		// Prefer a single best ebook (epub > pdf) unless the user asked for a pack.
-		mediaFiles = realdebrid.PreferEbookFiles(mediaFiles)
-		if req.FileIdx == nil {
-			mediaFiles = mediaFiles[:1]
+		if kind == realdebrid.MediaKindEbook {
+			// Prefer a single best ebook (epub > pdf) unless the user asked for a pack.
+			mediaFiles = realdebrid.PreferEbookFiles(mediaFiles)
+			if req.FileIdx == nil {
+				mediaFiles = mediaFiles[:1]
+			}
 		}
-	}
-
-	// Optional single-file override via fileIdx into the filtered list.
-	if req.FileIdx != nil {
-		idx := *req.FileIdx
-		if idx < 0 || idx >= len(mediaFiles) {
-			return nil, &ResolveError{Code: "invalid_request", Message: "fileIdx is out of range for this pack"}
+		// Optional single-file override via fileIdx into the filtered list.
+		if req.FileIdx != nil {
+			idx := *req.FileIdx
+			if idx < 0 || idx >= len(mediaFiles) {
+				return nil, &ResolveError{Code: "invalid_request", Message: "fileIdx is out of range for this pack"}
+			}
+			mediaFiles = []realdebrid.TorrentFile{mediaFiles[idx]}
 		}
-		mediaFiles = []realdebrid.TorrentFile{mediaFiles[idx]}
+		// Keep torrent file-list order; playback order is applied after linking.
+		return realdebrid.AlignSelectedWithLinks(files, mediaFiles), nil
 	}
 
-	fileIDs := make([]int, len(mediaFiles))
-	for i, file := range mediaFiles {
-		fileIDs[i] = file.ID
-	}
-	report(fmt.Sprintf("Selecting %d %s file(s) on Real Debrid…", len(fileIDs), req.Type))
-	if err := rd.SelectFiles(resolveCtx, torrentID, fileIDs); err != nil {
-		return nil, mapRDError(err)
-	}
-
-	report("Waiting for Real Debrid download…")
-	info, err = rd.WaitReady(resolveCtx, torrentID, timeout, nil, report)
+	lease, err := s.acquireTorrent(resolveCtx, rd, magnet, timeout, pick, report)
 	if err != nil {
-		// Keep a pending download in RD even after our resolve job stops waiting.
-		if resolveCtx.Err() != nil || strings.Contains(err.Error(), "timed out") {
-			cleanupTorrent = false
-		}
-		if resolveCtx.Err() != nil {
-			return nil, &ResolveError{Code: "timeout", Message: "Real Debrid torrent timed out."}
-		}
-		return nil, mapRDError(err)
+		return nil, err
 	}
-	if len(info.Links) == 0 {
-		return nil, &ResolveError{Code: "no_links", Message: "Real Debrid returned no links."}
+	links, err := s.waitAndLink(resolveCtx, rd, lease, timeout, report)
+	if err != nil {
+		return nil, err
 	}
 
-	// RD returns links for selected files in torrent file-list order, which is
-	// often not listening order. Pair first, then sort by path.
-	selectedOrdered := realdebrid.AlignSelectedWithLinks(info.Files, mediaFiles)
-
-	if len(info.Links) < len(selectedOrdered) {
-		return nil, &ResolveError{
-			Code:    "no_links",
-			Message: fmt.Sprintf("Real Debrid returned %d links for %d selected files.", len(info.Links), len(selectedOrdered)),
-		}
-	}
-
-	selectedOrdered, playbackLinks := realdebrid.SortPlaybackLinks(selectedOrdered, info.Links)
+	// Real Debrid's link order is torrent file-list order, which is often not
+	// listening order. Pair first, then sort by path.
+	selectedOrdered, playbackLinks := realdebrid.SortPlaybackLinks(lease.files, links)
 
 	report(fmt.Sprintf("Unrestricting %d Real Debrid link(s)…", len(selectedOrdered)))
 	streamFiles := make([]StreamFile, 0, len(selectedOrdered))
@@ -674,9 +676,13 @@ func (s *Service) resolveBook(
 		})
 	}
 
+	hash := infoHashFromMagnet(magnet)
+	if kind == realdebrid.MediaKindAudiobook {
+		s.attachChapters(resolveCtx, hash, req, streamFiles, report)
+	}
+
 	packKind := realdebrid.ClassifyPack(selectedOrdered)
 	first := streamFiles[0]
-	hash := infoHashFromMagnet(magnet)
 	return &StreamResult{
 		URL:       first.URL,
 		DirectURL: first.URL,

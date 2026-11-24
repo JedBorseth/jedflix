@@ -20,16 +20,30 @@ import (
 const apiBase = "https://api.real-debrid.com/rest/1.0"
 
 type Client struct {
-	token  string
-	client *http.Client
+	token   string
+	client  *http.Client
+	baseURL string
 }
 
 func NewClientWithToken(cfg config.Config, token string) *Client {
 	client := cfg.HTTPClient()
 	client.Timeout = 60 * time.Second
 	return &Client{
-		token:  strings.TrimSpace(token),
-		client: client,
+		token:   strings.TrimSpace(token),
+		client:  client,
+		baseURL: apiBase,
+	}
+}
+
+// NewClientWithBase points the client at another API root (tests).
+func NewClientWithBase(baseURL, token string, httpClient *http.Client) *Client {
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 10 * time.Second}
+	}
+	return &Client{
+		token:   strings.TrimSpace(token),
+		client:  httpClient,
+		baseURL: strings.TrimRight(baseURL, "/"),
 	}
 }
 
@@ -99,6 +113,97 @@ func (c *Client) GetTorrentInfo(ctx context.Context, torrentID string) (*Torrent
 		return nil, err
 	}
 	return &info, nil
+}
+
+// TorrentSummary is one row of the account's torrent list.
+type TorrentSummary struct {
+	ID       string  `json:"id"`
+	Filename string  `json:"filename"`
+	Hash     string  `json:"hash"`
+	Status   string  `json:"status"`
+	Progress float64 `json:"progress"`
+}
+
+// accountListLimit bounds the single page we read when looking for a torrent
+// already in the account. Real Debrid lists newest first.
+const accountListLimit = 1000
+
+// ListTorrents returns the most recent torrents in the account.
+func (c *Client) ListTorrents(ctx context.Context) ([]TorrentSummary, error) {
+	var out []TorrentSummary
+	err := c.request(ctx, http.MethodGet, "/torrents?limit="+strconv.Itoa(accountListLimit), nil, &out)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// TorrentsByHash indexes account torrents by lowercase info hash.
+func TorrentsByHash(torrents []TorrentSummary) map[string][]TorrentSummary {
+	out := make(map[string][]TorrentSummary, len(torrents))
+	for _, torrent := range torrents {
+		hash := strings.ToLower(strings.TrimSpace(torrent.Hash))
+		if hash == "" {
+			continue
+		}
+		out[hash] = append(out[hash], torrent)
+	}
+	return out
+}
+
+// IsTerminalStatus reports torrents Real Debrid will never finish.
+func IsTerminalStatus(status string) bool {
+	switch status {
+	case "error", "magnet_error", "virus", "dead":
+		return true
+	}
+	return false
+}
+
+// LinksForFiles maps each wanted file to its download link. Real Debrid lists
+// one link per selected file, in file-list order, so a torrent selected
+// earlier with extra files still maps correctly.
+func LinksForFiles(info *TorrentInfo, want []TorrentFile) ([]string, bool) {
+	if info == nil {
+		return nil, false
+	}
+	position := make(map[int]int, len(info.Files))
+	for _, file := range info.Files {
+		if file.Selected == 1 {
+			position[file.ID] = len(position)
+		}
+	}
+	if len(position) != len(info.Links) {
+		return nil, false
+	}
+	links := make([]string, len(want))
+	for i, file := range want {
+		index, ok := position[file.ID]
+		if !ok {
+			return nil, false
+		}
+		links[i] = info.Links[index]
+	}
+	return links, true
+}
+
+// AllSelected reports whether every wanted file is already selected.
+func AllSelected(info *TorrentInfo, want []TorrentFile) bool {
+	if info == nil || len(want) == 0 {
+		return false
+	}
+	selected := make(map[int]bool, len(info.Files))
+	for _, file := range info.Files {
+		if file.Selected == 1 {
+			selected[file.ID] = true
+		}
+	}
+	for _, file := range want {
+		if !selected[file.ID] {
+			return false
+		}
+	}
+	return true
 }
 
 func (c *Client) DeleteTorrent(ctx context.Context, torrentID string) error {
@@ -403,12 +508,19 @@ func isBrowserCompatibleVideoFile(path string) bool {
 	return ext == ".mp4" || ext == ".m4v"
 }
 
+func (c *Client) base() string {
+	if c.baseURL == "" {
+		return apiBase
+	}
+	return c.baseURL
+}
+
 func (c *Client) request(ctx context.Context, method, path string, form url.Values, out any) error {
 	var body io.Reader
 	if form != nil {
 		body = strings.NewReader(form.Encode())
 	}
-	req, err := http.NewRequestWithContext(ctx, method, apiBase+path, body)
+	req, err := http.NewRequestWithContext(ctx, method, c.base()+path, body)
 	if err != nil {
 		return err
 	}
@@ -428,10 +540,16 @@ func (c *Client) request(ctx context.Context, method, path string, form url.Valu
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		return &APIError{Path: path, StatusCode: resp.StatusCode, Body: string(body)}
 	}
-	if out == nil {
+	if out == nil || resp.StatusCode == http.StatusNoContent {
+		// /torrents answers 204 with no body for an empty account.
 		return nil
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+func IsNotFoundError(err error) bool {
+	var apiErr *APIError
+	return errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusNotFound
 }
 
 func IsInfringingError(err error) bool {
