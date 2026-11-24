@@ -67,10 +67,15 @@ export function AudioPlaylistPlayer({
   artworkUrl,
   files,
   packKind,
-  initialFileIndex = 0,
-  initialPositionSec = 0,
+  initialFileIndex: initialFileIndexProp = 0,
+  initialPositionSec: initialPositionSecProp = 0,
   onProgress,
 }: AudioPlaylistPlayerProps) {
+  // The resume point is read once at mount. The parent derives it from live
+  // saved progress, which this player itself updates every 15s; reacting to
+  // those updates would reset the duration to 0:00 and re-arm the resume seek.
+  const [initialFileIndex] = useState(initialFileIndexProp);
+  const [initialPositionSec] = useState(initialPositionSecProp);
   const audioRef = useRef<HTMLAudioElement>(null);
   const [fileIndex, setFileIndex] = useState(
     Math.min(Math.max(initialFileIndex, 0), Math.max(files.length - 1, 0)),
@@ -346,6 +351,13 @@ export function AudioPlaylistPlayer({
                 time >= known - 0.35
               ) {
                 handleTrackEnded();
+              }
+            }}
+            onDurationChange={(event) => {
+              const known = event.currentTarget.duration;
+              if (Number.isFinite(known) && known > 0) {
+                setDuration(known);
+                setDurations((prev) => ({ ...prev, [fileIndexRef.current]: known }));
               }
             }}
             onLoadedMetadata={(event) => {

@@ -81,3 +81,23 @@ test("puts speed on a menu trigger instead of a chip row", () => {
   expect(screen.getByRole("button", { name: "+30s" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Open chapters" })).toBeTruthy();
 });
+
+test("keeps the chapter duration when saved progress updates mid-playback", () => {
+  const props = {
+    title: "Dune",
+    artist: "Frank Herbert",
+    artworkUrl: "https://example.com/cover.jpg",
+    files: [files[0]!],
+  };
+  const { container, rerender } = render(
+    <AudioPlaylistPlayer {...props} initialPositionSec={0} />,
+  );
+  const audio = container.querySelector("audio")!;
+  Object.defineProperty(audio, "duration", { configurable: true, value: 8 * 3600 });
+  fireEvent.loadedMetadata(audio);
+  expect(screen.getByText("8:00:00")).toBeTruthy();
+
+  // The parent's live progress query echoes back the position we just saved.
+  rerender(<AudioPlaylistPlayer {...props} initialPositionSec={15} />);
+  expect(screen.getByText("8:00:00")).toBeTruthy();
+});
