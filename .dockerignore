@@ -1,5 +1,9 @@
 node_modules
 dist
+# Nested copies too: a host install under apps/* would otherwise replace the
+# image's own symlinks (COPY apps/web ./apps/web) and break module resolution.
+**/node_modules
+**/dist
 .git
 .env.local
 .env
